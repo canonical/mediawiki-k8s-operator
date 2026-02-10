@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Updated issue and enhancement templates with impact fields
+  author: swetha1654
+  type: minor
+  description: Added impact dropdown and impact rationale fields to bug report and enhancement proposal templates to better assess and prioritize issues
+  urls:
+    pr:
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/3"
+  visibility: internal
+  highlight: false
