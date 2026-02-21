@@ -296,14 +296,14 @@ wheels = [
 
 [[package]]
 name = "jubilant"
-version = "1.6.2"
+version = "1.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8c/7f/4b1a751930713ee585ea0a4dcf4af30d19f4af478cf7658376ca788adbf3/jubilant-1.6.2.tar.gz", hash = "sha256:d841610fd86f7d77419da8be08e6c936412e581652f55faa23c6c19536b87a8f", size = 32016, upload-time = "2025-12-17T21:20:04.382Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cc/0b/275edac8b57b0aac34f84073997660ebf536f97d2fa0d85a2cc3321047b6/jubilant-1.7.0.tar.gz", hash = "sha256:46b7c29a4f3336ab16d77d88418dbf8c9d0746e3f80ef42ee4c2d103eff79650", size = 32455, upload-time = "2026-01-29T02:40:10.335Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/13/22f29f41fc6e2467f039a2d38179f59c069245090524ebc3d8aaf64d3d4b/jubilant-1.6.2-py3-none-any.whl", hash = "sha256:fa81995b64e0519fa59407beabbbc2aae097437895addcb3df54f33ab207fbfb", size = 33034, upload-time = "2025-12-17T21:20:03.265Z" },
+    { url = "https://files.pythonhosted.org/packages/86/d5/5b95ae9ab5abf283e33c802d286045abda7d826396ba417d5d3a20201b24/jubilant-1.7.0-py3-none-any.whl", hash = "sha256:1dcd70eb10299a95ae9fab405a3ce5f01a15513776b7f8eb4cf7b02808c93cdf", size = 33396, upload-time = "2026-01-29T02:40:09.222Z" },
 ]
 
 [[package]]
@@ -461,12 +461,12 @@ fmt = [{ name = "ruff" }]
 integration = [
     { name = "allure-pytest", specifier = ">=2.8.18" },
     { name = "allure-pytest-collection-report", git = "https://github.com/canonical/data-platform-workflows?subdirectory=python%2Fpytest_plugins%2Fallure_pytest_collection_report&rev=v24.0.0" },
-    { name = "jubilant", specifier = "==1.6.2" },
+    { name = "jubilant", specifier = "==1.7.0" },
     { name = "pytest" },
 ]
 lint = [
     { name = "codespell" },
-    { name = "jubilant", specifier = "==1.6.2" },
+    { name = "jubilant", specifier = "==1.7.0" },
     { name = "mypy" },
     { name = "pep8-naming" },
     { name = "pytest" },

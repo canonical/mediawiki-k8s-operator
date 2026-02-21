@@ -1,0 +1,35 @@
+{
+    "require": {
+        "x-mediawiki/user-merge": "^1.45",
+        "x-mediawiki/page-triage": "^1.45",
+        "mediawiki/mermaid": "^6.0"
+    },
+    "repositories": [
+        {
+            "type": "package",
+            "package": {
+                "name": "x-mediawiki/user-merge",
+                "type": "mediawiki-extension",
+                "version": "1.45.0",
+                "source": {
+                    "type": "git",
+                    "url": "https://gerrit.wikimedia.org/r/mediawiki/extensions/UserMerge.git",
+                    "reference": "REL1_45"
+                }
+            }
+        },
+        {
+            "type": "package",
+            "package": {
+                "name": "x-mediawiki/page-triage",
+                "type": "mediawiki-extension",
+                "version": "1.45.0",
+                "source": {
+                    "type": "git",
+                    "url": "https://gerrit.wikimedia.org/r/mediawiki/extensions/PageTriage.git",
+                    "reference": "REL1_45"
+                }
+            }
+        }
+    ]
+}
