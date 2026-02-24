@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Update .licenserc file
+  author: hk21702
+  type: minor
+  description: Update the .licenserc file so that it is more lenient, ignoring charmlibs, `.trivyignore`, `.conf`, `.cfg`, and all docs files.
+  urls:
+    pr:
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/5"
+  visibility: internal
+  highlight: false
