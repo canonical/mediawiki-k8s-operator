@@ -42,7 +42,7 @@ parts:
       - php-wikidiff2
       # Extension support
       - composer
-      - zip
+      - unzip
       - php-ldap
     build-environment:
       # Required to source $CRAFT_OVERLAY/etc/apache2/envvars
@@ -130,7 +130,7 @@ parts:
     after:
       - mediawiki
     build-packages:
-      - zip
+      - unzip
       - php-curl
       - php-intl
       - php-mbstring
@@ -144,14 +144,23 @@ parts:
     plugin: nil
     after:
       - compose-extensions
+    stage-packages:
+      - base-passwd
     build-environment:
+      - WEBROOT_OWNER_USER: webroot_owner
       - IMAGE_RUN_GROUP_ID: "584792"
     override-prime: |
       craftctl default
 
       rm -rf **/.git
 
+      # Make user to own the webroot file with home for composer cache
+      # Only create if the user doesn't already exist so we don't need to rockcraft clean every pack
+      if ! grep -q "^${WEBROOT_OWNER_USER}:" ${CRAFT_PRIME}/etc/passwd; then
+        useradd --system --create-home --root "${CRAFT_PRIME}" "${WEBROOT_OWNER_USER}"
+      fi
+      WEBROOT_UID=$(awk -F: -v user="${WEBROOT_OWNER_USER}" '$1 == user {print $3}' ${CRAFT_PRIME}/etc/passwd)
+
       # Ensure restricted write access to MediaWiki files
-      chown :"${IMAGE_RUN_GROUP_ID}" -R --no-dereference "${CRAFT_PRIME}/var/www/html/w"
-      chmod -R go-w "${CRAFT_PRIME}/var/www/html/w"
-      chmod -R o-xr "${CRAFT_PRIME}/var/www/html/w"
+      chown "${WEBROOT_UID}":"${IMAGE_RUN_GROUP_ID}" -R --no-dereference "${CRAFT_PRIME}/var/www/html"
+      chmod -R go-w "${CRAFT_PRIME}/var/www/html"
