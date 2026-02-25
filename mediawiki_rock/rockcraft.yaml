@@ -1,0 +1,166 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+name: mediawiki
+summary: MediaWiki rock
+description: MediaWiki OCI image for the MediaWiki charm
+base: ubuntu@24.04
+run-user: _daemon_
+license: GPL-3.0
+version: "1.0"
+platforms:
+  amd64:
+parts:
+  apache2:
+    plugin: dump
+    source: files
+    build-packages:
+      - apache2
+      - php
+      - rsync
+    overlay-packages:
+      - apache2
+      - php
+      - php-curl
+      - php-intl
+      - php-mbstring
+      - php-mysql
+      - php-xml
+      - ca-certificates
+      # Caching
+      - php-apcu
+      - php-igbinary
+      - php-redis
+      # Charm Reqs
+      - php-cli
+      - git
+      # Thumbnails
+      - imagemagick
+      - inkscape
+      - php-gd
+      # Other
+      - php-wikidiff2
+      # Extension support
+      - composer
+      - unzip
+      - php-ldap
+    build-environment:
+      # Required to source $CRAFT_OVERLAY/etc/apache2/envvars
+      - APACHE_CONFDIR: /etc/apache2
+      - IMAGE_RUN_USER: _daemon_
+      - IMAGE_RUN_GROUP: _daemon_
+      - IMAGE_RUN_USER_ID: "584792"
+      - IMAGE_RUN_GROUP_ID: "584792"
+    overlay-script: |
+      craftctl default
+      sed -ri 's/^export ([^=]+)=(.*)$/: ${\1:=\2}\nexport \1/' $CRAFT_OVERLAY/etc/apache2/envvars
+      sed -ri 's/\{APACHE_RUN_(USER|GROUP):=.+\}/\{APACHE_RUN_\1:=_daemon_\}/' $CRAFT_OVERLAY/etc/apache2/envvars
+      . $CRAFT_OVERLAY/etc/apache2/envvars
+      for dir in "$CRAFT_OVERLAY$APACHE_LOCK_DIR" "$CRAFT_OVERLAY$APACHE_RUN_DIR" "$CRAFT_OVERLAY$APACHE_LOG_DIR";
+        do
+          rm -rvf "$dir";
+          mkdir -p "$dir";
+          chown "$IMAGE_RUN_USER_ID:$IMAGE_RUN_GROUP_ID" "$dir";
+          chmod u=rwx,g=rx,o=rx "$dir";
+      done
+      chown -R --no-dereference "$IMAGE_RUN_USER_ID:$IMAGE_RUN_GROUP_ID" "$CRAFT_OVERLAY$APACHE_LOG_DIR"
+      ln -sfT ../../../dev/stdout "$CRAFT_OVERLAY$APACHE_LOG_DIR/other_vhosts_access.log"
+      rsync -abP $CRAFT_PART_SRC/etc/apache2/  $CRAFT_OVERLAY/etc/apache2
+
+      # Enable apache2 modules
+      chroot $CRAFT_OVERLAY /bin/sh -x <<'EOF'
+      a2enconf docker-php
+      a2enconf short-url
+      a2enmod headers
+      a2enmod mpm_prefork
+      a2enmod proxy
+      a2enmod proxy_http
+      a2enmod rewrite
+      a2enmod ssl
+      EOF
+  apache-exporter:
+    plugin: go
+    build-snaps:
+      - go/1.24/stable
+    source: https://github.com/Lusitaniae/apache_exporter.git
+    source-type: git
+    source-tag: v1.0.12
+    source-depth: 1
+  mediawiki:
+    after:
+      - apache2
+    plugin: nil
+    # Switch to LTS version only once we get to 1.47
+    build-environment:
+      - MW_VERSION: 1.45.1
+    build-packages:
+      - curl
+      - gnupg
+    override-build: |
+      MW_MAJOR_VERSION=$(echo $MW_VERSION | cut -d. -f1,2)
+
+      curl -sfSL --create-dirs https://releases.wikimedia.org/mediawiki/${MW_MAJOR_VERSION}/mediawiki-${MW_VERSION}.tar.gz -o mediawiki.tar.gz
+      curl -sfSL "https://releases.wikimedia.org/mediawiki/${MW_MAJOR_VERSION}/mediawiki-${MW_VERSION}.tar.gz.sig" -o mediawiki.tar.gz.sig;
+
+      # gpg key from https://www.mediawiki.org/keys/keys.txt
+      gpg --batch --keyserver keyserver.ubuntu.com --recv-keys \
+        F64EBF5F20996AB514F198A873F146FECF9D333C \
+        441276E9CCD15F44F6D97D18C119E1A64D70938E \
+        1D98867E82982C8FE0ABC25F9B69B3109D3BB7B0 \
+        41B2ABE817ADD3E52BDA946F72BC1C5D23107F8A \
+        6237D8D3ECC1AE918729296FF6DAD285018FAC02 \
+        72D286F6F8F03C78F2C59C7326752EBB0D9E6218 \
+        80D113B767E3D51936725679361F943B15C08DD4 \
+        C83A8E4D3C8FEB7C8A3A1998131910E01605D9AA \
+        E059C034E7A430583C252F4AA8F734246D73B586
+
+      gpg --batch --verify mediawiki.tar.gz.sig mediawiki.tar.gz
+
+      mkdir mediawiki_install_dir
+      tar -xzf mediawiki.tar.gz -C mediawiki_install_dir --strip-components=1
+      rm mediawiki.tar.gz mediawiki.tar.gz.sig
+
+      cp -R . $CRAFT_PART_INSTALL
+    organize:
+      mediawiki_install_dir: /var/www/html/w
+
+  # Compose MediaWiki extensions
+  compose-extensions:
+    plugin: nil
+    after:
+      - mediawiki
+    build-packages:
+      - unzip
+      - php-curl
+      - php-intl
+      - php-mbstring
+    override-prime: |
+      craftctl default
+
+      COMPOSER_ALLOW_SUPERUSER=1 composer update --no-dev -n --ignore-platform-reqs -d "$CRAFT_PRIME/var/www/html/w"
+
+  # Post-install configuration
+  mediawiki-configure:
+    plugin: nil
+    after:
+      - compose-extensions
+    stage-packages:
+      - base-passwd
+    build-environment:
+      - WEBROOT_OWNER_USER: webroot_owner
+      - IMAGE_RUN_GROUP_ID: "584792"
+    override-prime: |
+      craftctl default
+
+      rm -rf **/.git
+
+      # Make user to own the webroot file with home for composer cache
+      # Only create if the user doesn't already exist so we don't need to rockcraft clean every pack
+      if ! grep -q "^${WEBROOT_OWNER_USER}:" ${CRAFT_PRIME}/etc/passwd; then
+        useradd --system --create-home --root "${CRAFT_PRIME}" "${WEBROOT_OWNER_USER}"
+      fi
+      WEBROOT_UID=$(awk -F: -v user="${WEBROOT_OWNER_USER}" '$1 == user {print $3}' ${CRAFT_PRIME}/etc/passwd)
+
+      # Ensure restricted write access to MediaWiki files
+      chown "${WEBROOT_UID}":"${IMAGE_RUN_GROUP_ID}" -R --no-dereference "${CRAFT_PRIME}/var/www/html"
+      chmod -R go-w "${CRAFT_PRIME}/var/www/html"

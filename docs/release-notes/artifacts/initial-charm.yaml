@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+  - title: Initial Charm
+    author: hk21702
+    type: major
+    description: Initial release of the MediaWiki charm.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/1"
+    visibility: public
+    highlight: true

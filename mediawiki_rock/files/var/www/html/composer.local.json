@@ -1,0 +1,30 @@
+{
+    "require": {
+        "edwardspec/mediawiki-aws-s3": "0.14.*",
+        "x-mediawiki/moderation": "1.9.3"
+    },
+    "repositories": [
+        {
+            "type": "package",
+            "package": {
+                "name": "x-mediawiki/moderation",
+                "type": "mediawiki-extension",
+                "version": "1.9.3",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/edwardspec/mediawiki-moderation.git",
+                    "reference": "v1.9.3"
+                }
+            }
+        }
+    ],
+    "extra": {
+        "merge-plugin": {
+            "include": [
+                "composer.user.json",
+                "extensions/*/composer.json",
+                "skins/*/composer.json"
+            ]
+        }
+    }
+}

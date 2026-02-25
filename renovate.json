@@ -1,6 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "automerge": true,
+  "composer": {
+    "managerFilePatterns": [
+      "/^composer-?[a-z]*.json$/"
+    ]
+  },
   "customManagers": [
     {
       "customType": "regex",
@@ -15,6 +20,19 @@
       ],
       "matchStringsStrategy": "any",
       "versioningTemplate": "ubuntu"
+    },
+    {
+      "datasourceTemplate": "github-tags",
+      "depNameTemplate": "Lusitaniae/apache_exporter",
+      "description": "Update Apache Exporter source",
+      "fileMatch": [
+        "(^|/)rockcraft.yaml$"
+      ],
+      "matchStrings": [
+        "source:.*Lusitaniae/apache_exporter\\.git.*\\n.*source-tag: (?<currentValue>.+)"
+      ],
+      "matchStringsStrategy": "any",
+      "versioningTemplate": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
     }
   ],
   "extends": [
@@ -25,7 +43,8 @@
     {
       "enabled": true,
       "matchDatasources": [
-        "docker"
+        "docker",
+        "github-tags"
       ],
       "pinDigests": true
     },
