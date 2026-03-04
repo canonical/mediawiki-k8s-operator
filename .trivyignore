@@ -1,5 +1,2 @@
 # Go Snap (usr/bin/pebble, usr/bin/apache_exporter)
 CVE-2025-68121
-
-# MediaWiki dependencies
-CVE-2025-45769
