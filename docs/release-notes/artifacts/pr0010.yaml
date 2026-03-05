@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Fail fast integration tests
+  author: hk21702
+  type: minor
+  description: Fail fast integration tests when a previous step fails
+  urls:
+    pr:
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/10"
+  visibility: internal
+  highlight: false

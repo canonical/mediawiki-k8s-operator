@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import jubilant
+import pytest
 import requests
 
 from .types_ import App
@@ -18,6 +19,7 @@ from .types_ import App
 logger = logging.getLogger(__name__)
 
 
+@pytest.mark.abort_on_fail
 def test_active(juju: jubilant.Juju, app: App, ingress_address: str, requests_timeout: int):
     """Check that the charm is active.
     Assume that the charm has already been built and is running.
@@ -30,6 +32,7 @@ def test_active(juju: jubilant.Juju, app: App, ingress_address: str, requests_ti
     )
 
 
+@pytest.mark.abort_on_fail
 def test_workload_version_is_set(juju: jubilant.Juju, app: App):
     """Check that the charm is the expected version."""
     status = juju.status()
@@ -39,6 +42,7 @@ def test_workload_version_is_set(juju: jubilant.Juju, app: App):
     )
 
 
+@pytest.mark.abort_on_fail
 def test_add_extensions(
     juju: jubilant.Juju,
     app: App,
@@ -80,6 +84,7 @@ def test_add_extensions(
     assert "Mermaid" in loaded_extensions, "Mermaid extension not loaded"
 
 
+@pytest.mark.abort_on_fail
 def test_rotate_root_credentials_action(juju: jubilant.Juju, app: App):
     """Check that the rotate-root-credentials action works as expected."""
     juju.wait(jubilant.all_active)
@@ -98,6 +103,7 @@ def test_rotate_root_credentials_action(juju: jubilant.Juju, app: App):
     )
 
 
+@pytest.mark.abort_on_fail
 def test_relations(
     juju: jubilant.Juju,
     app: App,
@@ -129,6 +135,7 @@ def test_relations(
     juju.wait(lambda status: jubilant.all_active(status) and is_reachable())
 
 
+@pytest.mark.abort_on_fail
 def test_scaled_db(juju: jubilant.Juju, db: App, ingress_address: str, requests_timeout: int):
     """Check MediaWiki is reachable after scaling the database up."""
     is_reachable = functools.partial(req_okay, address=ingress_address, timeout=requests_timeout)

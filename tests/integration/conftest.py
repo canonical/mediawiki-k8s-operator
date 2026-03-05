@@ -239,3 +239,25 @@ def app_fixture(
     juju.wait(jubilant.all_active)
 
     yield App(name=app_name)
+
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Pytest hook wrapper to set the test's rep_* attribute for abort_on_fail."""
+    _ = call  # unused argument
+    outcome = yield
+    rep = outcome.get_result()
+    setattr(item, "rep_" + rep.when, rep)
+
+
+@pytest.fixture(autouse=True)
+def abort_on_fail(request: pytest.FixtureRequest):
+    """Fixture which aborts other tests in module after first fails."""
+    abort_on_fail = request.node.get_closest_marker("abort_on_fail")
+    if abort_on_fail and getattr(request.module, "__aborted__", False):
+        pytest.xfail("abort_on_fail")
+
+    _ = yield
+
+    if abort_on_fail and request.node.rep_call.failed:
+        request.module.__aborted__ = True
