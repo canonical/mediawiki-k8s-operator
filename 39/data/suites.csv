@@ -1,0 +1,12 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"Check that the charm is active.
+    Assume that the charm has already been built and is running.
+    ","0","test_active","tests.integration","2026-03-07","broken","2026-03-07","","test_charm","",""
+"Check that the charm can have extensions added after deployment.
+
+    Add extensions by editing the composer config, and then running a database update.
+    ","0","test_add_extensions","tests.integration","2026-03-07","broken","2026-03-07","","test_charm","",""
+"Check MediaWiki is reachable after scaling the database up.","180132","test_scaled_db","tests.integration","2026-03-07","broken","2026-03-07","","test_charm","",""
+"Check that the charm behaves correctly when certain relations are removed.","0","test_relations","tests.integration","2026-03-07","broken","2026-03-07","","test_charm","",""
+"Check that the charm is the expected version.","0","test_workload_version_is_set","tests.integration","2026-03-07","broken","2026-03-07","","test_charm","",""
+"Check that the rotate-root-credentials action works as expected.","0","test_rotate_root_credentials_action","tests.integration","2026-03-07","broken","2026-03-07","","test_charm","",""
