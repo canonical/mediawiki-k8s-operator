@@ -14,9 +14,9 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-  "charmlibs-pathops==1.2.0.post0",
+  "charmlibs-pathops==1.2.1",
   "mysql-connector-python>=9.6.0",
-  "ops==3.5.2",
+  "ops==3.6.0",
   "pydantic==2.12.5",
   "requests>=2.32.5",
 ]
