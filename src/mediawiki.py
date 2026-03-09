@@ -299,6 +299,10 @@ class MediaWiki(Object):
         else:
             content += "$wgAllowSchemaUpdates = false;\n"
 
+        # Todo: Redis support
+        content += "$wgMainCacheType = CACHE_NONE;\n"  # DB can be slower than None https://www.mediawiki.org/wiki/Manual:$wgMainCacheType
+        content += "$wgSessionCacheType = CACHE_DB;\n"  # Sessions need to be guaranteed between units, DB is safer while we don't have Redis.
+
         for key, value in secrets.to_local_settings().items():
             content += f"{key} = '{utils.escape_php_string(value)}';\n"
 
