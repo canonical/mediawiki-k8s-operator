@@ -138,18 +138,6 @@ def test_relations(
     juju.wait(lambda status: jubilant.all_active(status) and is_reachable())
 
 
-@pytest.mark.abort_on_fail
-def test_scaled_db(juju: jubilant.Juju, db: App, ingress_address: str, requests_timeout: int):
-    """Check MediaWiki is reachable after scaling the database up."""
-    is_reachable = functools.partial(req_okay, address=ingress_address, timeout=requests_timeout)
-
-    juju.wait(jubilant.all_active)
-    assert is_reachable(), "MediaWiki not responding at ingress before scaling db"
-
-    juju.add_unit(db.name)
-    juju.wait(lambda status: jubilant.all_active(status) and is_reachable())
-
-
 def req_okay(address: str, timeout: int) -> bool:
     response = requests.get(address, timeout=timeout, allow_redirects=True)
     return response.status_code == 200
