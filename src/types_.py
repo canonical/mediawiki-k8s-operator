@@ -62,14 +62,12 @@ class DatabaseConfig(NamedTuple):
 
     Attrs:
         endpoints: The read/write endpoints under which the database is being served.
-        read_only_endpoints: The read-only endpoints under which the database is being served.
         database: The name of the database to connect to.
         username: The username to use to authenticate to the database.
         password: The password to use to authenticate to the database.
     """
 
     endpoints: tuple[DatabaseEndpoint, ...]
-    read_only_endpoints: tuple[DatabaseEndpoint, ...]
     database: str
     username: str
     password: str

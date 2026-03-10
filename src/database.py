@@ -40,10 +40,6 @@ class Database(Object):
             charm=charm,
             relation_name=relation_name,
             database_name=database_name,
-            # `charmed_stats` is needed for `REPLICATION CLIENT` priv, but once any extra roles are added,
-            # the created user no longer gets full perms on the database, so we also need `charmed_dml` and `charmed_ddl`.
-            # https://canonical-charmed-mysql-k8s.readthedocs-hosted.com/explanation/roles/
-            extra_user_roles="charmed_stats,charmed_dba",
         )
 
     def get_relation_data(self) -> DatabaseConfig:
@@ -86,13 +82,8 @@ class Database(Object):
         endpoints_str = relation_data.get("endpoints", "")
         rw_endpoints = parse_endpoints(endpoints_str)
 
-        # Parse read-only endpoints from "read-only-endpoints" field
-        read_only_str = relation_data.get("read-only-endpoints", "")
-        read_only_endpoints = parse_endpoints(read_only_str)
-
         db_config = DatabaseConfig(
             endpoints=rw_endpoints,
-            read_only_endpoints=read_only_endpoints,
             database=relation_data.get("database", ""),
             username=relation_data.get("username", ""),
             password=relation_data.get("password", ""),

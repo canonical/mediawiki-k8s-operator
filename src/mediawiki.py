@@ -9,7 +9,6 @@ import logging
 import secrets
 import textwrap
 import time
-from string import Template
 from typing import Callable, List, TypeVar, Union, cast
 
 import mysql.connector
@@ -401,60 +400,19 @@ class MediaWiki(Object):
         """
         db_data = self._database.get_relation_data()
 
-        server_template = Template(
-            textwrap.dedent("""\
+        # Todo: DB SSL using self-signed certs support
+        servers_php = [
+            textwrap.dedent(f"""\
             [
-                'host' => '$host',
-                'dbname' => '$dbname',
-                'user' => '$user',
-                'password' => '$password',
+                'host' => '{utils.escape_php_string(db_data.endpoints[0].to_string())}',
+                'dbname' => '{utils.escape_php_string(db_data.database)}',
+                'user' => '{utils.escape_php_string(db_data.username)}',
+                'password' => '{utils.escape_php_string(db_data.password)}',
                 'type' => 'mysql',
                 'flags' => DBO_DEFAULT,
-                'load' => $load,
+                'load' => 0,
             ]""")
-        )
-
-        common_params = {
-            "dbname": utils.escape_php_string(db_data.database),
-            "user": utils.escape_php_string(db_data.username),
-            "password": utils.escape_php_string(db_data.password),
-        }
-
-        servers_php = []
-
-        primary_ep = db_data.endpoints[0]
-        if len(db_data.read_only_endpoints) <= 1:
-            # $wgDBservers behaves badly when we only have a single MySQL unit
-            return (
-                textwrap.dedent(
-                    f"""
-                $wgDBname = '{utils.escape_php_string(db_data.database)}';
-                $wgDBserver = '{utils.escape_php_string(primary_ep.to_string())}';
-                $wgDBuser = '{utils.escape_php_string(db_data.username)}';
-                $wgDBpassword = '{utils.escape_php_string(db_data.password)}';
-                """
-                )
-                + "\n"
-            )
-
-        # Primary
-        servers_php.append(
-            server_template.substitute(
-                host=utils.escape_php_string(primary_ep.to_string()),
-                load=0,
-                **common_params,
-            )
-        )
-
-        # Replicas
-        for ep in db_data.read_only_endpoints:
-            servers_php.append(
-                server_template.substitute(
-                    host=utils.escape_php_string(ep.to_string()),
-                    load=1,
-                    **common_params,
-                )
-            )
+        ]
 
         servers_str = ",\n".join(servers_php)
         servers_str = textwrap.indent(servers_str, "    ")
