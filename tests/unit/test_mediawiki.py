@@ -186,6 +186,27 @@ class TestReconciliation:
 
         assert found_one, "Expected at least one composer command in exec history"
 
+    def test_webroot_owner_ssh_key_generation(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_container: scenario.Container,
+    ) -> None:
+        """Test that the SSH key generation command is run during reconciliation if it hasn't been generated yet."""
+        container_no_ssh = dataclasses.replace(
+            mediawiki_container,
+            mounts={k: v for k, v in mediawiki_container.mounts.items() if k != "ssh_dir"},
+        )
+        state_in = dataclasses.replace(active_state, containers=[container_no_ssh])
+
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+
+        assert any(
+            ExecCmd.SSH_KEYGEN.value[0] in cmd.command
+            for cmd in ctx.exec_history[Charm._CONTAINER_NAME]
+        ), "Expected ssh-keygen to be called when SSH key does not exist"
+
 
 class TestRotateRootCredentials:
     def test_success(self, ctx: testing.Context, active_state: testing.State) -> None:
@@ -360,11 +381,14 @@ def validate_container(
 
     container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
 
+    # Octal mode overrides for files that differ from the default 0o640.
+    mode_overrides = {"home/webroot_owner/.ssh/config": 0o600}
     files = [
         "var/www/html/robots.txt",
         "var/www/html/w/LocalSettings.php",
         "etc/mediawiki/UserSettings.php",
         "etc/mediawiki/LateSettings.php",
+        "home/webroot_owner/.ssh/config",
     ]
 
     if expect_composer:
@@ -372,7 +396,7 @@ def validate_container(
 
     for file in files:
         assert (container_fs / file).exists(), f"{file} does not exist in container filesystem"
-        assert (container_fs / file).stat().st_mode & 0o777 == 0o640, (
+        assert (container_fs / file).stat().st_mode & 0o777 == mode_overrides.get(file, 0o640), (
             f"{file} does not have correct permissions"
         )
 
