@@ -36,7 +36,6 @@ def mock_database(mocker: MockerFixture) -> MockType:
 
     mock_instance.get_relation_data.return_value = DatabaseConfig(
         endpoints=(DatabaseEndpoint.from_string("mocked-endpoint:2222"),),
-        read_only_endpoints=(DatabaseEndpoint.from_string("mocked-readonly-endpoint:4444"),),
         database="mocked-database",
         username="mocked-user",
         password="mocked-password",  # nosec: B106

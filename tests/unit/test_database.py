@@ -84,10 +84,6 @@ class TestGetRelationData:
             assert data.password == "pass"  # nosec: B105
 
             assert [ep.to_string() for ep in data.endpoints] == ["host:3306"]
-            assert [ep.to_string() for ep in data.read_only_endpoints] == [
-                "ro-host:3306",
-                "ro-host2:3306",
-            ]
 
     def test_relation_not_ready(
         self,
