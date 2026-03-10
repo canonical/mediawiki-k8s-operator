@@ -1,7 +1,7 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-"""Functions for managing and interacting with the primary MediaWiki workload."""
+"""Functions for managing and interacting with the primary MediaWiki workload/container."""
 
 import dataclasses
 import functools
@@ -80,12 +80,20 @@ class MediaWiki(Object):
         # Script paths
         self._composer_path = ContainerPath("/usr/bin/composer", container=self._container)
         self._php_cli_path = ContainerPath("/usr/bin/php", container=self._container)
+        self._ssh_keygen_path = ContainerPath("/usr/bin/ssh-keygen", container=self._container)
         self._maintenance_scripts_base_path = self._mediawiki_path / "maintenance"
+
+        # webroot_owner SSH paths
+        _webroot_owner_home = ContainerPath("/home/webroot_owner", container=self._container)
+        self._webroot_owner_ssh_dir = _webroot_owner_home / ".ssh"
+        self._webroot_owner_ssh_key = self._webroot_owner_ssh_dir / "id_ed25519"
+        self._webroot_owner_ssh_config = self._webroot_owner_ssh_dir / "config"
 
     def reconciliation(self, secrets: "MediaWikiSecrets", ro_database: bool = False) -> None:
         """Reconcile the state of MediaWiki installation and configuration.
 
         The following actions are completed here:
+        - Reconcile the SSH configuration for the webroot_owner user.
         - Reconcile the composer configuration, running composer update if needed.
         - Reconcile MediaWiki settings that are part of LocalSettings.php.
         - Reconcile the robots.txt file.
@@ -103,6 +111,7 @@ class MediaWiki(Object):
             raise MediaWikiBlockedStatusException("Database relation is not ready")
         config = self._charm.load_charm_config()
 
+        self._ssh_config_reconciliation()
         self._composer_reconciliation(config)
         self._settings_reconciliation(config, secrets, ro_database=ro_database)
         self._robots_txt_reconciliation(config)
@@ -200,6 +209,71 @@ class MediaWiki(Object):
         except requests.exceptions.JSONDecodeError:
             logger.error("Failed to decode MediaWiki version response as JSON: %s", response.text)
             return ""
+
+    def _ssh_config_reconciliation(self) -> None:
+        """Reconcile SSH configuration for the webroot_owner user.
+
+        - Creates ~/.ssh/ with mode 700 if it does not exist.
+        - Generates an ed25519 SSH key if one does not exist, allowing git clones
+          from public repositories over SSH without manual key setup.
+        - Writes ~/.ssh/config with StrictHostKeyChecking and a socat ProxyCommand
+          if an HTTP proxy is configured.
+
+        This allows tools like composer and git to clone over SSH (git@host: or
+        git+ssh://) without interactive prompts, tunnelling through the proxy when
+        one is present.
+
+        Raises:
+            MediaWikiInstallError: If the SSH key could not be generated.
+        """
+        self._webroot_owner_ssh_dir.mkdir(
+            mode=0o700,
+            parents=True,
+            exist_ok=True,
+            user=self._WEBROOT_OWNER_USER,
+        )
+
+        if not self._webroot_owner_ssh_key.exists():
+            logger.info("Generating SSH key for %s.", self._WEBROOT_OWNER_USER)
+            result = self._run_cli(
+                [
+                    str(self._ssh_keygen_path),
+                    "-t",
+                    "ed25519",
+                    "-N",
+                    "",  # No passphrase
+                    "-f",
+                    str(self._webroot_owner_ssh_key),
+                ],
+                user=self._WEBROOT_OWNER_USER,
+            )
+            if result.return_code != 0:
+                logger.error(
+                    "SSH key generation failed: return code %s\nstdout: %s\nstderr: %s",
+                    result.return_code,
+                    result.stdout,
+                    result.stderr,
+                )
+                raise MediaWikiInstallError(
+                    "Failed to generate SSH key for webroot_owner; see logs for details."
+                )
+            logger.info("SSH key generated for %s.", self._WEBROOT_OWNER_USER)
+
+        ssh_config_lines = ["Host *", "    StrictHostKeyChecking accept-new"]
+        if (proxy := self._charm.state.proxy_config) and proxy.http_proxy:
+            proxy_host = str(proxy.http_proxy.host)
+            proxy_port = str(proxy.http_proxy.port) if proxy.http_proxy.port else "3128"
+            ssh_config_lines.append(
+                f"    ProxyCommand socat - PROXY:{proxy_host}:%h:%p,proxyport={proxy_port}"
+            )
+        ssh_config = "\n".join(ssh_config_lines) + "\n"
+
+        self._webroot_owner_ssh_config.write_text(
+            ssh_config,
+            mode=0o600,
+            user=self._WEBROOT_OWNER_USER,
+        )
+        logger.debug("SSH configuration written for %s.", self._WEBROOT_OWNER_USER)
 
     def _composer_reconciliation(self, config: CharmConfig) -> None:
         """Reconcile the composer configuration, pushing the composer.user.json file if needed and running composer update.
