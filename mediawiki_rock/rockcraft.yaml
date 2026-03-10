@@ -40,6 +40,8 @@ parts:
       - php-gd
       # Other
       - php-wikidiff2
+      - socat
+      - openssh-client
       # Extension support
       - composer
       - unzip
