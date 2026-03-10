@@ -13,5 +13,6 @@ changes:
         - "https://github.com/canonical/mediawiki-k8s-operator/pull/4"
         - "https://github.com/canonical/mediawiki-k8s-operator/pull/11"
         - "https://github.com/canonical/mediawiki-k8s-operator/pull/12"
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/13"
     visibility: public
     highlight: true
