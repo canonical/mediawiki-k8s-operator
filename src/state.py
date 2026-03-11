@@ -41,7 +41,7 @@ class CharmConfig(BaseModel):
     def validate_composer(cls, v: str) -> str:
         """Validate that the composer config is valid JSON and a dictionary."""
         if not v:
-            return v
+            return "{}"
         try:
             curr = json.loads(v)
             if not isinstance(curr, dict):
