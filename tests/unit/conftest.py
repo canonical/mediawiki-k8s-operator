@@ -42,6 +42,10 @@ class ExecCmd(enum.Enum):
         "update",
     )
 
+    def ran_in(self, exec_history: list) -> bool:
+        """Return True if this command was executed (all tokens present in some command)."""
+        return any(set(self.value) <= set(cmd.command) for cmd in exec_history)
+
 
 @pytest.fixture
 def meta() -> dict:

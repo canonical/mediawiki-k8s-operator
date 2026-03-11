@@ -74,13 +74,14 @@ class TestReconciliation:
         assert not any(
             "/usr/bin/composer" in cmd.command for cmd in ctx.exec_history[Charm._CONTAINER_NAME]
         ), "Did not expect composer command in exec history"
-        assert any(
-            "installPreConfigured" in cmd.command
-            for cmd in ctx.exec_history[Charm._CONTAINER_NAME]
-        ), "Expected installPreConfigured in exec history"
-        assert any(
-            "createAndPromote" in cmd.command for cmd in ctx.exec_history[Charm._CONTAINER_NAME]
-        ), "Expected createAndPromote in exec history"
+
+        history = ctx.exec_history[Charm._CONTAINER_NAME]
+        for cmd in [
+            ExecCmd.MAINTENANCE_INSTALL_PRE_CONFIGURED,
+            ExecCmd.MAINTENANCE_UPDATE,
+            ExecCmd.MAINTENANCE_CREATE_AND_PROMOTE,
+        ]:
+            assert cmd.ran_in(history), f"{cmd.name} not found in exec history"
 
         validate_container(ctx, state_out, meta=meta)
 
@@ -93,16 +94,14 @@ class TestReconciliation:
 
             state_out = mgr.run()
 
-        assert any(
-            "/usr/bin/composer" in cmd.command for cmd in ctx.exec_history[Charm._CONTAINER_NAME]
-        ), "Expected composer command in exec history"
-        assert any(
-            "installPreConfigured" in cmd.command
-            for cmd in ctx.exec_history[Charm._CONTAINER_NAME]
-        ), "Expected installPreConfigured in exec history"
-        assert any(
-            "createAndPromote" in cmd.command for cmd in ctx.exec_history[Charm._CONTAINER_NAME]
-        ), "Expected createAndPromote in exec history"
+        history = ctx.exec_history[Charm._CONTAINER_NAME]
+        for cmd in [
+            ExecCmd.COMPOSER_UPDATE,
+            ExecCmd.MAINTENANCE_INSTALL_PRE_CONFIGURED,
+            ExecCmd.MAINTENANCE_UPDATE,
+            ExecCmd.MAINTENANCE_CREATE_AND_PROMOTE,
+        ]:
+            assert cmd.ran_in(history), f"{cmd.name} not found in exec history"
 
         validate_container(ctx, state_out)
 
