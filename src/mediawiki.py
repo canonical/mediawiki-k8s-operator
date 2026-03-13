@@ -116,11 +116,13 @@ class MediaWiki(Object):
 
         self._ssh_config_reconciliation(ssh_key)
         self._composer_reconciliation(config)
-        self._settings_reconciliation(config, secrets, ro_database=ro_database)
         self._robots_txt_reconciliation(config)
 
         if not self._is_database_initialized():
-            self._install()
+            self._settings_reconciliation(config, secrets, ro_database=True)
+            self._install(config)
+
+        self._settings_reconciliation(config, secrets, ro_database=ro_database)
 
     def rotate_root_credentials(self) -> tuple[str, str]:
         """Rotate the root bureaucrat user's credentials and ensure that it is in the bureaucrat group.
@@ -164,7 +166,7 @@ class MediaWiki(Object):
 
         Should be ran after a MediaWiki upgrade, or after installing or updating an extension that requires a schema update.
 
-        The database should be set to read only mode before running this method, and set back to read/write after completion.
+        If already in a ready state, the database should be set to read only mode before running this method, and set back to read/write after completion.
 
         This is potentially dangerous action!
 
@@ -254,6 +256,10 @@ class MediaWiki(Object):
             ssh_config_lines.append(f"    IdentityFile {self._webroot_owner_ssh_key}")
         if (proxy := self._charm.state.proxy_config) and proxy.http_proxy:
             proxy_host = str(proxy.http_proxy.host)
+            if not proxy.http_proxy.port:
+                logger.debug(
+                    "Using fallback proxy port 3128 for SSH ProxyCommand because proxy configuration did not include a port."
+                )
             proxy_port = str(proxy.http_proxy.port) if proxy.http_proxy.port else "3128"
             ssh_config_lines.append(
                 f"    ProxyCommand socat - PROXY:{proxy_host}:%h:%p,proxyport={proxy_port}"
@@ -357,12 +363,16 @@ class MediaWiki(Object):
         """
         self._secure_settings_base_path.mkdir(exist_ok=True, parents=True)
 
-        self._user_settings_file.write_text(
-            config.local_settings, mode=0o640, user=self._ROOT_USER_NAME, group=self._DAEMON_GROUP
-        )
+        self._push_user_settings(config)
         self._push_late_settings(secrets, ro_database=ro_database)
         self._push_local_settings(config)
         logger.debug("Settings reconciliation completed successfully.")
+
+    def _push_user_settings(self, config: CharmConfig) -> None:
+        """Push the user editable settings to the container."""
+        self._user_settings_file.write_text(
+            config.local_settings, mode=0o640, user=self._ROOT_USER_NAME, group=self._DAEMON_GROUP
+        )
 
     def _push_late_settings(self, secrets: "MediaWikiSecrets", ro_database: bool = False) -> None:
         """Push the charm-controlled late MediaWiki settings to the container.
@@ -419,12 +429,15 @@ class MediaWiki(Object):
             config.robots_txt, mode=0o640, user=self._ROOT_USER_NAME, group=self._DAEMON_GROUP
         )
 
-    def _install(self) -> None:
+    def _install(self, config: CharmConfig) -> None:
         """Perform installation steps that should only be run by the leader unit.
         If the unit is not the leader, this method will wait until the database is marked as initialized by the leader, with a timeout.
 
         This includes running the MediaWiki installation script and creating a root user.
         The LocalSettings.php file must be in place before this method is called.
+
+        User local settings are cleared during installation to avoid issues with extensions
+        that behave badly during installation. A database upgrade is done separately after installation to finish setting up any user enabled extensions.
         """
         if not self._charm.unit.is_leader():
             logger.debug(
@@ -434,7 +447,7 @@ class MediaWiki(Object):
                 "Waiting for leader to perform installation"
             )
 
-            deadline = time.time() + (self._DB_CHECK_TIMEOUT * 2)
+            deadline = time.time() + self._LONG_TIMEOUT
             while time.time() < deadline:
                 if self._is_database_initialized():
                     return
@@ -443,6 +456,13 @@ class MediaWiki(Object):
                 raise MediaWikiBlockedStatusException(
                     "Timed out waiting for leader to perform installation"
                 )
+
+        # Blank the user settings file before installation so that extensions which behave
+        # badly during install don't cause the installation script to fail.
+        self._user_settings_file.write_text(
+            "", mode=0o640, user=self._ROOT_USER_NAME, group=self._DAEMON_GROUP
+        )
+        logger.debug("User settings cleared for installation.")
 
         result = self._run_maintenance_script(["installPreConfigured"])
         if result.return_code != 0:
@@ -456,6 +476,12 @@ class MediaWiki(Object):
         else:
             logger.info("MediaWiki installation script output:\n%s", result.stdout)
         logger.info("Completed MediaWiki install script")
+
+        # Restore user settings and run the database upgrade to finish setting up user enabled extensions.
+        self._push_user_settings(config)
+        logger.debug("User settings restored after installation.")
+        self.update_database_schema()
+        logger.info("Database schema updated after installation.")
 
         self.rotate_root_credentials()
         logger.info("Completed root user creation.")
