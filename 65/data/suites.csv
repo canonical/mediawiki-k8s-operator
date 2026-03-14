@@ -1,0 +1,16 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"Check that the charm behaves correct regarding the ssh_key Juju secret.
+
+    Note that this test does not attempt to utilize the SSH key as the passed key is not expected to be
+    authorized anywhere.
+    ","27480","test_ssh_key_secret","tests.integration","2026-03-14","passed","2026-03-14","","test_charm","",""
+"Check that the rotate-root-credentials action works as expected.","5016","test_rotate_root_credentials_action","tests.integration","2026-03-14","passed","2026-03-14","","test_charm","",""
+"Check that the charm is active.
+    Assume that the charm has already been built and is running.
+    ","379","test_active","tests.integration","2026-03-14","passed","2026-03-14","","test_charm","",""
+"Check that the charm can have extensions added after deployment.
+
+    Add extensions by editing the composer config, and then running a database update.
+    ","54447","test_add_extensions","tests.integration","2026-03-14","passed","2026-03-14","","test_charm","",""
+"Check that the charm behaves correctly when certain relations are removed.","41670","test_relations","tests.integration","2026-03-14","passed","2026-03-14","","test_charm","",""
+"Check that the charm is the expected version.","194","test_workload_version_is_set","tests.integration","2026-03-14","passed","2026-03-14","","test_charm","",""
