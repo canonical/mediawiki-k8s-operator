@@ -25,6 +25,7 @@ from exceptions import (
     MediaWikiInstallError,
     MediaWikiWaitingStatusException,
 )
+from s3 import S3
 from state import CharmConfig, StatefulCharmBase
 from types_ import CommandExecResult, PhpTemplate
 
@@ -57,10 +58,11 @@ class MediaWiki(Object):
         LocalPath(__file__).parent / "templates" / "LateSettings.php.template"
     )
 
-    def __init__(self, charm: StatefulCharmBase, database: Database):
+    def __init__(self, charm: StatefulCharmBase, database: Database, s3: S3):
         self._charm = charm
         self._container = self._charm.unit.get_container("mediawiki")
         self._database = database
+        self._s3 = s3
 
         self._webroot_path = ContainerPath("/var/www/html", container=self._container)
         self._mediawiki_path = self._webroot_path / "w"

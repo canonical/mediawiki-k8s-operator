@@ -12,12 +12,13 @@ from ops import testing
 from pytest_mock import MockerFixture, MockType
 
 import database
+import s3
 from charm import Charm
 from exceptions import MediaWikiInstallError
 from mediawiki import MediaWiki, MediaWikiSecrets
 from state import CharmConfigInvalidError, StatefulCharmBase
 from tests.unit.conftest import ExecCmd
-from types_ import DatabaseConfig, DatabaseEndpoint
+from types_ import DatabaseConfig, DatabaseEndpoint, S3ConnectionInfo
 
 
 class WrapperCharm(StatefulCharmBase):
@@ -26,7 +27,8 @@ class WrapperCharm(StatefulCharmBase):
     def __init__(self, *args):
         super().__init__(*args)
         self.database = database.Database(self, "database", Charm._CONTAINER_NAME)
-        self.mediawiki = MediaWiki(self, self.database)
+        self.s3 = s3.S3(self, "s3-parameters")
+        self.mediawiki = MediaWiki(self, self.database, self.s3)
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +44,25 @@ def mock_database(mocker: MockerFixture) -> MockType:
         password="mocked-password",  # nosec: B106
     )
     mock_instance.is_relation_ready.return_value = True
+
+    return mock_instance
+
+
+@pytest.fixture(autouse=True)
+def mock_s3(mocker: MockerFixture) -> MockType:
+    """Base s3 class mock."""
+    mock_s3_cls = mocker.patch("s3.S3", autospec=True)
+    mock_instance = mock_s3_cls.return_value
+
+    mock_instance.get_relation_data.return_value = S3ConnectionInfo.model_validate(
+        {
+            "endpoint": "mocked-s3-endpoint:9000",
+            "access-key": "mocked-access-key",
+            "secret-key": "mocked-secret-key",  # nosec: B106
+            "bucket": "mocked-bucket",
+        }
+    )
+    mock_instance.has_relation.return_value = True
 
     return mock_instance
 
