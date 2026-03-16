@@ -5,11 +5,12 @@
 
 import dataclasses
 import functools
+import json
 import logging
 import secrets
 import textwrap
 import time
-from typing import Callable, List, Optional, TypeVar, Union, cast
+from typing import Any, Callable, List, Optional, TypeVar, Union, cast
 
 import mysql.connector
 import ops
@@ -278,7 +279,7 @@ class MediaWiki(Object):
         Args:
             config: The charm configuration.
         """
-        current_composer = self._get_current_composer_json()
+        current_composer = self._get_current_composer()
 
         # Only run if composer.json has changed or is missing
         if current_composer == config.composer:
@@ -288,7 +289,7 @@ class MediaWiki(Object):
         logger.info("Composer configuration changed or missing, running update.")
 
         self._user_composer_file.write_text(
-            config.composer,
+            json.dumps(config.composer),
             mode=0o640,
             user=self._WEBROOT_OWNER_USER,
             group=self._DAEMON_GROUP,
@@ -318,15 +319,34 @@ class MediaWiki(Object):
                 result.stdout,
                 result.stderr,
             )
-            raise MediaWikiInstallError("Composer update failed; see logs for details.")
+
+            # Write the config with a failure marker so that:
+            # (a) the file differs from config.composer, causing a retry next reconciliation, and
+            # (b) anyone inspecting the file can see that this configuration failed to apply.
+            failed = {
+                **config.composer,
+                "_charm_error": "Composer update failed",
+            }
+            self._user_composer_file.write_text(
+                json.dumps(failed),
+                mode=0o640,
+                user=self._WEBROOT_OWNER_USER,
+                group=self._DAEMON_GROUP,
+            )
+
+            raise MediaWikiBlockedStatusException("Composer update failed; see logs for details.")
 
         logger.info("Composer update completed successfully: \n%s", result.stdout)
 
-    def _get_current_composer_json(self) -> str:
-        """Get the current content of composer.user.json."""
-        if self._user_composer_file.exists():
-            return self._user_composer_file.read_text().strip()
-        return "{}"
+    def _get_current_composer(self) -> dict[str, Any]:
+        """Get the current content of composer.user.json as a dict."""
+        if not self._user_composer_file.exists():
+            return {}
+
+        try:
+            return json.loads(self._user_composer_file.read_text())
+        except json.JSONDecodeError:
+            return {}
 
     def _settings_reconciliation(
         self,

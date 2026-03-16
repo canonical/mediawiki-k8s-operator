@@ -3,6 +3,7 @@
 
 
 import dataclasses
+import json
 
 import pytest
 import requests
@@ -103,7 +104,7 @@ class TestReconciliation:
         ]:
             assert cmd.ran_in(history), f"{cmd.name} not found in exec history"
 
-        validate_container(ctx, state_out)
+        validate_container(ctx, state_out, expect_composer=True)
 
     def test_initial_with_invalid_config(
         self, ctx: testing.Context, active_state: testing.State, populated_config: dict
@@ -204,6 +205,43 @@ class TestReconciliation:
 
         config_text = (container_fs / "home/webroot_owner/.ssh/config").read_text()
         assert "IdentityFile" in config_text, "Expected IdentityFile in SSH config when key is set"
+
+    def test_composer_update_failure(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        mediawiki_container: scenario.Container,
+    ) -> None:
+        """Test that when composer update fails, composer.user.json exists but does not match the config."""
+        execs = {
+            testing.Exec(
+                ExecCmd.COMPOSER_UPDATE.value,
+                return_code=1,
+                stdout="",
+                stderr="Mocked composer update failure",
+            )
+        }
+        mediawiki_container = dataclasses.replace(mediawiki_container, execs=execs)
+        state_in = dataclasses.replace(configured_state, containers=[mediawiki_container])
+
+        with (
+            ctx(ctx.on.update_status(), state_in) as mgr,
+            pytest.raises(Exception, match="Composer update failed"),
+        ):
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+
+        container_fs = state_in.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        composer_file = container_fs / "var/www/html/w/composer.user.json"
+        assert composer_file.exists(), "composer.user.json should exist even after a failed update"
+        assert composer_file.stat().st_mode & 0o777 == 0o640, "composer.user.json must be 0o640"
+
+        on_disk = json.loads(composer_file.read_text())
+        config_composer = state_in.config.get("composer", {})
+        if isinstance(config_composer, str):
+            config_composer = json.loads(config_composer)
+        assert on_disk != config_composer, (
+            "composer.user.json should not match config after a failed update"
+        )
 
     def test_ssh_key_not_written_when_absent(
         self,
@@ -441,3 +479,14 @@ def validate_container(
             assert setting not in late_settings_content, (
                 f"Did not expect read-only database setting in LateSettings.php: {setting}"
             )
+
+    try:
+        composer_content = (container_fs / "var/www/html/w/composer.user.json").read_text()
+    except FileNotFoundError:
+        composer_content = "{}"
+    raw_composer = state_out.config.get("composer", "{}")
+    assert isinstance(raw_composer, str), "Expected composer config to be a string"
+    expected_composer = json.loads(raw_composer) if raw_composer else {}
+    assert json.loads(composer_content) == expected_composer, (
+        "composer.user.json content does not match config"
+    )

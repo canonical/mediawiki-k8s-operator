@@ -28,7 +28,7 @@ class CharmConfig(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    composer: str = Field("{}")
+    composer: dict[str, Any] = Field(default_factory=dict)
     ssh_key: Optional[ops.Secret] = Field(None)
     static_assets_git_repo: str = Field("")
     static_assets_git_ref: str = Field("")
@@ -36,19 +36,22 @@ class CharmConfig(BaseModel):
     local_settings: str = Field("")
     robots_txt: str = Field("")
 
-    @field_validator("composer")
+    @field_validator("composer", mode="before")
     @classmethod
-    def validate_composer(cls, v: str) -> str:
+    def validate_composer(cls, v: Any) -> dict[str, Any]:
         """Validate that the composer config is valid JSON and a dictionary."""
+        if not isinstance(v, str):
+            raise ValueError("Composer configuration must be a string containing a JSON object")
+
         if not v:
-            return "{}"
+            return {}
         try:
             curr = json.loads(v)
             if not isinstance(curr, dict):
                 raise ValueError("Composer configuration must be a JSON object")
+            return curr
         except json.JSONDecodeError as e:
             raise ValueError(f"Composer configuration must be a JSON object: {e}")
-        return v.strip()
 
     @field_validator("hostname")
     @classmethod

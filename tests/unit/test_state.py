@@ -30,7 +30,7 @@ class TestCharmConfig:
     def test_composer_accepts_json_object(self) -> None:
         config = self.make_config(composer='  {"require": {"a/b": "^1.0"}}  ')
 
-        assert config.composer == '{"require": {"a/b": "^1.0"}}'
+        assert config.composer == {"require": {"a/b": "^1.0"}}
 
     @pytest.mark.parametrize("composer", ["[]", '"str"', "1", "true", "null"])
     def test_composer_rejects_non_object_json(self, composer: str) -> None:
