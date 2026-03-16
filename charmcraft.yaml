@@ -22,6 +22,8 @@ charm-libs:
     version: "0"
   - lib: data_platform_libs.data_interfaces
     version: "0"
+  - lib: data_platform_libs.s3
+    version: "0"
 
 config:
   options:
