@@ -100,6 +100,7 @@ class S3ConnectionInfo(BaseModel):
     secret_key: str = Field(alias="secret-key")
 
     region: Optional[str] = Field(None)
+    s3_uri_style: Optional[str] = Field(None, alias="s3-uri-style")
     tls_ca_chain: Optional[List[str]] = Field(None, alias="tls-ca-chain")
 
     @property

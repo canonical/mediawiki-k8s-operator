@@ -387,6 +387,7 @@ class MediaWiki(Object):
         content = self._late_settings_template_file.read_text()
         content += self._get_proxy_settings()
         content += self._get_database_settings()
+        content += self._get_s3_settings()
 
         if ro_database:
             # https://www.mediawiki.org/wiki/Manual:Upgrading#Can_my_wiki_stay_online_while_it_is_upgrading?
@@ -538,6 +539,41 @@ class MediaWiki(Object):
             ];
             """
         )
+        return content + "\n"
+
+    def _get_s3_settings(self) -> str:
+        """Get the current S3 settings as a string, to be inserted into a PHP file.
+
+        Note that even when S3 is available, uploads needs to explicitly enabled via LocalSettings.php.
+
+        Returns:
+            str: The S3 settings formatted as a PHP string.
+        """
+        if not self._s3.has_relation():
+            return "$wgEnableUploads = false;\n"
+
+        s3_data = self._s3.get_relation_data()
+
+        # https://github.com/edwardspec/mediawiki-aws-s3
+        # Note that $wgAWSRegion has to be set even if there is no region
+        content = textwrap.dedent(
+            f"""
+            wfLoadExtension( 'AWS' );
+
+            $wgAWSCredentials = [
+                'key' => '{utils.escape_php_string(s3_data.access_key)}',
+                'secret' => '{utils.escape_php_string(s3_data.secret_key)}',
+                'token' => false
+            ];
+            $wgAWSRegion = '{utils.escape_php_string(s3_data.region or "eu-west-1")}';
+            $wgAWSBucketName = '{utils.escape_php_string(s3_data.bucket)}';
+            $wgFileBackends['s3']['endpoint'] = '{utils.escape_php_string(s3_data.endpoint)}';
+            """
+        )
+
+        if s3_data.s3_uri_style and s3_data.s3_uri_style.lower() == "path":
+            content += "$wgFileBackends['s3']['use_path_style_endpoint'] = true;\n"
+
         return content + "\n"
 
     @staticmethod
