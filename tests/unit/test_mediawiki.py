@@ -14,7 +14,7 @@ from pytest_mock import MockerFixture, MockType
 import database
 import s3
 from charm import Charm
-from exceptions import MediaWikiInstallError
+from exceptions import MediaWikiBlockedStatusException, MediaWikiInstallError
 from mediawiki import MediaWiki, MediaWikiSecrets
 from state import CharmConfigInvalidError, StatefulCharmBase
 from tests.unit.conftest import ExecCmd
@@ -593,6 +593,31 @@ class TestS3Settings:
         ).read_text()
 
         assert "use_path_style_endpoint" not in late_settings
+
+    def test_incomplete_s3_relation_data_disables_uploads(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_s3: MockType,
+    ) -> None:
+        """Test that uploads are disabled when S3 relation data is incomplete, and a block is raised."""
+        # Mock get relation data to raise block status
+        mock_s3.get_relation_data.side_effect = MediaWikiBlockedStatusException(
+            "Mocked block status"
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            with pytest.raises(MediaWikiBlockedStatusException, match="Mocked block status"):
+                mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "$wgEnableUploads = false;" in late_settings
+        assert "wfLoadExtension( 'AWS' );" not in late_settings
 
 
 def validate_container(

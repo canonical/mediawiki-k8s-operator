@@ -362,6 +362,9 @@ class MediaWiki(Object):
             config (CharmConfig): The charm configuration.
             secrets (MediaWikiSecrets): An instance of MediaWikiSecrets containing secrets synced between units.
             ro_database: Whether to include settings that put the database into read-only mode for updates. Defaults to False.
+
+        Raises:
+            MediaWikiBlockedStatusException: If S3 relation data is malformed (raised after settings are written).
         """
         self._secure_settings_base_path.mkdir(exist_ok=True, parents=True)
 
@@ -387,7 +390,14 @@ class MediaWiki(Object):
         content = self._late_settings_template_file.read_text()
         content += self._get_proxy_settings()
         content += self._get_database_settings()
-        content += self._get_s3_settings()
+
+        s3_config_error: Optional[MediaWikiBlockedStatusException] = None
+        try:
+            content += self._get_s3_settings()
+        except MediaWikiBlockedStatusException as e:
+            logger.warning("S3 relation data is incomplete or malformed; disabling uploads")
+            s3_config_error = e
+            content += "$wgEnableUploads = false;\n"
 
         if ro_database:
             # https://www.mediawiki.org/wiki/Manual:Upgrading#Can_my_wiki_stay_online_while_it_is_upgrading?
@@ -408,6 +418,11 @@ class MediaWiki(Object):
         self._late_settings_file.write_text(
             content, mode=0o640, user=self._ROOT_USER_NAME, group=self._DAEMON_GROUP
         )
+
+        # Raise any S3 configuration error after settings have been written to ensure
+        # uploads are reliably disabled whenever S3 is not valid
+        if s3_config_error:
+            raise s3_config_error
 
     def _push_local_settings(self, config: CharmConfig) -> None:
         """Push the base LocalSettings.php file to the container."""
@@ -548,6 +563,9 @@ class MediaWiki(Object):
 
         Returns:
             str: The S3 settings formatted as a PHP string.
+
+        Raises:
+            MediaWikiBlockedStatusException: If S3 relation data is incomplete or malformed.
         """
         if not self._s3.has_relation():
             return "$wgEnableUploads = false;\n"
