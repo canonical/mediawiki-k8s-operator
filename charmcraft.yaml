@@ -22,6 +22,8 @@ charm-libs:
     version: "0"
   - lib: data_platform_libs.data_interfaces
     version: "0"
+  - lib: data_platform_libs.s3
+    version: "0"
 
 config:
   options:
@@ -163,6 +165,10 @@ requires:
   database:
     interface: mysql_client
     limit: 1
+  s3-parameters:
+    interface: s3
+    limit: 1
+    optional: true
 
 provides: {}
 

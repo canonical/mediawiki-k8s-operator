@@ -15,6 +15,8 @@ $wgArticlePath = "/title/$1";
 $wgDefaultSkin = "vector-2022";
 wfLoadSkin( 'Vector' );
 
+$wgEnableUploads = true;
+
 # Extensions
 wfLoadExtension( 'CheckUser' );
 wfLoadExtension( 'Linter' );

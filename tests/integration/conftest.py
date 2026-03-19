@@ -13,8 +13,13 @@ from typing import Any, Dict, Generator
 import jubilant
 import pytest
 import yaml
+from minio import Minio
 
 from .types_ import App
+
+_S3_BUCKET_NAME = "mediawiki"
+_MINIO_ACCESS_KEY = "access"
+_MINIO_SECRET_KEY = "secretsecret"  # nosec: B105
 
 
 @pytest.fixture(scope="module", name="charm")
@@ -72,11 +77,17 @@ def requests_timeout():
     return 15
 
 
-@pytest.fixture(scope="session")
-def local_settings() -> str:
+@pytest.fixture(scope="module")
+def local_settings(juju: jubilant.Juju, minio: App) -> Generator[str, None, None]:
     """The base local settings."""
     path = Path(__file__).parent / "test_data" / "LocalSettings.php"
-    return path.read_text()
+    ls_contents = path.read_text()
+
+    status = juju.status()
+    minio_address = status.apps[minio.name].units[f"{minio.name}/0"].address
+    ls_contents += f"$wgAWSBucketDomain = '{minio_address}:9000/$1';\n"
+
+    yield ls_contents
 
 
 @pytest.fixture(scope="module")
@@ -86,9 +97,9 @@ def ingress_address(traefik_lb_ip: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def app_config(local_settings, traefik_lb_ip) -> dict[str, Any]:
+def app_config(local_settings, traefik_lb_ip) -> Generator[dict[str, Any], None, None]:
     """The base configuration to deploy with for the mediawiki application."""
-    return {
+    yield {
         "local-settings": local_settings,
         "hostname": traefik_lb_ip,
     }
@@ -197,11 +208,94 @@ def traefik_lb_ip(juju: jubilant.Juju, traefik: App) -> Generator[str, None, Non
     yield result["status"]["loadBalancer"]["ingress"][0]["ip"]
 
 
+@pytest.fixture(scope="module", name="minio")
+def minio_fixture(juju: jubilant.Juju, pytestconfig: pytest.Config) -> Generator[App, None, None]:
+    """Deploy minio and return its app information."""
+    use_existing = pytestconfig.getoption("--use-existing", default=False)
+    if use_existing:
+        yield App(name="minio")
+        return
+
+    juju.deploy(
+        "minio",
+        channel="ckf-1.10/stable",
+        config={"access-key": _MINIO_ACCESS_KEY, "secret-key": _MINIO_SECRET_KEY},
+    )
+
+    juju.wait(lambda status: jubilant.all_active(status, "minio"))
+
+    status = juju.status()
+    minio_address = status.apps["minio"].units["minio/0"].address
+    mc_client = Minio(
+        f"{minio_address}:9000",
+        access_key=_MINIO_ACCESS_KEY,
+        secret_key=_MINIO_SECRET_KEY,
+        secure=False,
+    )
+    found = mc_client.bucket_exists(_S3_BUCKET_NAME)
+    if not found:
+        mc_client.make_bucket(_S3_BUCKET_NAME)
+        # Allow anonymous read access to the bucket
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {"AWS": "*"},
+                    "Action": ["s3:GetBucketLocation", "s3:GetObject"],
+                    "Resource": [
+                        f"arn:aws:s3:::{_S3_BUCKET_NAME}",
+                        f"arn:aws:s3:::{_S3_BUCKET_NAME}/*",
+                    ],
+                }
+            ],
+        }
+        mc_client.set_bucket_policy(_S3_BUCKET_NAME, json.dumps(policy))
+
+    yield App(name="minio")
+
+
+@pytest.fixture(scope="module", name="s3_integrator")
+def s3_integrator_fixture(
+    juju: jubilant.Juju, pytestconfig: pytest.Config
+) -> Generator[App, None, None]:
+    """Deploy s3 integrator and return its app information."""
+    use_existing = pytestconfig.getoption("--use-existing", default=False)
+    if use_existing:
+        yield App(name="s3-integrator")
+        return
+
+    secret_uri = juju.add_secret(
+        "s3-credentials",
+        {
+            "access-key": _MINIO_ACCESS_KEY,
+            "secret-key": _MINIO_SECRET_KEY,
+        },
+    )
+
+    juju.deploy(
+        "s3-integrator",
+        channel="2/edge",
+        config={
+            "bucket": _S3_BUCKET_NAME,
+            "endpoint": f"http://minio.{juju.model}.svc.cluster.local:9000",
+            "credentials": secret_uri,
+            "s3-uri-style": "path",
+        },
+    )
+
+    juju.grant_secret(secret_uri, "s3-integrator")
+
+    yield App(name="s3-integrator")
+
+
 @pytest.fixture(scope="module", name="app")
 def app_fixture(
     juju: jubilant.Juju,
     db: App,
     traefik: App,
+    minio: App,
+    s3_integrator: App,
     metadata: Dict[str, Any],
     app_config: Dict[str, Any],
     pytestconfig: pytest.Config,
@@ -230,13 +324,20 @@ def app_fixture(
     juju.wait(
         lambda status: (
             jubilant.all_blocked(status, app_name)
-            and jubilant.all_active(status, db.name, traefik.name)
+            and jubilant.all_active(
+                status,
+                db.name,
+                traefik.name,
+                minio.name,
+                s3_integrator.name,
+            )
         ),
         timeout=20 * 60,
     )
 
     juju.integrate(app_name, traefik.name)
     juju.integrate(app_name, db.name)
+    juju.integrate(app_name, s3_integrator.name)
     juju.wait(jubilant.all_active)
 
     yield App(name=app_name)

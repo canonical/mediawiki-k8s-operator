@@ -33,6 +33,7 @@ from exceptions import (
     MediaWikiWaitingStatusException,
 )
 from mediawiki import MediaWiki, MediaWikiSecrets
+from s3 import S3
 from state import StatefulCharmBase
 
 # Log messages can be retrieved using juju debug-log
@@ -50,6 +51,8 @@ class Charm(StatefulCharmBase):
 
     _INGRESS_RELATION_NAME = "traefik-route"
 
+    _S3_RELATION_NAME = "s3-parameters"
+
     _PEER_RELATION_NAME = "mediawiki-replica"
     _REPLICA_SECRET_LABEL = "replica-secret"  # nosec: B105
 
@@ -63,7 +66,8 @@ class Charm(StatefulCharmBase):
         super().__init__(*args)
 
         self._database = Database(self, self._DATABASE_RELATION_NAME, self._DATABASE_NAME)
-        self._mediawiki = MediaWiki(self, self._database)
+        self._s3 = S3(self, self._S3_RELATION_NAME)
+        self._mediawiki = MediaWiki(self, self._database, self._s3)
 
         self.framework.observe(self.on.leader_elected, self._setup_replica_data)
         self.framework.observe(self.on.mediawiki_pebble_ready, self._reconciliation)
@@ -72,6 +76,8 @@ class Charm(StatefulCharmBase):
         self.framework.observe(
             self.on[self._DATABASE_RELATION_NAME].relation_broken, self._reconciliation
         )
+        self.framework.observe(self._s3.s3.on.credentials_changed, self._reconciliation)
+        self.framework.observe(self._s3.s3.on.credentials_gone, self._reconciliation)
         self.framework.observe(self.on.traefik_route_relation_joined, self._reconciliation)
         self.framework.observe(self.on.traefik_route_relation_changed, self._reconciliation)
         self.framework.observe(self.on.traefik_route_relation_broken, self._reconciliation)

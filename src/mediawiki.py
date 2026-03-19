@@ -25,6 +25,7 @@ from exceptions import (
     MediaWikiInstallError,
     MediaWikiWaitingStatusException,
 )
+from s3 import S3
 from state import CharmConfig, StatefulCharmBase
 from types_ import CommandExecResult, PhpTemplate
 
@@ -57,10 +58,11 @@ class MediaWiki(Object):
         LocalPath(__file__).parent / "templates" / "LateSettings.php.template"
     )
 
-    def __init__(self, charm: StatefulCharmBase, database: Database):
+    def __init__(self, charm: StatefulCharmBase, database: Database, s3: S3):
         self._charm = charm
         self._container = self._charm.unit.get_container("mediawiki")
         self._database = database
+        self._s3 = s3
 
         self._webroot_path = ContainerPath("/var/www/html", container=self._container)
         self._mediawiki_path = self._webroot_path / "w"
@@ -360,6 +362,9 @@ class MediaWiki(Object):
             config (CharmConfig): The charm configuration.
             secrets (MediaWikiSecrets): An instance of MediaWikiSecrets containing secrets synced between units.
             ro_database: Whether to include settings that put the database into read-only mode for updates. Defaults to False.
+
+        Raises:
+            MediaWikiBlockedStatusException: If S3 relation data is malformed (raised after settings are written).
         """
         self._secure_settings_base_path.mkdir(exist_ok=True, parents=True)
 
@@ -386,6 +391,14 @@ class MediaWiki(Object):
         content += self._get_proxy_settings()
         content += self._get_database_settings()
 
+        s3_config_error: Optional[MediaWikiBlockedStatusException] = None
+        try:
+            content += self._get_s3_settings()
+        except MediaWikiBlockedStatusException as e:
+            logger.warning("S3 relation data is incomplete or malformed; disabling uploads")
+            s3_config_error = e
+            content += "$wgEnableUploads = false;\n"
+
         if ro_database:
             # https://www.mediawiki.org/wiki/Manual:Upgrading#Can_my_wiki_stay_online_while_it_is_upgrading?
             content += "$adminTask = ( PHP_SAPI === 'cli' || defined( 'MEDIAWIKI_INSTALL' ) );\n"
@@ -405,6 +418,11 @@ class MediaWiki(Object):
         self._late_settings_file.write_text(
             content, mode=0o640, user=self._ROOT_USER_NAME, group=self._DAEMON_GROUP
         )
+
+        # Raise any S3 configuration error after settings have been written to ensure
+        # uploads are reliably disabled whenever S3 is not valid
+        if s3_config_error:
+            raise s3_config_error
 
     def _push_local_settings(self, config: CharmConfig) -> None:
         """Push the base LocalSettings.php file to the container."""
@@ -536,6 +554,44 @@ class MediaWiki(Object):
             ];
             """
         )
+        return content + "\n"
+
+    def _get_s3_settings(self) -> str:
+        """Get the current S3 settings as a string, to be inserted into a PHP file.
+
+        Note that even when S3 is available, uploads needs to explicitly enabled via LocalSettings.php.
+
+        Returns:
+            str: The S3 settings formatted as a PHP string.
+
+        Raises:
+            MediaWikiBlockedStatusException: If S3 relation data is incomplete or malformed.
+        """
+        if not self._s3.has_relation():
+            return "$wgEnableUploads = false;\n"
+
+        s3_data = self._s3.get_relation_data()
+
+        # https://github.com/edwardspec/mediawiki-aws-s3
+        # Note that $wgAWSRegion has to be set even if there is no region
+        content = textwrap.dedent(
+            f"""
+            wfLoadExtension( 'AWS' );
+
+            $wgAWSCredentials = [
+                'key' => '{utils.escape_php_string(s3_data.access_key)}',
+                'secret' => '{utils.escape_php_string(s3_data.secret_key)}',
+                'token' => false
+            ];
+            $wgAWSRegion = '{utils.escape_php_string(s3_data.region or "eu-west-1")}';
+            $wgAWSBucketName = '{utils.escape_php_string(s3_data.bucket)}';
+            $wgFileBackends['s3']['endpoint'] = '{utils.escape_php_string(s3_data.endpoint)}';
+            """
+        )
+
+        if s3_data.s3_uri_style and s3_data.s3_uri_style.lower() == "path":
+            content += "$wgFileBackends['s3']['use_path_style_endpoint'] = true;\n"
+
         return content + "\n"
 
     @staticmethod

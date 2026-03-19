@@ -12,12 +12,13 @@ from ops import testing
 from pytest_mock import MockerFixture, MockType
 
 import database
+import s3
 from charm import Charm
-from exceptions import MediaWikiInstallError
+from exceptions import MediaWikiBlockedStatusException, MediaWikiInstallError
 from mediawiki import MediaWiki, MediaWikiSecrets
 from state import CharmConfigInvalidError, StatefulCharmBase
 from tests.unit.conftest import ExecCmd
-from types_ import DatabaseConfig, DatabaseEndpoint
+from types_ import DatabaseConfig, DatabaseEndpoint, S3ConnectionInfo
 
 
 class WrapperCharm(StatefulCharmBase):
@@ -26,7 +27,8 @@ class WrapperCharm(StatefulCharmBase):
     def __init__(self, *args):
         super().__init__(*args)
         self.database = database.Database(self, "database", Charm._CONTAINER_NAME)
-        self.mediawiki = MediaWiki(self, self.database)
+        self.s3 = s3.S3(self, "s3-parameters")
+        self.mediawiki = MediaWiki(self, self.database, self.s3)
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +44,25 @@ def mock_database(mocker: MockerFixture) -> MockType:
         password="mocked-password",  # nosec: B106
     )
     mock_instance.is_relation_ready.return_value = True
+
+    return mock_instance
+
+
+@pytest.fixture(autouse=True)
+def mock_s3(mocker: MockerFixture) -> MockType:
+    """Base s3 class mock."""
+    mock_s3_cls = mocker.patch("s3.S3", autospec=True)
+    mock_instance = mock_s3_cls.return_value
+
+    mock_instance.get_relation_data.return_value = S3ConnectionInfo.model_validate(
+        {
+            "endpoint": "mocked-s3-endpoint:9000",
+            "access-key": "mocked-access-key",
+            "secret-key": "mocked-secret-key",  # nosec: B106
+            "bucket": "mocked-bucket",
+        }
+    )
+    mock_instance.has_relation.return_value = True
 
     return mock_instance
 
@@ -415,6 +436,188 @@ class TestMediaWikiSecrets:
         settings = result.to_local_settings()
         assert settings["$wgSecretKey"] == "test-key"
         assert settings["$wgSessionSecret"] == "test-session"
+
+
+class TestS3Settings:
+    def test_no_s3_relation_disables_uploads(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_s3: MockType,
+    ) -> None:
+        """Test that uploads are disabled when no S3 relation exists."""
+        mock_s3.has_relation.return_value = False
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "$wgEnableUploads = false;" in late_settings
+        assert "wfLoadExtension( 'AWS' );" not in late_settings
+
+    def test_s3_relation_loads_aws_extension_with_credentials(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+    ) -> None:
+        """Test that the AWS extension and credentials are rendered in LateSettings.php when S3 is configured."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "wfLoadExtension( 'AWS' );" in late_settings
+        assert "'key' => 'mocked-access-key'" in late_settings
+        assert "'secret' => 'mocked-secret-key'" in late_settings
+        assert "$wgAWSBucketName = 'mocked-bucket'" in late_settings
+        assert "$wgFileBackends['s3']['endpoint'] = 'mocked-s3-endpoint:9000'" in late_settings
+        assert "$wgEnableUploads = false;" not in late_settings
+
+    def test_s3_defaults_to_eu_west_1_region_when_none_set(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_s3: MockType,
+    ) -> None:
+        """Test that eu-west-1 is used as the default region when none is specified in the S3 relation data."""
+        mock_s3.get_relation_data.return_value = S3ConnectionInfo.model_validate(
+            {
+                "endpoint": "mocked-s3-endpoint:9000",
+                "access-key": "mocked-access-key",
+                "secret-key": "mocked-secret-key",  # nosec: B106
+                "bucket": "mocked-bucket",
+            }
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "$wgAWSRegion = 'eu-west-1'" in late_settings
+
+    def test_s3_custom_region_is_used(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_s3: MockType,
+    ) -> None:
+        """Test that a custom region from the S3 relation data is written to LateSettings.php."""
+        mock_s3.get_relation_data.return_value = S3ConnectionInfo.model_validate(
+            {
+                "endpoint": "mocked-s3-endpoint:9000",
+                "access-key": "mocked-access-key",
+                "secret-key": "mocked-secret-key",  # nosec: B106
+                "bucket": "mocked-bucket",
+                "region": "us-east-1",
+            }
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "$wgAWSRegion = 'us-east-1'" in late_settings
+        assert "$wgAWSRegion = 'eu-west-1'" not in late_settings
+
+    def test_s3_path_style_endpoint_is_set(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_s3: MockType,
+    ) -> None:
+        """Test that path-style endpoint is configured in LateSettings.php when s3-uri-style is 'path'."""
+        mock_s3.get_relation_data.return_value = S3ConnectionInfo.model_validate(
+            {
+                "endpoint": "mocked-s3-endpoint:9000",
+                "access-key": "mocked-access-key",
+                "secret-key": "mocked-secret-key",  # nosec: B106
+                "bucket": "mocked-bucket",
+                "s3-uri-style": "path",
+            }
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "$wgFileBackends['s3']['use_path_style_endpoint'] = true;" in late_settings
+
+    def test_s3_host_style_does_not_set_path_style_endpoint(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_s3: MockType,
+    ) -> None:
+        """Test that use_path_style_endpoint is not set when s3-uri-style is 'host'."""
+        mock_s3.get_relation_data.return_value = S3ConnectionInfo.model_validate(
+            {
+                "endpoint": "mocked-s3-endpoint:9000",
+                "access-key": "mocked-access-key",
+                "secret-key": "mocked-secret-key",  # nosec: B106
+                "bucket": "mocked-bucket",
+                "s3-uri-style": "host",
+            }
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "use_path_style_endpoint" not in late_settings
+
+    def test_incomplete_s3_relation_data_disables_uploads(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_s3: MockType,
+    ) -> None:
+        """Test that uploads are disabled when S3 relation data is incomplete, and a block is raised."""
+        # Mock get relation data to raise block status
+        mock_s3.get_relation_data.side_effect = MediaWikiBlockedStatusException(
+            "Mocked block status"
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            with pytest.raises(MediaWikiBlockedStatusException, match="Mocked block status"):
+                mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "$wgEnableUploads = false;" in late_settings
+        assert "wfLoadExtension( 'AWS' );" not in late_settings
 
 
 def validate_container(

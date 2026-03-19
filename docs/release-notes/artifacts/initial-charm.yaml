@@ -17,6 +17,7 @@ changes:
         - "https://github.com/canonical/mediawiki-k8s-operator/pull/14"
         - "https://github.com/canonical/mediawiki-k8s-operator/pull/15"
         - "https://github.com/canonical/mediawiki-k8s-operator/pull/16"
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/18"
         - "https://github.com/canonical/mediawiki-k8s-operator/pull/19"
         - "https://github.com/canonical/mediawiki-k8s-operator/pull/20"
     visibility: public

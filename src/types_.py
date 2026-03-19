@@ -4,7 +4,9 @@
 """Module for internal types for the MediaWiki charm."""
 
 from string import Template
-from typing import NamedTuple, Union
+from typing import List, NamedTuple, Optional, Union
+
+from pydantic import BaseModel, Field
 
 
 class CommandExecResult(NamedTuple):
@@ -85,3 +87,23 @@ class PhpTemplate(Template):
     """A PHP safe(r) string template using '%' as the delimiter."""
 
     delimiter = "%"
+
+
+class S3ConnectionInfo(BaseModel):
+    """Model for the s3 relation databag, as returned by the s3 charm lib."""
+
+    model_config = {"populate_by_name": True}
+
+    endpoint: str
+    bucket: str
+    access_key: str = Field(alias="access-key")
+    secret_key: str = Field(alias="secret-key")
+
+    region: Optional[str] = Field(None)
+    s3_uri_style: Optional[str] = Field(None, alias="s3-uri-style")
+    tls_ca_chain: Optional[List[str]] = Field(None, alias="tls-ca-chain")
+
+    @property
+    def ca_cert(self) -> Optional[str]:
+        """Unify the ca chain provided by the lib into a single cert."""
+        return "\n\n".join(self.tls_ca_chain) if self.tls_ca_chain else None
