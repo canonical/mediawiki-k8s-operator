@@ -139,7 +139,12 @@ parts:
     override-prime: |
       craftctl default
 
-      COMPOSER_ALLOW_SUPERUSER=1 composer update --no-dev -n --ignore-platform-reqs -d "$CRAFT_PRIME/var/www/html/w"
+      # Ignore dubious ownership in the webroot to fix packing when `rockcraft clean` wasn't run beforehand.
+      GIT_CONFIG_COUNT=1 \
+      GIT_CONFIG_KEY_0="safe.directory" \
+      GIT_CONFIG_VALUE_0="$CRAFT_PRIME/var/www/html/w" \
+      COMPOSER_ALLOW_SUPERUSER=1 \
+      composer update --no-dev -n --ignore-platform-reqs -d "$CRAFT_PRIME/var/www/html/w"
 
   # Post-install configuration
   mediawiki-configure:
