@@ -106,9 +106,9 @@ config:
         To be implemented.
       type: string
 
-    hostname:
+    url-origin:
       description: >
-        The hostname without a schema prefix to use for the MediaWiki deployment. For example, 'my-wiki.example.com'. This is used for '$wgServer' and configuring ingress.
+        The URL origin for the MediaWiki deployment. It should either be protocol-relative or specify either http:// or https://. For example, '//my-wiki.example.com' or 'https://my-wiki.example.com'. This is used for '$wgServer' and configuring ingress.
 
         If not specified, the charm will fall back to the application name. '$wgServer' may be overridden with the `local-settings` configuration option.
       type: string

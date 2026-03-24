@@ -32,7 +32,7 @@ class CharmConfig(BaseModel):
     ssh_key: Optional[ops.Secret] = Field(None)
     static_assets_git_repo: str = Field("")
     static_assets_git_ref: str = Field("")
-    hostname: str = Field("")
+    url_origin: str = Field("")
     local_settings: str = Field("")
     robots_txt: str = Field("")
 
@@ -53,31 +53,43 @@ class CharmConfig(BaseModel):
         except json.JSONDecodeError as e:
             raise ValueError(f"Composer configuration must be a JSON object: {e}")
 
-    @field_validator("hostname")
+    @field_validator("url_origin")
     @classmethod
-    def validate_hostname(cls, v: str) -> str:
-        """Validate that hostname is sensible. This is a relatively permissive validation.
+    def validate_url_origin(cls, v: str) -> str:
+        """Validate that url_origin is sensible. This is a relatively permissive validation.
 
-        There should be no schema in the hostname, but it can be an IP address, DNS name, and may include a port.
+        The URL must be protocol-relative or use http:// or https://. It can be an IP address or DNS name and may include a port.
         """
+        v = v.strip()
+
         if not v:
             return ""
 
-        if "/" in v:
-            raise ValueError("Hostname should not have a schema or path component")
+        # Require a scheme prefix
+        parsed = urlparse(v)
+        if not v.startswith("//") and parsed.scheme not in ("http", "https"):
+            raise ValueError(
+                "url-origin must be protocol relative or specify either http:// or https://"
+            )
+
+        if (
+            parsed.path
+            or parsed.params
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError("url-origin has unexpected components")
 
         try:
-            # The input shouldn't have a schema, so we add a dummy one to make urlparse work
-            parsed = urlparse(f"http://{v}")
             hostname = parsed.hostname
-            port = parsed.port  # Fails if port is present but not a valid 0-65535 integer
-        except Exception as e:
-            raise ValueError(f"Failed to validate hostname {e}")
-        if not hostname:
-            raise ValueError("Hostname cannot be empty")
+            _ = parsed.port  # Accessing the port property will trigger validation
+        except ValueError as e:
+            raise ValueError("Could not parse url-origin") from e
 
-        if port is not None and not (0 <= port <= 65535):
-            raise ValueError("Hostname port number must be between 0 and 65535")
+        if not hostname:
+            raise ValueError("Could not parse url-origin")
 
         try:
             ipaddress.ip_address(hostname)
@@ -91,7 +103,7 @@ class CharmConfig(BaseModel):
         )
 
         if not hostname_regex.match(hostname):
-            raise ValueError("Hostname is not a valid")
+            raise ValueError("url-origin hostname is not valid")
 
         return v.strip()
 

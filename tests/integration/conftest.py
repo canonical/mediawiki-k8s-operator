@@ -101,7 +101,7 @@ def app_config(local_settings, traefik_lb_ip) -> Generator[dict[str, Any], None,
     """The base configuration to deploy with for the mediawiki application."""
     yield {
         "local-settings": local_settings,
-        "hostname": traefik_lb_ip,
+        "url-origin": f"//{traefik_lb_ip}",
     }
 
 

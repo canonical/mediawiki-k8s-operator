@@ -427,9 +427,9 @@ class MediaWiki(Object):
     def _push_local_settings(self, config: CharmConfig) -> None:
         """Push the base LocalSettings.php file to the container."""
         template = PhpTemplate(self._local_settings_template_file.read_text())
-        server_name = config.hostname or self._charm.app.name
+        server_name = config.url_origin or f"//{self._charm.app.name}"
         content = template.substitute(
-            wg_server=f'"//{utils.escape_php_string(server_name)}"',
+            wg_server=f'"{utils.escape_php_string(server_name)}"',
         )
         content += textwrap.dedent(f"""
         require_once "{self._user_settings_file}";

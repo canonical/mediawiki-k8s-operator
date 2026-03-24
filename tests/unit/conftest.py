@@ -227,7 +227,7 @@ def populated_config() -> dict[str, bool | float | int | str]:
             """),
         "static-assets-git-repo": "",
         "static-assets-git-ref": "",
-        "hostname": "wiki.example.com:30017",
+        "url-origin": "//wiki.example.com:30017",
         "local-settings": textwrap.dedent("""
             <?php
             $wgDefaultSkin = 'vector2022';

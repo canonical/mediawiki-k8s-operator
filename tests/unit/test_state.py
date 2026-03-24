@@ -20,7 +20,7 @@ class TestCharmConfig:
             "composer": "{}",
             "static_assets_git_repo": "",
             "static_assets_git_ref": "",
-            "hostname": "wiki.example.com",
+            "url_origin": "//wiki.example.com",
             "local_settings": "",
             "robots_txt": "",
         }
@@ -42,31 +42,43 @@ class TestCharmConfig:
             self.make_config(composer="{not-json}")
 
     @pytest.mark.parametrize(
-        "hostname",
+        "url_origin, expected",
         [
-            "wiki.example.com",
-            "wiki.example.com:8080",
-            "192.168.1.10",
-            "[2001:db8::1]:8443",
-            "",
+            ("", ""),
+            ("//wiki.example.com", "//wiki.example.com"),
+            ("//wiki.example.com:8080", "//wiki.example.com:8080"),
+            ("//192.168.1.10", "//192.168.1.10"),
+            ("//[2001:db8::1]:8443", "//[2001:db8::1]:8443"),
+            ("http://wiki.example.com", "http://wiki.example.com"),
+            ("https://wiki.example.com", "https://wiki.example.com"),
+            ("https://wiki.example.com:443", "https://wiki.example.com:443"),
+            ("http://192.168.1.10", "http://192.168.1.10"),
+            (" https://wiki.example.com ", "https://wiki.example.com"),
         ],
     )
-    def test_hostname_accepts_valid_values(self, hostname: str) -> None:
-        config = self.make_config(hostname=hostname)
+    def test_url_origin_accepts_valid_values(self, url_origin: str, expected: str) -> None:
+        config = self.make_config(url_origin=url_origin)
 
-        assert config.hostname == hostname
+        assert config.url_origin == expected
 
     @pytest.mark.parametrize(
-        "hostname, error_match",
+        "url_origin, error_match",
         [
-            ("http://wiki.example.com", "schema or path component"),
-            ("http://192.168.1.10", "schema or path component"),
-            ("wiki.example.com/path", "schema or path component"),
-            ("wiki!.example.com", "Hostname is not a valid"),
-            ("wiki.example.com:notaport", "Failed to validate hostname"),
-            ("wiki.example.com:65536", "Failed to validate hostname"),
+            ("wiki.example.com", "url-origin must be"),
+            ("wiki.example.com:8080", "url-origin must be"),
+            ("ftp://wiki.example.com", "url-origin must be"),
+            ("//wiki.example.com/path", "unexpected components"),
+            ("http://wiki.example.com/path", "unexpected components"),
+            ("//wiki!.example.com", "not valid"),
+            ("//wiki.example.com:65536", "Could not parse"),
+            ("https://wiki.example.com/", "unexpected components"),
+            ("https://wiki.example.com?x=1", "unexpected components"),
+            ("https://wiki.example.com#frag", "unexpected components"),
+            ("https://wiki.example.com#frag", "unexpected components"),
+            ("//user@wiki.example.com", "unexpected components"),
+            ("https://user:pass@wiki.example.com", "unexpected components"),
         ],
     )
-    def test_hostname_rejects_invalid_values(self, hostname: str, error_match: str) -> None:
+    def test_url_origin_rejects_invalid_values(self, url_origin: str, error_match: str) -> None:
         with pytest.raises(ValidationError, match=error_match):
-            self.make_config(hostname=hostname)
+            self.make_config(url_origin=url_origin)

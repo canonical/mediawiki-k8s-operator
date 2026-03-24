@@ -200,9 +200,7 @@ class Charm(StatefulCharmBase):
 
         if self._ingress_requirer.is_ready():
             config = self.load_charm_config()
-            hostname = config.hostname or self.app.name
-            parsed_hostname = urlparse(f"http://{hostname}").hostname
-            traefik_hostname = parsed_hostname or hostname
+            traefik_hostname = urlparse(config.url_origin).hostname or self.app.name
 
             self._ingress_requirer.submit_to_traefik(
                 config={
