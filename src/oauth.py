@@ -20,7 +20,7 @@ class OAuth(Object):
     """The OAuth relation handler."""
 
     _base_scope = frozenset({"openid", "profile", "email"})
-    _grant_types = frozenset({"authorization_code"})
+    _grant_types = frozenset({"authorization_code", "client_credentials", "refresh_token"})
 
     _redirect_page_title = "PluggableAuthLogin"
 
