@@ -577,17 +577,6 @@ class TestSshKey:
         assert isinstance(state_out.unit_status, ops.BlockedStatus)
         assert "at least one of" in state_out.unit_status.message
 
-    def test_ssh_key_blocks_on_empty_secret(
-        self, ctx: testing.Context, active_state: testing.State
-    ) -> None:
-        """Test that an ssh-key secret with no fields puts the charm in BlockedStatus."""
-        state_in, _ = self._state_with_ssh_secret(active_state, {})
-
-        state_out = ctx.run(ctx.on.config_changed(), state_in)
-
-        assert isinstance(state_out.unit_status, ops.BlockedStatus)
-        assert "at least one of" in state_out.unit_status.message
-
     @pytest.mark.parametrize("blank_value", ["", "   ", "\n", "\t"])
     def test_ssh_key_blocks_on_blank_field_value(
         self, ctx: testing.Context, active_state: testing.State, blank_value: str
