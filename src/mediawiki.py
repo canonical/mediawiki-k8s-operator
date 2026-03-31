@@ -569,6 +569,12 @@ class MediaWiki(Object):
             'clientSecret' => '{utils.escape_php_string(provider_info.client_secret)}'""")
         if provider_info.scope:
             scopes = self._oauth.scopes() & set(provider_info.scope.split())
+            unsupported_scopes = self._oauth.scopes() - scopes
+            if unsupported_scopes:
+                logger.warning(
+                    "OAuth provider does not support requested scopes: %s",
+                    ", ".join(sorted(unsupported_scopes)),
+                )
             data_str += f",\n'scope' => '{utils.escape_php_string(' '.join(sorted(scopes)))}'"
         if proxy := self._charm.state.proxy_config:
             if url := proxy.https_proxy_string:
