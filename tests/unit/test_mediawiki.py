@@ -6,12 +6,12 @@ import dataclasses
 import json
 
 import pytest
-import requests
 import scenario
 from ops import testing
 from pytest_mock import MockerFixture, MockType
 
 import database
+import oauth
 import s3
 from charm import Charm
 from exceptions import MediaWikiBlockedStatusException, MediaWikiInstallError
@@ -27,8 +27,9 @@ class WrapperCharm(StatefulCharmBase):
     def __init__(self, *args):
         super().__init__(*args)
         self.database = database.Database(self, "database", Charm._CONTAINER_NAME)
+        self.oauth = oauth.OAuth(self, "oauth")
         self.s3 = s3.S3(self, "s3-parameters")
-        self.mediawiki = MediaWiki(self, self.database, self.s3)
+        self.mediawiki = MediaWiki(self, self.database, self.oauth, self.s3)
 
 
 @pytest.fixture(autouse=True)
@@ -44,6 +45,21 @@ def mock_database(mocker: MockerFixture) -> MockType:
         password="mocked-password",  # nosec: B106
     )
     mock_instance.is_relation_ready.return_value = True
+
+    return mock_instance
+
+
+@pytest.fixture(autouse=True)
+def mock_oauth(mocker: MockerFixture) -> MockType:
+    """Base OAuth class mock.
+
+    By default, makes it so OAuth does nothing.
+    """
+    mock_oauth_cls = mocker.patch("oauth.OAuth", autospec=True)
+    mock_instance = mock_oauth_cls.return_value
+
+    mock_instance.update_client_config.return_value = None
+    mock_instance.get_provider_info.return_value = None
 
     return mock_instance
 
@@ -346,57 +362,6 @@ class TestUpdateDatabaseScheme:
             pytest.raises(MediaWikiInstallError, match="Database schema update failed"),
         ):
             mgr.charm.mediawiki.update_database_schema()
-
-
-class TestGetVersion:
-    def test_success(
-        self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
-    ) -> None:
-        """Test that we can get a version string successfully."""
-        mock_response = mocker.Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"query": {"general": {"generator": "Mocked Version"}}}
-        mock_get = mocker.patch("mediawiki.requests.get", return_value=mock_response)
-
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            assert mgr.charm.mediawiki.get_version() == "mocked-version", (
-                "Did not get expected version string"
-            )
-
-            mock_get.assert_called_once()
-
-    def test_request_failure(
-        self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
-    ) -> None:
-        """Test that we get an exception when the version request fails."""
-        mock_response = mocker.Mock()
-        mock_response.status_code = 500
-        mock_get = mocker.patch("mediawiki.requests.get", return_value=mock_response)
-
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            assert mgr.charm.mediawiki.get_version() == "", (
-                "Did not expect a version string on request failure"
-            )
-
-            mock_get.assert_called_once()
-
-    def test_not_json_response(
-        self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
-    ) -> None:
-        """Test that we handle an unexpected response format gracefully."""
-        mock_response = mocker.Mock()
-        mock_response.status_code = 200
-        mock_response.json.side_effect = requests.exceptions.JSONDecodeError(
-            "Mocked JSON decode error", "", 0
-        )
-        mock_get = mocker.patch("mediawiki.requests.get", return_value=mock_response)
-
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            assert mgr.charm.mediawiki.get_version() == "", (
-                "Did not expect a version string on JSON decode failure"
-            )
-
-            mock_get.assert_called_once()
 
 
 class TestMediaWikiSecrets:

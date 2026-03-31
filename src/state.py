@@ -33,6 +33,7 @@ class CharmConfig(BaseModel):
     static_assets_git_repo: str = Field("")
     static_assets_git_ref: str = Field("")
     url_origin: str = Field("")
+    oauth_extra_scopes: str = Field("")
     local_settings: str = Field("")
     robots_txt: str = Field("")
 

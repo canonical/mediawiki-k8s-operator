@@ -40,6 +40,8 @@ class ExecCmd(enum.Enum):
         "/usr/bin/php",
         "/var/www/html/w/maintenance/run.php",
         "update",
+        "--conf",
+        "/etc/mediawiki/UpdateWrapper.php",
     )
 
     def ran_in(self, exec_history: list) -> bool:

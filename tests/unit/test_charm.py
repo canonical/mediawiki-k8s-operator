@@ -12,6 +12,7 @@ from pytest_mock import MockerFixture, MockType
 
 from charm import Charm
 from exceptions import MediaWikiBlockedStatusException, MediaWikiInstallError
+from mediawiki_api import SiteInfo
 
 
 @pytest.fixture(autouse=True)
@@ -25,9 +26,25 @@ def mock_mediawiki(mocker: MockerFixture) -> MockType:
     mock_instance.reconciliation.return_value = None
     mock_instance.rotate_root_credentials.return_value = ("mocked-root", "mocked-password")
     mock_instance.update_database_schema.return_value = None
-    mock_instance.get_version.return_value = "1.39.0"
 
     return mock_instance
+
+
+@pytest.fixture(autouse=True)
+def mock_site_info(mocker: MockerFixture) -> SiteInfo:
+    """Mock SiteInfo.fetch to return a SiteInfo with default test data."""
+    info = SiteInfo(
+        {
+            "general": {
+                "generator": "MediaWiki 1.45.0",
+                "server": "http://localhost",
+                "articlepath": "/wiki/$1",
+            },
+            "namespaces": {"-1": {"name": "Special"}},
+        }
+    )
+    mocker.patch.object(SiteInfo, "fetch", return_value=info)
+    return info
 
 
 class TestGeneralEvents:

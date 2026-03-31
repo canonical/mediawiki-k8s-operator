@@ -1,7 +1,15 @@
 {
     "require": {
-        "edwardspec/mediawiki-aws-s3": "0.14.*"
+        "edwardspec/mediawiki-aws-s3": "0.14.*",
+        "mediawiki/pluggable-auth": "dev-REL1_45",
+        "mediawiki/openidconnect": "dev-REL1_45"
     },
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://gerrit.wikimedia.org/r/mediawiki/extensions/OpenIDConnect.git"
+        }
+    ],
     "extra": {
         "merge-plugin": {
             "include": [

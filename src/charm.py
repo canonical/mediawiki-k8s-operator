@@ -33,6 +33,8 @@ from exceptions import (
     MediaWikiWaitingStatusException,
 )
 from mediawiki import MediaWiki, MediaWikiSecrets
+from mediawiki_api import SiteInfo
+from oauth import OAuth
 from s3 import S3
 from state import StatefulCharmBase
 
@@ -51,6 +53,7 @@ class Charm(StatefulCharmBase):
 
     _INGRESS_RELATION_NAME = "traefik-route"
 
+    _OAUTH_RELATION_NAME = "oauth"
     _S3_RELATION_NAME = "s3-parameters"
 
     _PEER_RELATION_NAME = "mediawiki-replica"
@@ -66,27 +69,41 @@ class Charm(StatefulCharmBase):
         super().__init__(*args)
 
         self._database = Database(self, self._DATABASE_RELATION_NAME, self._DATABASE_NAME)
+        self._oauth = OAuth(self, self._OAUTH_RELATION_NAME)
         self._s3 = S3(self, self._S3_RELATION_NAME)
-        self._mediawiki = MediaWiki(self, self._database, self._s3)
+        self._mediawiki = MediaWiki(self, self._database, self._oauth, self._s3)
+
+        self._ingress_requirer = TraefikRouteRequirer(
+            self,
+            self.model.get_relation(self._INGRESS_RELATION_NAME),  # type: ignore[arg-type]  # https://github.com/canonical/traefik-k8s-operator/issues/448
+            relation_name=self._INGRESS_RELATION_NAME,
+        )
 
         self.framework.observe(self.on.leader_elected, self._setup_replica_data)
-        self.framework.observe(self.on.mediawiki_pebble_ready, self._reconciliation)
-        self.framework.observe(self._database.db.on.database_created, self._reconciliation)
-        self.framework.observe(self._database.db.on.endpoints_changed, self._reconciliation)
-        self.framework.observe(
-            self.on[self._DATABASE_RELATION_NAME].relation_broken, self._reconciliation
-        )
-        self.framework.observe(self._s3.s3.on.credentials_changed, self._reconciliation)
-        self.framework.observe(self._s3.s3.on.credentials_gone, self._reconciliation)
-        self.framework.observe(self.on.traefik_route_relation_joined, self._reconciliation)
-        self.framework.observe(self.on.traefik_route_relation_changed, self._reconciliation)
-        self.framework.observe(self.on.traefik_route_relation_broken, self._reconciliation)
-        self.framework.observe(self.on.config_changed, self._reconciliation)
-        self.framework.observe(self.on.secret_changed, self._reconciliation)
-        self.framework.observe(
-            self.on[self._PEER_RELATION_NAME].relation_changed, self._reconciliation
-        )
 
+        # Reconciliation events
+        reconciliation_events = [
+            self.on.mediawiki_pebble_ready,
+            self._database.db.on.database_created,
+            self._database.db.on.endpoints_changed,
+            self.on[self._DATABASE_RELATION_NAME].relation_broken,
+            self.on[self._OAUTH_RELATION_NAME].relation_created,
+            self.on[self._OAUTH_RELATION_NAME].relation_changed,
+            self._oauth.oauth.on.oauth_info_changed,
+            self._oauth.oauth.on.oauth_info_removed,
+            self._s3.s3.on.credentials_changed,
+            self._s3.s3.on.credentials_gone,
+            self.on.traefik_route_relation_joined,
+            self.on.traefik_route_relation_changed,
+            self.on.traefik_route_relation_broken,
+            self.on.config_changed,
+            self.on.secret_changed,
+            self.on[self._PEER_RELATION_NAME].relation_changed,
+        ]
+        for event in reconciliation_events:
+            self.framework.observe(event, self._reconciliation)
+
+        # Actions
         self.framework.observe(
             self.on.rotate_root_credentials_action, self._on_rotate_root_credentials
         )
@@ -188,12 +205,8 @@ class Charm(StatefulCharmBase):
 
         TODO: Switch to ingress once gateway-api-integrator supports an upstream ingress, or once connecting directly to HAProxy is viable.
         """
-        route_relation = self.model.get_relation(self._INGRESS_RELATION_NAME)
-        if route_relation is None:
+        if self.model.get_relation(self._INGRESS_RELATION_NAME) is None:
             return
-        self._ingress_requirer = TraefikRouteRequirer(
-            self, route_relation, relation_name=self._INGRESS_RELATION_NAME
-        )
 
         if not self.unit.is_leader():
             return
@@ -240,7 +253,7 @@ class Charm(StatefulCharmBase):
         if not self._container.get_service(self._SERVICE_NAME).is_running():
             self._container.start(self._SERVICE_NAME)
 
-        self.unit.set_workload_version(self._mediawiki.get_version())
+        self.unit.set_workload_version(SiteInfo.fetch().version)
 
     def _stop_service(self) -> None:
         """Stop the MediaWiki service (apache)."""
@@ -372,6 +385,7 @@ class Charm(StatefulCharmBase):
         - Flag the unit as being in read-only mode if the database was set to read-only mode.
         - Trigger the database reconciliation process.
         - Start the MediaWiki service if it is not running.
+        - Configure OAuth if necessary.
         - Set the unit status to an appropriate state depending on the outcome of the above actions.
 
         Args:
@@ -399,6 +413,9 @@ class Charm(StatefulCharmBase):
             replica_data[self.unit][self._RO_DATABASE_FLAG] = str(set_ro_database).lower()
             self._database_reconciliation()
             self._start_service()
+
+            self._oauth.update_client_config()
+
         except MediaWikiStatusException as e:
             logger.info("Reconciliation process terminated early, status exception raised: %s", e)
             self.unit.status = e.status

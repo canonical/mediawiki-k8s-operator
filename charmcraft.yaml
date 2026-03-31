@@ -18,11 +18,13 @@ platforms:
   amd64:
 
 charm-libs:
-  - lib: traefik_k8s.traefik_route
-    version: "0"
   - lib: data_platform_libs.data_interfaces
     version: "0"
   - lib: data_platform_libs.s3
+    version: "0"
+  - lib: hydra.oauth
+    version: "0"
+  - lib: traefik_k8s.traefik_route
     version: "0"
 
 config:
@@ -113,6 +115,15 @@ config:
         If not specified, the charm will fall back to the application name. '$wgServer' may be overridden with the `local-settings` configuration option.
       type: string
 
+    oauth-extra-scopes:
+      description: >
+        Additional OAuth/OIDC scopes to request from the identity provider, as a space-separated string.
+
+        The charm always requests 'openid', 'profile', and 'email'. Use this option to request additional scopes beyond those defaults.
+
+        For example: 'groups roles offline_access'
+      type: string
+
     local-settings:
       description: >
         The contents of a LocalSettings.php like file to customize MediaWiki configuration on top of what is provided by default. These settings will be inserted into the base
@@ -165,6 +176,10 @@ requires:
   database:
     interface: mysql_client
     limit: 1
+  oauth:
+    interface: oauth
+    limit: 1
+    optional: true
   s3-parameters:
     interface: s3
     limit: 1
