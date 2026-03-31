@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add initial documentation on supported relation endpoints
+  author: hk21702
+  type: minor
+  description: Add initial documentation on supported relation endpoints for the charm.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/38"
+  visibility: public
+  highlight: false

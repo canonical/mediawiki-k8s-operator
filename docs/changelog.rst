@@ -17,3 +17,4 @@ Each revision is versioned by the date of the revision.
 
 - Prepared documentation for Read the Docs deployment.
 - Migrated documentation to use RST.
+- Add reference documentation page on supported relation endpoints.

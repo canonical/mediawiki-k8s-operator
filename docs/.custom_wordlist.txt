@@ -82,3 +82,4 @@ preconfigured
 venv
 rtd
 Wikimedia
+OAuth

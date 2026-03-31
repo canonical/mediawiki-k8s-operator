@@ -1,2 +1,4 @@
 Wikimedia
 MediaWiki
+OAuth
+mysql-k8s
