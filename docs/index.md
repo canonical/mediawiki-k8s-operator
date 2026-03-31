@@ -23,20 +23,19 @@ This charm will make operating [MediaWiki][mediawiki-url] simple and straightfor
 
 ## In this documentation
 
-| | |
-|--|--|
-|  [Tutorials](link to tutorial)</br>  Get started - a hands-on introduction to using the charm for new users </br> |  [How-to guides](link to how-to guide) </br> Step-by-step guides covering key operations and common tasks |
-| [Reference](link to reference) </br> Technical information - specifications, APIs, architecture | [Explanation](link to explanation) </br> Concepts - discussion and clarification of key topics  |
+TODO...
 
 ## Contributing to this documentation
 
 Documentation is an important part of this project, and we take the same open-source approach
 to the documentation as the code. As such, we welcome community contributions, suggestions, and
 constructive feedback on our documentation.
-See [How to contribute](link to contribute page) for more information.
+<!-- TODO: -->
+<!-- See [How to contribute](link to contribute page) for more information. -->
 
-If there's a particular area of documentation that you'd like to see that's missing, please
-[file a bug](link to issues page).
+<!-- TODO: -->
+<!-- If there's a particular area of documentation that you'd like to see that's missing, please -->
+<!-- [file a bug](link to issues page). -->
 
 ## Project and community
 
@@ -46,16 +45,21 @@ projects, contributions, suggestions, fixes, and constructive feedback.
 * [Code of conduct](https://ubuntu.com/community/code-of-conduct)
 * [Get support](https://discourse.charmhub.io/)
 * [Join our online chat](https://matrix.to/#/#charmhub-charmdev:ubuntu.com)
-* [Contribute](link to Contribute page)
+<!-- TODO: -->
+<!-- * [Contribute](link to Contribute page) -->
 
 Thinking about using the MediaWiki Operator for your next project?
 [Get in touch](https://matrix.to/#/#charmhub-charmdev:ubuntu.com)!
 
-# Contents
-
-1. [Tutorial](link to tutorial)
-1. [How-to](link to how-to)
-1. [Reference](link to reference)
-1. [Explanation](link to explanation)
-
 [mediawiki-url]: https://www.mediawiki.org
+
+
+```{toctree}
+:hidden:
+:maxdepth: 2
+
+MediaWiki <self>
+How-to guides </how-to/index>
+Reference </reference/index>
+Explanation </explanation/index>
+```
