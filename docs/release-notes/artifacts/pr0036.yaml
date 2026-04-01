@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Fix codespell check due to documentation files
+  author: hk21702
+  type: minor
+  description: Fix failing codespell check due to documentation files.
+  urls:
+    pr:
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/36"
+  visibility: internal
+  highlight: false
