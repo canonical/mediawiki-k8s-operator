@@ -8,7 +8,6 @@ import textwrap
 from typing import Generator
 
 import pytest
-import scenario  # testing.Container isn't namespaced correctly, so we import scenario directly
 import yaml
 from mysql.connector.abstracts import MySQLConnectionAbstract
 from ops import testing
@@ -65,7 +64,7 @@ def ctx() -> testing.Context:
 
 @pytest.fixture
 def base_state(
-    mediawiki_container: scenario.Container, secrets: list[testing.Secret]
+    mediawiki_container: testing.Container, secrets: list[testing.Secret]
 ) -> testing.State:
     return testing.State(
         containers=[mediawiki_container],
@@ -113,9 +112,9 @@ def container_mounts(tmp_path):
 @pytest.fixture
 def mediawiki_container(
     execs: set[testing.Exec], container_mounts: dict[str, testing.Mount]
-) -> scenario.Container:
+) -> testing.Container:
     """Return a base MediaWiki container for testing."""
-    return scenario.Container(
+    return testing.Container(
         name=Charm._CONTAINER_NAME,
         can_connect=True,
         execs=execs,

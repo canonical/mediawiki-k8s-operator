@@ -24,6 +24,7 @@ changes:
         - "https://github.com/canonical/mediawiki-k8s-operator/pull/22"
         - "https://github.com/canonical/mediawiki-k8s-operator/pull/24"
         - "https://github.com/canonical/mediawiki-k8s-operator/pull/26"
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/28"
         - "https://github.com/canonical/mediawiki-k8s-operator/pull/30"
     visibility: public
     highlight: true

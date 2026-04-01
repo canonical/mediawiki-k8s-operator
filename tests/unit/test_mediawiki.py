@@ -6,7 +6,6 @@ import dataclasses
 import json
 
 import pytest
-import scenario
 from ops import testing
 from pytest_mock import MockerFixture, MockType
 
@@ -247,7 +246,7 @@ class TestReconciliation:
         self,
         ctx: testing.Context,
         configured_state: testing.State,
-        mediawiki_container: scenario.Container,
+        mediawiki_container: testing.Container,
     ) -> None:
         """Test that when composer update fails, composer.user.json exists but does not match the config."""
         execs = {
@@ -312,7 +311,7 @@ class TestRotateRootCredentials:
         self,
         ctx: testing.Context,
         active_state: testing.State,
-        mediawiki_container: scenario.Container,
+        mediawiki_container: testing.Container,
     ) -> None:
         """Test that we get a correct exception when createAndPromote fails."""
         execs = {
@@ -343,7 +342,7 @@ class TestUpdateDatabaseScheme:
         self,
         ctx: testing.Context,
         active_state: testing.State,
-        mediawiki_container: scenario.Container,
+        mediawiki_container: testing.Container,
     ) -> None:
         """Test that we get a correct exception when update-database fails."""
         execs = {

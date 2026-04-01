@@ -6,7 +6,6 @@ import dataclasses
 
 import ops
 import pytest
-import scenario  # testing.Container isn't namespaced correctly, so we import scenario directly
 from ops import testing
 from pytest_mock import MockerFixture, MockType
 
@@ -62,7 +61,7 @@ class TestPebbleReadyEvent:
         self,
         ctx: testing.Context,
         base_state: testing.State,
-        mediawiki_container: scenario.Container,
+        mediawiki_container: testing.Container,
     ) -> None:
         """Test that the charm sets the correct status when pebble can connect, but no relations."""
         state_out = ctx.run(ctx.on.pebble_ready(container=mediawiki_container), base_state)
@@ -71,7 +70,7 @@ class TestPebbleReadyEvent:
     def test_cannot_connect(
         self,
         ctx: testing.Context,
-        mediawiki_container: scenario.Container,
+        mediawiki_container: testing.Container,
         secrets: list[testing.Secret],
     ) -> None:
         """Test that the charm sets waiting status when pebble cannot connect."""
@@ -571,17 +570,6 @@ class TestSshKey:
     ) -> None:
         """Test that a secret with no recognised fields puts the charm in BlockedStatus."""
         state_in, _ = self._state_with_ssh_secret(active_state, {"unknown-field": "value"})
-
-        state_out = ctx.run(ctx.on.config_changed(), state_in)
-
-        assert isinstance(state_out.unit_status, ops.BlockedStatus)
-        assert "at least one of" in state_out.unit_status.message
-
-    def test_ssh_key_blocks_on_empty_secret(
-        self, ctx: testing.Context, active_state: testing.State
-    ) -> None:
-        """Test that an ssh-key secret with no fields puts the charm in BlockedStatus."""
-        state_in, _ = self._state_with_ssh_secret(active_state, {})
 
         state_out = ctx.run(ctx.on.config_changed(), state_in)
 

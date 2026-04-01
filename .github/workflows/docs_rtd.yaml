@@ -1,3 +1,5 @@
+name: Documentation (Read the Docs)
+
 on:
   pull_request:
 
