@@ -70,15 +70,6 @@ Metrics
    Inside the above mentioned containers, additional Pebble layers are defined in order to provide metrics.
    See (link-to-metrics-document) for more information.
 
-Juju events
------------
-
-.. vale Canonical.004-Canonical-product-names = NO
-
-See :ref:`reference_juju_events`.
-
-.. vale Canonical.004-Canonical-product-names = YES
-
 Charm code overview
 -------------------
 

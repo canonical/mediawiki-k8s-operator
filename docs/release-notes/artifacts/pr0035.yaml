@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add basic documentation
+  author: hk21702
+  type: minor
+  description: Add basic documentation for the charm.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/35"
+  visibility: internal
+  highlight: false

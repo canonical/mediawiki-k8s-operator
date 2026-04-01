@@ -10,28 +10,23 @@ MediaWiki operator
 
 .. vale Canonical.007-Headings-sentence-case = YES
 
-.. TODO: A single sentence that says what the product is, succinctly and memorably.
-   Add a 1-2 sentence description of what the charm software does.
-
 A `Juju <https://juju.is/>`_ `charm <https://documentation.ubuntu.com/juju/3.6/reference/charm/>`_
-deploying and managing `MediaWiki`_ on Kubernetes. 
-
-.. TODO: A paragraph of 2-5 short sentences, that describes what the product does
-   and what need the product meets.
+deploying and managing `MediaWiki`_ on Kubernetes.
+MediaWiki is a free and open-source wiki software developed by the Wikimedia Foundation, the host of Wikipedia.
 
 Like any Juju charm, this charm supports one-line deployment, configuration, integration,
 scaling, and more. 
 For MediaWiki, this includes:
 
-* list or summary of app-specific features
+* Direct access to MediaWiki's basic configuration settings
+* S3 backed object storage for redundant storage of file uploads
+* Integration with SSO
 
 The MediaWiki charm allows for deployment on many different Kubernetes platforms,
 from `MicroK8s <https://microk8s.io/>`_ to 
 `Charmed Kubernetes <https://ubuntu.com/kubernetes>`_ to public cloud Kubernetes offerings.
 
-.. TODO: Finally, a paragraph that describes whom the product is useful for.
-
-This charm will make operating `MediaWiki`_ simple and straightforward for DevOps or
+This charm will make operating MediaWiki simple and straightforward for DevOps or
 SRE teams through Juju's clean interface. 
 
 In this documentation
@@ -43,31 +38,28 @@ Get started
 Learn about what's in the charm, step through a basic deployment, and perform some common operations.
 
 - **Learn, try, and plan**: :ref:`Guided tutorial <tutorial_index>` • :ref:`High-level deployment <reference_high_level_deployment>` 
-- **Deploy and configure**: Relevant how-to guides (related to initial setup, configurations, and customization) • :ref:`Relation endpoints <reference_relation_endpoints>`
-- **Observe, maintain, and update**: Relevant how-to guides (examples: integrate with COS, backup/restore, redeploy, upgrade) • :ref:`Metrics <reference_metrics>`
+- **Deploy and configure**: :ref:`Relation endpoints <reference_relation_endpoints>`
+- **Observe, maintain, and update**: :ref:`Metrics <reference_metrics>`
 
 Dive deeper
 ^^^^^^^^^^^
 
 Learn more about operations focused on advanced configurations and security.
 
-.. TODO: Use the items below as a starting place.
-   You don't need to include all of the items if they're not relevant to the charm
-   or if the docs don't exist. Use the "Charm-specific topic" point to highlight any 
-   major selling points of the charm.
+.. - **Advanced operations**: Relevant how-to guides • Relevant reference pages 
+.. - **Charm-specific topic**: Relevant how-to guides • Relevant reference pages
+.. - **Security**: Overview • Relevant how-to guides • Relevant reference pages
+.. - **Design**: Architecture • Design
 
-- **Advanced operations**: Relevant how-to guides • Relevant reference pages 
-- **Charm-specific topic**: Relevant how-to guides • Relevant reference pages
-- **Security**: Overview • Relevant how-to guides • Relevant reference pages
-- **Design**: Architecture • Design
-- **Troubleshooting**: :ref:`How to troubleshoot <how_to_troubleshoot>` • Other relevant how-to or reference guides
+- **Troubleshooting**: :ref:`How to troubleshoot <how_to_troubleshoot>`
 
 Develop and contribute
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-- **Development**: Terraform-related docs (if applicable) • Developer-related docs (if applicable)
+.. - **Development**: Terraform-related docs (if applicable) • Developer-related docs (if applicable)
+
 - **Learn more about the charm**: :ref:`Design <explanation_charm_design>` • :ref:`Releases <release_notes_index>` • :ref:`changelog`
-- Get involved: :ref:`Contribute to the documentation <how_to_contribute>` • Contribute to the source code (link to CONTRIBUTING.md)
+- Get involved: :ref:`Contribute to the documentation <how_to_contribute>` • `Contribute to the source code <CONTRIBUTING.md_>`_
 
 How this documentation is organized
 ------------------------------------
@@ -89,9 +81,7 @@ constructive feedback on our documentation.
 See :ref:`How to contribute <how_to_contribute>` for more information.
 
 If there's a particular area of documentation that you'd like to see that's missing, please 
-file a bug.
-
-.. TODO: Add link to GitHub issues page for "file a bug"
+`file a bug`_.
 
 Project and community
 ---------------------

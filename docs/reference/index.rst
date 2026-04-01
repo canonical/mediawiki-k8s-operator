@@ -30,7 +30,6 @@ including actions, configurations, and integrations.
     Actions <actions>
     Configurations <configurations>
     Relation endpoints <relation-endpoints>
-    Juju events <juju-events>
     Metrics <metrics>
 
 .. vale Canonical.004-Canonical-product-names = YES
@@ -52,13 +51,12 @@ Advanced topics
 ---------------
 
 These pages provide more details about advanced-level topics such
-as Terraform and cryptography.
+as Terraform.
 
 .. toctree::
     :hidden:
     :maxdepth: 1
 
-    Cryptographic overview <cryptographic-overview>
     Terraform <terraform>
 
 Other

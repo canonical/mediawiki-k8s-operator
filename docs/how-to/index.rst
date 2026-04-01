@@ -41,7 +41,6 @@ including backup and redeployment processes.
     :hidden:
     :maxdepth: 1
 
-    Back up and restore <back-up-restore>
     Redeploy <redeploy>
     Upgrade <upgrade>
 

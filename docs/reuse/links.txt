@@ -45,5 +45,7 @@
 .. SHORTCUTS
 .. |RST| replace:: :abbr:`reST (reStructuredText)`
 
-
+.. _CONTRIBUTING.md: https://github.com/canonical/mediawiki-k8s-operator/blob/main/CONTRIBUTING.md
+.. _file a bug: https://github.com/canonical/mediawiki-k8s-operator/issues
 .. _MediaWiki: https://www.mediawiki.org
+.. _Read the Docs: https://about.readthedocs.com/
