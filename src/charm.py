@@ -10,6 +10,7 @@ import typing
 from urllib.parse import urlparse
 
 import ops
+from charms.redis_k8s.v0.redis import RedisRelationCharmEvents
 from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
 from ops import (
     ActionEvent,
@@ -35,6 +36,7 @@ from exceptions import (
 from mediawiki import MediaWiki, MediaWikiSecrets
 from mediawiki_api import SiteInfo
 from oauth import OAuth
+from redis import Redis
 from s3 import S3
 from state import StatefulCharmBase
 
@@ -47,6 +49,7 @@ class Charm(StatefulCharmBase):
 
     _CONTAINER_NAME = "mediawiki"
     _SERVICE_NAME = "mediawiki"
+    _REDIS_JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
 
     _DATABASE_RELATION_NAME = "database"
     _DATABASE_NAME = "mediawiki"
@@ -54,6 +57,7 @@ class Charm(StatefulCharmBase):
     _INGRESS_RELATION_NAME = "traefik-route"
 
     _OAUTH_RELATION_NAME = "oauth"
+    _REDIS_RELATION_NAME = "redis"
     _S3_RELATION_NAME = "s3-parameters"
 
     _PEER_RELATION_NAME = "mediawiki-replica"
@@ -65,13 +69,16 @@ class Charm(StatefulCharmBase):
     _SSH_KEY_GIT_SYNC_FIELD = "git-sync"
     _SSH_KEY_FIELDS = frozenset({_SSH_KEY_MEDIAWIKI_FIELD, _SSH_KEY_GIT_SYNC_FIELD})
 
+    on = RedisRelationCharmEvents()  # pyright: ignore[reportAssignmentType,reportIncompatibleMethodOverride]
+
     def __init__(self, *args: typing.Any):
         super().__init__(*args)
 
         self._database = Database(self, self._DATABASE_RELATION_NAME, self._DATABASE_NAME)
         self._oauth = OAuth(self, self._OAUTH_RELATION_NAME)
+        self._redis = Redis(self, self._REDIS_RELATION_NAME)
         self._s3 = S3(self, self._S3_RELATION_NAME)
-        self._mediawiki = MediaWiki(self, self._database, self._oauth, self._s3)
+        self._mediawiki = MediaWiki(self, self._database, self._oauth, self._redis, self._s3)
 
         self._ingress_requirer = TraefikRouteRequirer(
             self,
@@ -91,6 +98,7 @@ class Charm(StatefulCharmBase):
             self.on[self._OAUTH_RELATION_NAME].relation_changed,
             self._oauth.oauth.on.oauth_info_changed,
             self._oauth.oauth.on.oauth_info_removed,
+            self.on.redis_relation_updated,
             self._s3.s3.on.credentials_changed,
             self._s3.s3.on.credentials_gone,
             self.on.traefik_route_relation_joined,
@@ -117,6 +125,8 @@ class Charm(StatefulCharmBase):
     def _init_pebble_layer(self) -> None:
         """Initialize the Pebble layer for the MediaWiki container."""
         health_check_timeout = 5
+        php_path = "/usr/bin/php"
+        job_runner_service_dir = "/opt/redis-job-runner-service"
         layer: pebble.LayerDict = {
             "summary": "mediawiki layer",
             "description": "Pebble layer configuration for MediaWiki",
@@ -125,7 +135,15 @@ class Charm(StatefulCharmBase):
                     "override": "replace",
                     "summary": "MediaWiki service (apache)",
                     "command": "/usr/sbin/apache2ctl -D FOREGROUND",
-                }
+                },
+                **{
+                    service: {
+                        "override": "replace",
+                        "summary": f"MediaWiki {service}",
+                        "command": f"{php_path} {job_runner_service_dir}/{service} --config-file={self._mediawiki.JOB_RUNNER_CONFIG_PATH}",
+                    }
+                    for service in self._REDIS_JOB_SERVICES
+                },
             },
             "checks": {
                 "mediawiki-api-ready": {
@@ -243,8 +261,13 @@ class Charm(StatefulCharmBase):
                 f"Waiting for {self._INGRESS_RELATION_NAME} relation to be ready"
             )
 
-    def _start_service(self) -> None:
-        """Start the MediaWiki service (apache)."""
+    def _reconcile_services(self) -> None:
+        """Reconcile the MediaWiki services.
+
+        The main MediaWiki (apache) service is always started.
+        Job runner services are started or stopped depending on whether Redis
+        is available and the job runner configuration file exists.
+        """
         container = self._container
         if not container.can_connect():
             raise MediaWikiWaitingStatusException("Waiting for pebble")
@@ -253,20 +276,33 @@ class Charm(StatefulCharmBase):
         if not self._container.get_service(self._SERVICE_NAME).is_running():
             self._container.start(self._SERVICE_NAME)
 
+        if self._mediawiki.runner_queue_service_is_ready():
+            for service in self._REDIS_JOB_SERVICES:
+                if not container.get_service(service).is_running():
+                    container.start(service)
+        else:
+            for service in self._REDIS_JOB_SERVICES:
+                if (
+                    service in container.get_plan().services
+                    and container.get_service(service).is_running()
+                ):
+                    container.stop(service)
+
         self.unit.set_workload_version(SiteInfo.fetch().version)
 
     def _stop_service(self) -> None:
-        """Stop the MediaWiki service (apache)."""
+        """Stop the MediaWiki services."""
         container = self._container
         if not container.can_connect():
             logger.info("Cannot connect to pebble to stop service; pebble is not ready")
             return
 
-        if (
-            self._SERVICE_NAME in container.get_plan().services
-            and container.get_service(self._SERVICE_NAME).is_running()
-        ):
-            container.stop(self._SERVICE_NAME)
+        for service in (self._SERVICE_NAME, *self._REDIS_JOB_SERVICES):
+            if (
+                service in container.get_plan().services
+                and container.get_service(service).is_running()
+            ):
+                container.stop(service)
 
     def _ssh_key(self, field: str) -> typing.Optional[str]:
         """Get an SSH private key from the configured user secret by field name.
@@ -412,7 +448,7 @@ class Charm(StatefulCharmBase):
             )
             replica_data[self.unit][self._RO_DATABASE_FLAG] = str(set_ro_database).lower()
             self._database_reconciliation()
-            self._start_service()
+            self._reconcile_services()
 
             self._oauth.update_client_config()
 

@@ -30,7 +30,6 @@ parts:
       # Caching
       - php-apcu
       - php-igbinary
-      - php-redis
       # Charm Reqs
       - php-cli
       - git
@@ -125,6 +124,36 @@ parts:
       cp -R . $CRAFT_PART_INSTALL
     organize:
       mediawiki_install_dir: /var/www/html/w
+
+  # https://www.mediawiki.org/wiki/Redis
+  redis-job-runner-service:
+    plugin: nil
+    source: https://github.com/wikimedia/mediawiki-services-jobrunner
+    source-type: git
+    source-commit: 078cf6b1b02d4c86279364940fdd5be578698ebc
+    overlay-packages:
+      - php-json
+      - php-mbstring
+      - php-redis
+      - php-xml
+    build-packages:
+      - composer
+      - php-redis
+      - php-xml
+    override-build: |
+      craftctl default
+
+      COMPOSER_ALLOW_SUPERUSER=1 \
+      composer update --no-dev -n -d "${CRAFT_PART_BUILD}"
+
+      # Wikimedia deployment tool config that we don't need
+      rm -rfv ${CRAFT_PART_BUILD}/scap
+
+      chmod -R go-w "${CRAFT_PART_BUILD}"
+
+      cp -R . ${CRAFT_PART_INSTALL}
+    organize:
+      "*": /opt/redis-job-runner-service/
 
   # Compose MediaWiki extensions
   compose-extensions:

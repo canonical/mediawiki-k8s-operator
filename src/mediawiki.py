@@ -25,6 +25,7 @@ from exceptions import (
     MediaWikiWaitingStatusException,
 )
 from oauth import OAuth
+from redis import Redis
 from s3 import S3
 from state import CharmConfig, StatefulCharmBase
 from types_ import CommandExecResult, PhpTemplate
@@ -53,6 +54,9 @@ class MediaWiki(Object):
     # during schema updates, regardless of whether they are configured.
     _BUNDLED_EXTENSIONS = ("PluggableAuth", "OpenIDConnect")
 
+    _SECURE_SETTINGS_BASE_PATH = "/etc/mediawiki"
+    JOB_RUNNER_CONFIG_PATH = _SECURE_SETTINGS_BASE_PATH + "/JobRunnerConfig.json"
+
     # Template paths
     _local_settings_template_file = (
         LocalPath(__file__).parent / "templates" / "LocalSettings.php.template"
@@ -61,11 +65,19 @@ class MediaWiki(Object):
         LocalPath(__file__).parent / "templates" / "LateSettings.php.template"
     )
 
-    def __init__(self, charm: StatefulCharmBase, database: Database, oauth: OAuth, s3: S3):
+    def __init__(
+        self,
+        charm: StatefulCharmBase,
+        database: Database,
+        oauth: OAuth,
+        redis: Redis,
+        s3: S3,
+    ):
         self._charm = charm
         self._container = self._charm.unit.get_container("mediawiki")
         self._database = database
         self._oauth = oauth
+        self._redis = redis
         self._s3 = s3
 
         self._webroot_path = ContainerPath("/var/www/html", container=self._container)
@@ -84,6 +96,9 @@ class MediaWiki(Object):
         self._user_settings_file = self._secure_settings_base_path / "UserSettings.php"
         self._late_settings_file = self._secure_settings_base_path / "LateSettings.php"
         self._update_wrapper_file = self._secure_settings_base_path / "UpdateWrapper.php"
+        self._job_runner_config = ContainerPath(
+            self.JOB_RUNNER_CONFIG_PATH, container=self._container
+        )
 
         # Script paths
         self._composer_path = ContainerPath("/usr/bin/composer", container=self._container)
@@ -205,6 +220,13 @@ class MediaWiki(Object):
             raise MediaWikiInstallError("Database schema update failed; see logs for details.")
         else:
             logger.info("Database schema update output:\n%s", result.stdout)
+
+    def runner_queue_service_is_ready(self) -> bool:
+        """Returns whether or not the runner queue services should be enabled."""
+        if (not self._redis.is_relation_available()) or (not self._redis.get_endpoint()):
+            return False
+
+        return self._job_runner_config.exists()
 
     def _ssh_config_reconciliation(self, ssh_key: Optional[str]) -> None:
         """Configure the SSH environment for the webroot_owner user.
@@ -380,6 +402,7 @@ class MediaWiki(Object):
         content += self._get_proxy_settings()
         content += self._get_database_settings()
         content += self._get_oauth_settings()
+        content += self._get_cache_settings()
 
         s3_config_error: Optional[MediaWikiBlockedStatusException] = None
         try:
@@ -395,10 +418,6 @@ class MediaWiki(Object):
             content += "$wgReadOnly = $adminTask ? false : 'Ongoing database update';\n"
         else:
             content += "$wgAllowSchemaUpdates = false;\n"
-
-        # Todo: Redis support
-        content += "$wgMainCacheType = CACHE_NONE;\n"  # DB can be slower than None https://www.mediawiki.org/wiki/Manual:$wgMainCacheType
-        content += "$wgSessionCacheType = CACHE_DB;\n"  # Sessions need to be guaranteed between units, DB is safer while we don't have Redis.
 
         for key, value in secrets.to_local_settings().items():
             content += f"{key} = '{utils.escape_php_string(value)}';\n"
@@ -614,6 +633,97 @@ class MediaWiki(Object):
             """
         )
 
+        return content + "\n"
+
+    def _get_cache_settings(self) -> str:
+        """Get the current cache settings as a string, to be inserted into a PHP file.
+        This also updates the job runner configuration as needed.
+
+        Returns:
+            str: The cache settings formatted as a PHP string.
+        """
+        if (not self._redis.is_relation_available()) or (
+            not (endpoint := self._redis.get_endpoint())
+        ):
+            logger.debug(
+                "Redis relation is not available or incomplete, using default cache settings."
+            )
+            self._job_runner_config.unlink(missing_ok=True)
+            return (
+                textwrap.dedent("""
+                $wgMainCacheType = CACHE_NONE;
+                $wgSessionCacheType = CACHE_DB;
+                """)
+                + "\n"
+            )
+
+        job_runner_config = {
+            "groups": {
+                "basic": {
+                    "runners": 19,
+                    "include": ["*"],
+                    "low-priority": ["htmlCacheUpdate", "refreshLinks"],
+                    "exclude": [
+                        "AssembleUploadChunks",
+                        "PublishStashedFile",
+                        "uploadFromUrl",
+                        "webVideoTranscode",
+                        "webVideoTranscodePrioritized",
+                    ],
+                },
+                "transcode": {"runners": 0, "include": ["webVideoTranscode"]},
+                "priorityTranscode": {"runners": 0, "include": ["webVideoTranscodePrioritized"]},
+                "upload": {
+                    "runners": 7,
+                    "include": ["AssembleUploadChunks", "PublishStashedFile", "uploadFromUrl"],
+                },
+            },
+            "limits": {
+                "attempts": {"*": 3},
+                "claimTTL": {
+                    "*": 3600,
+                    "webVideoTranscode": 86400,
+                    "webVideoTranscodePrioritized": 86400,
+                },
+                "real": {
+                    "*": 300,
+                    "webVideoTranscode": 86400,
+                    "webVideoTranscodePrioritized": 86400,
+                },
+                "memory": {"*": "300M"},
+            },
+            "redis": {
+                "aggregators": [endpoint],
+                "queues": [endpoint],
+            },
+            "dispatcher": f"{self._php_cli_path} {self._maintenance_scripts_base_path / 'run.php'} runJobs --wiki=%(db)x --type=%(type)x --maxtime=%(maxtime)x --memory-limit=%(maxmem)x --result=json",
+        }
+        self._job_runner_config.write_text(
+            json.dumps(job_runner_config, indent=4),
+            mode=0o640,
+            user=self._ROOT_USER_NAME,
+            group=self._DAEMON_GROUP,
+        )
+
+        # https://www.mediawiki.org/wiki/Redis
+        content = textwrap.dedent(
+            f"""
+            $wgObjectCaches['redis'] = [
+                'class'                => 'RedisBagOStuff',
+                'servers'              => [ '{utils.escape_php_string(endpoint)}' ],
+            ];
+
+            $wgMainCacheType = 'redis';
+            $wgSessionCacheType = 'redis';
+
+            $wgJobTypeConf['default'] = [
+                'class'          => 'JobQueueRedis',
+                'redisServer'    => '{utils.escape_php_string(endpoint)}',
+                'redisConfig'    => [],
+                'daemonized'     => true
+            ];
+            """
+        )
         return content + "\n"
 
     def _get_s3_settings(self) -> str:

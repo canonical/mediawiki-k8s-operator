@@ -24,6 +24,8 @@ charm-libs:
     version: "0"
   - lib: hydra.oauth
     version: "0"
+  - lib: redis_k8s.redis
+    version: "0"
   - lib: traefik_k8s.traefik_route
     version: "0"
 
@@ -178,6 +180,10 @@ requires:
     limit: 1
   oauth:
     interface: oauth
+    limit: 1
+    optional: true
+  redis:
+    interface: redis
     limit: 1
     optional: true
   s3-parameters:

@@ -255,6 +255,21 @@ def minio_fixture(juju: jubilant.Juju, pytestconfig: pytest.Config) -> Generator
     yield App(name="minio")
 
 
+@pytest.fixture(scope="module", name="redis")
+def redis_fixture(juju: jubilant.Juju, pytestconfig: pytest.Config) -> Generator[App, None, None]:
+    """Deploy redis and return its app information."""
+    use_existing = pytestconfig.getoption("--use-existing", default=False)
+    if use_existing:
+        yield App(name="redis-k8s")
+        return
+
+    juju.deploy(
+        "redis-k8s",
+        channel="latest/edge",
+    )
+    yield App(name="redis-k8s")
+
+
 @pytest.fixture(scope="module", name="s3_integrator")
 def s3_integrator_fixture(
     juju: jubilant.Juju, pytestconfig: pytest.Config
@@ -295,6 +310,7 @@ def app_fixture(
     db: App,
     traefik: App,
     minio: App,
+    redis: App,
     s3_integrator: App,
     metadata: Dict[str, Any],
     app_config: Dict[str, Any],
@@ -329,6 +345,7 @@ def app_fixture(
                 db.name,
                 traefik.name,
                 minio.name,
+                redis.name,
                 s3_integrator.name,
             )
         ),
@@ -337,6 +354,7 @@ def app_fixture(
 
     juju.integrate(app_name, traefik.name)
     juju.integrate(app_name, db.name)
+    juju.integrate(app_name, redis.name)
     juju.integrate(app_name, s3_integrator.name)
     juju.wait(jubilant.all_active)
 

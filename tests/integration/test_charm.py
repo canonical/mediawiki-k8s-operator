@@ -224,6 +224,7 @@ def test_relations(
     app: App,
     db: App,
     traefik: App,
+    redis: App,
     ingress_address: str,
     requests_timeout: int,
 ):
@@ -249,6 +250,13 @@ def test_relations(
 
     juju.integrate(app.name, db.name)
     juju.wait(lambda status: jubilant.all_active(status) and is_reachable())
+
+    # Removing Redis does not block
+    juju.remove_relation(app.name, redis.name)
+    juju.wait(lambda status: jubilant.all_active(status) and is_reachable(), successes=5)
+
+    juju.integrate(app.name, redis.name)
+    juju.wait(lambda status: jubilant.all_active(status) and is_reachable(), successes=5)
 
 
 def req_okay(address: str, timeout: int) -> bool:

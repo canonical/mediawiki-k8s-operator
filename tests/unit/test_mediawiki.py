@@ -11,6 +11,7 @@ from pytest_mock import MockerFixture, MockType
 
 import database
 import oauth
+import redis
 import s3
 from charm import Charm
 from exceptions import MediaWikiBlockedStatusException, MediaWikiInstallError
@@ -27,8 +28,9 @@ class WrapperCharm(StatefulCharmBase):
         super().__init__(*args)
         self.database = database.Database(self, "database", Charm._CONTAINER_NAME)
         self.oauth = oauth.OAuth(self, "oauth")
+        self.redis = redis.Redis(self, "redis")
         self.s3 = s3.S3(self, "s3-parameters")
-        self.mediawiki = MediaWiki(self, self.database, self.oauth, self.s3)
+        self.mediawiki = MediaWiki(self, self.database, self.oauth, self.redis, self.s3)
 
 
 @pytest.fixture(autouse=True)
@@ -78,6 +80,21 @@ def mock_s3(mocker: MockerFixture) -> MockType:
         }
     )
     mock_instance.has_relation.return_value = True
+
+    return mock_instance
+
+
+@pytest.fixture(autouse=True)
+def mock_redis(mocker: MockerFixture) -> MockType:
+    """Base Redis class mock.
+
+    By default, Redis is unavailable (no relation, no endpoint).
+    """
+    mock_redis_cls = mocker.patch("redis.Redis", autospec=True)
+    mock_instance = mock_redis_cls.return_value
+
+    mock_instance.is_relation_available.return_value = False
+    mock_instance.get_endpoint.return_value = None
 
     return mock_instance
 
@@ -582,6 +599,181 @@ class TestS3Settings:
 
         assert "$wgEnableUploads = false;" in late_settings
         assert "wfLoadExtension( 'AWS' );" not in late_settings
+
+
+class TestCacheSettings:
+    """Tests for Redis cache and job runner configuration in LateSettings.php."""
+
+    def _get_late_settings(self, ctx: testing.Context, state_out: testing.State) -> str:
+        return (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+    def test_no_redis_uses_default_cache(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+    ) -> None:
+        """Test that default cache settings are used when Redis is not available."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = self._get_late_settings(ctx, state_out)
+        assert "$wgMainCacheType = CACHE_NONE;" in late_settings
+        assert "$wgSessionCacheType = CACHE_DB;" in late_settings
+        assert "'redis'" not in late_settings
+        assert "JobQueueRedis" not in late_settings
+
+    def test_redis_available_sets_redis_cache(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_redis: MockType,
+    ) -> None:
+        """Test that Redis cache settings are rendered when Redis is available."""
+        mock_redis.is_relation_available.return_value = True
+        mock_redis.get_endpoint.return_value = "redis-host:6379"
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = self._get_late_settings(ctx, state_out)
+        assert "$wgMainCacheType = 'redis';" in late_settings
+        assert "$wgSessionCacheType = 'redis';" in late_settings
+        assert "'servers'              => [ 'redis-host:6379' ]" in late_settings
+
+    def test_redis_available_sets_job_queue(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_redis: MockType,
+    ) -> None:
+        """Test that the Redis job queue settings are rendered in LateSettings.php."""
+        mock_redis.is_relation_available.return_value = True
+        mock_redis.get_endpoint.return_value = "redis-host:6379"
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = self._get_late_settings(ctx, state_out)
+        assert "$wgJobTypeConf['default']" in late_settings
+        assert "'class'          => 'JobQueueRedis'" in late_settings
+        assert "'redisServer'    => 'redis-host:6379'" in late_settings
+
+    def test_redis_available_writes_job_runner_config(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_redis: MockType,
+    ) -> None:
+        """Test that the job runner config JSON file is written when Redis is available."""
+        mock_redis.is_relation_available.return_value = True
+        mock_redis.get_endpoint.return_value = "redis-host:6379"
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        config_path = container_fs / MediaWiki.JOB_RUNNER_CONFIG_PATH.lstrip("/")
+        assert config_path.exists(), (
+            "JobRunnerConfig.json should be written when Redis is available"
+        )
+
+        config = json.loads(config_path.read_text())
+        assert config["redis"]["aggregators"] == ["redis-host:6379"]
+        assert config["redis"]["queues"] == ["redis-host:6379"]
+
+    def test_no_redis_removes_job_runner_config(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+    ) -> None:
+        """Test that the job runner config is removed when Redis is not available."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        config_path = container_fs / MediaWiki.JOB_RUNNER_CONFIG_PATH.lstrip("/")
+        assert not config_path.exists(), (
+            "JobRunnerConfig.json should not exist when Redis is unavailable"
+        )
+
+    def test_redis_no_endpoint_uses_default_cache(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_redis: MockType,
+    ) -> None:
+        """Test that default cache is used when Redis relation exists but has no endpoint."""
+        mock_redis.is_relation_available.return_value = True
+        mock_redis.get_endpoint.return_value = None
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = self._get_late_settings(ctx, state_out)
+        assert "$wgMainCacheType = CACHE_NONE;" in late_settings
+        assert "JobQueueRedis" not in late_settings
+
+
+class TestRunnerQueueServiceIsReady:
+    """Tests for the runner_queue_service_is_ready method."""
+
+    def test_false_when_no_redis_relation(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+    ) -> None:
+        """Test that runner queue is not ready when Redis relation is unavailable."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            assert mgr.charm.mediawiki.runner_queue_service_is_ready() is False
+
+    def test_false_when_no_endpoint(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_redis: MockType,
+    ) -> None:
+        """Test that runner queue is not ready when Redis has no endpoint."""
+        mock_redis.is_relation_available.return_value = True
+        mock_redis.get_endpoint.return_value = None
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            assert mgr.charm.mediawiki.runner_queue_service_is_ready() is False
+
+    def test_false_when_config_file_missing(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_redis: MockType,
+    ) -> None:
+        """Test that runner queue is not ready when the config file doesn't exist yet."""
+        mock_redis.is_relation_available.return_value = True
+        mock_redis.get_endpoint.return_value = "redis-host:6379"
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            assert mgr.charm.mediawiki.runner_queue_service_is_ready() is False
+
+    def test_true_after_reconciliation_with_redis(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_redis: MockType,
+    ) -> None:
+        """Test that runner queue is ready after reconciliation writes the config file."""
+        mock_redis.is_relation_available.return_value = True
+        mock_redis.get_endpoint.return_value = "redis-host:6379"
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            assert mgr.charm.mediawiki.runner_queue_service_is_ready() is True
 
 
 def validate_container(
