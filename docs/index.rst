@@ -50,7 +50,7 @@ Learn more about operations focused on advanced configurations and security.
 .. - **Charm-specific topic**: Relevant how-to guides • Relevant reference pages
 .. - **Design**: Architecture • Design
 
-- **Security**: :ref:`Firewall allowlist <reference_allowlist>`
+- **Security**: :ref:`Overview <explanation_security>` • :ref:`Firewall allowlist <reference_allowlist>`
 - **Troubleshooting**: :ref:`How to troubleshoot <how_to_troubleshoot>`
 
 Develop and contribute

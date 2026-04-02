@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add an explanation page detailing security considerations
+  author: hk21702
+  type: minor
+  description: Added an explanation page to the documentation detailing detailing various security considerations, such as secrets management and potential security risks.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/41"
+  visibility: public
+  highlight: false

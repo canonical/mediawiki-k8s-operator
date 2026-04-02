@@ -6,20 +6,19 @@
 Explanation
 ===========
 
-.. TODO: Update the name of the charm!
-         Note that, if there are less than 5 pages in this section,
-         you don't need to split up the pages into different themes
-         or subsections.
-
 The pages in this section provide additional context and deeper understanding
 of foundational topics and concepts related to the MediaWiki charm.
 
 .. vale Canonical.013-Spell-out-numbers-below-10 = NO
 
 .. toctree::
+    :maxdepth: 1
+
+    Security overview <security>
+
+.. toctree::
     :hidden:
     :maxdepth: 1
 
     Charm design overview <charm-design>
-    Security overview <security>
 
