@@ -211,10 +211,29 @@ peers:
     interface: mediawiki-replica
 
 containers:
+  git-sync:
+    resource: git-sync-image
+    mounts:
+      - storage: content-from-git
+        location: /git
   mediawiki:
     resource: mediawiki-image
+    mounts:
+      - storage: content-from-git
+        location: /git
+        read_only: true
 
 resources:
+  git-sync-image:
+    type: oci-image
+    description: OCI image for git-sync
+    upstream-source: k8s.gcr.io/git-sync/git-sync:v4.6.0
   mediawiki-image:
     type: oci-image
     description: OCI image for MediaWiki
+
+storage:
+  content-from-git:
+    type: filesystem
+    description: >
+      Where to store the checked-out content from the git repo.
