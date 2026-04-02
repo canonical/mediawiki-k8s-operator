@@ -24,12 +24,17 @@ including actions, configurations, and integrations.
 .. vale Canonical.004-Canonical-product-names = NO
 
 .. toctree::
-    :hidden:
     :maxdepth: 1
 
     Actions <actions>
     Configurations <configurations>
+    Included extensions and skins <included-extensions-and-skins>
     Relation endpoints <relation-endpoints>
+
+.. toctree::
+    :hidden:
+    :maxdepth: 1
+
     Metrics <metrics>
 
 .. vale Canonical.004-Canonical-product-names = YES
