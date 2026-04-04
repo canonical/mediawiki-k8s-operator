@@ -30,6 +30,18 @@ def mock_mediawiki(mocker: MockerFixture) -> MockType:
 
 
 @pytest.fixture(autouse=True)
+def mock_git_sync(mocker: MockerFixture) -> MockType:
+    """Base GitSync class mock."""
+    mock_git_sync_cls = mocker.patch("charm.GitSync", autospec=True)
+    mock_instance = mock_git_sync_cls.return_value
+
+    mock_instance.is_ready.return_value = True
+    mock_instance.reconciliation.return_value = None
+
+    return mock_instance
+
+
+@pytest.fixture(autouse=True)
 def mock_site_info(mocker: MockerFixture) -> SiteInfo:
     """Mock SiteInfo.fetch to return a SiteInfo with default test data."""
     info = SiteInfo(
