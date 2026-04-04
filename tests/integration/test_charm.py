@@ -15,6 +15,7 @@ import pytest
 import requests
 
 from .types_ import App
+from .utils import req_okay
 
 logger = logging.getLogger(__name__)
 
@@ -257,8 +258,3 @@ def test_relations(
 
     juju.integrate(app.name, redis.name)
     juju.wait(lambda status: jubilant.all_active(status) and is_reachable(), successes=5)
-
-
-def req_okay(address: str, timeout: int) -> bool:
-    response = requests.get(address, timeout=timeout, allow_redirects=True)
-    return response.status_code == 200
