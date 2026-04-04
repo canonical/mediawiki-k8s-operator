@@ -30,6 +30,7 @@ class CharmConfig(BaseModel):
 
     composer: dict[str, Any] = Field(default_factory=dict)
     ssh_key: Optional[ops.Secret] = Field(None)
+    ssh_known_hosts: str = Field("")
     static_assets_git_repo: str = Field("")
     static_assets_git_ref: str = Field("")
     url_origin: str = Field("")

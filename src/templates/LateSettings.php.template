@@ -12,3 +12,6 @@ if ( !defined( 'MEDIAWIKI' ) ) {
 $wgImageMagickConvertCommand = "/usr/bin/convert";
 $wgDiff3 = "/usr/bin/diff3";
 $wgInternalServer = "http://127.0.0.1";
+
+# Remove $charmStaticAssets to prevent conflicts
+unset($charmStaticAssets);

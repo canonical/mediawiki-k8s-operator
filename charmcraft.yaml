@@ -73,7 +73,7 @@ config:
           mediawiki — used inside the mediawiki container, e.g. for installing extensions via
           Composer from private repositories.
 
-          git-sync — (not implemented) used by the git-sync sidecar container for fetching static assets
+          git-sync — used by the git-sync sidecar container for fetching static assets
           from a private repository.
 
         Each field is individually optional; if a field is absent, that container will not use
@@ -83,6 +83,24 @@ config:
 
         Make sure to "grant-secret" this secret to the mediawiki charm.
       type: secret
+    
+    ssh-known-hosts:
+      type: string
+      description: |
+        Contents for the SSH known_hosts file used when cloning via SSH.
+        Each line should follow the standard known_hosts format
+        (e.g. "hostname algorithm base64-key"). The remote extracted from
+        static-assets-git-repo must appear in this value, otherwise the
+        charm will block.
+
+        The default includes public host keys for github.com and
+        git.launchpad.net. To add another host (e.g. gitlab.com), run
+        "ssh-keyscan gitlab.com" and append the output lines to this value.
+      default: |
+        github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+        github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+        github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+        git.launchpad.net ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDEFREwBD2ye2Xrc2SVcUmmJ44MF1BCB3W11NTaiqzVj7XZnQmgWZk9UadHVY2wBXvelcDO51MPN5ozJjFAknw09rP7XMRJMlAOLSIVoU6DRF1u1j8kJVY+dfiDHheS7+siADnrmb8HGn2xQQ6EJDjAXrw1x58x5eZjQ0PFWdI+pRTdYGvWkpHdXKFO6a9/lDx4uo9MCnePEGi/QnkCmKqLCBUlYNZYRiB8nVee2tMF0mjV8xk1rJ+/UP+897+FXFR9w/B1EPRjiQ35ZNQZKPP4isxPtyMuCQkZY7ckWr5YsylNfvNcyGDnO1XazZhJ71rzDpi1RmnFXBW5i+2dm2y7
 
     static-assets-git-repo:
       description: >
@@ -90,24 +108,20 @@ config:
 
         Supports HTTP(S), SSH, and SCP-style (git@github.com:user/repo.git) URLs.
 
-        The repository will be cloned to `$IP/static` inside the MediaWiki container. 
+        The repository will be cloned to `$charmStaticAssets` inside the MediaWiki container. 
 
-        For instance, a logo named `my_logo.svg` in the root of the git repository will end up with the path `$IP/static/my_logo.svg`. It is up to the user to configure MediaWiki to use these assets.
+        For instance, a logo named `my_logo.svg` in the root of the git repository will end up with the path `$charmStaticAssets/my_logo.svg`. It is up to the user to configure MediaWiki to use these assets.
 
         See the MediaWiki documentation page on [$wgLogos](https://www.mediawiki.org/wiki/Manual:$wgLogos) for more information on setting logos. Other static assets can be configured similarly.
 
         Should a clone operation fail, any existing assets will not be cleared out. To clear out existing assets, set this configuration option to an empty string.
-
-        To be implemented.
       type: string
 
     static-assets-git-ref:
       description: >
         The Git reference (branch, tag, or commit) to check out after cloning the repository specified by `static-assets-git-repo`.
 
-        If not specified, the default branch of the repository will be used.
-
-        To be implemented.
+        If not specified, the "HEAD" of the default branch of the repository will be used.
       type: string
 
     url-origin:
@@ -144,12 +158,6 @@ config:
       type: string
 
 actions:
-  refresh-custom-assets:
-    description: >
-      Force re-fetch custom static assets from the configured Git repository.
-
-      To be implemented.
-
   rotate-mediawiki-secrets:
     description: >
       Rotate the MediaWiki secrets generated and managed by the charm. Must be run on the leader unit.
@@ -214,26 +222,25 @@ containers:
   git-sync:
     resource: git-sync-image
     mounts:
-      - storage: content-from-git
-        location: /git
+      - storage: static-assets-repo
+        location: /mnt/static-assets
   mediawiki:
     resource: mediawiki-image
     mounts:
-      - storage: content-from-git
-        location: /git
-        read_only: true
+      - storage: static-assets-repo
+        location: /var/www/html/static
 
 resources:
   git-sync-image:
     type: oci-image
     description: OCI image for git-sync
-    upstream-source: k8s.gcr.io/git-sync/git-sync:v4.6.0
+    upstream-source: registry.k8s.io/git-sync/git-sync:v4.6.0
   mediawiki-image:
     type: oci-image
     description: OCI image for MediaWiki
 
 storage:
-  content-from-git:
+  static-assets-repo:
     type: filesystem
     description: >
-      Where to store the checked-out content from the git repo.
+      Where to store the checked-out content from the static assets Git repo.
