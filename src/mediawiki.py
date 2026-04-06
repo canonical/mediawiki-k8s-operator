@@ -55,6 +55,10 @@ class MediaWiki(Object):
     _BUNDLED_EXTENSIONS = ("PluggableAuth", "OpenIDConnect")
 
     _SECURE_SETTINGS_BASE_PATH = "/etc/mediawiki"
+
+    STATIC_ASSETS_MOUNT_POINT = "/mnt/static-assets"
+    STATIC_ASSETS_REPO_PATH = STATIC_ASSETS_MOUNT_POINT + "/repo"
+    WEBROOT_STATIC_PATH = "/var/www/html/static"
     JOB_RUNNER_CONFIG_PATH = _SECURE_SETTINGS_BASE_PATH + "/JobRunnerConfig.json"
 
     # Template paths
@@ -82,6 +86,9 @@ class MediaWiki(Object):
 
         self._webroot_path = ContainerPath("/var/www/html", container=self._container)
         self._mediawiki_path = self._webroot_path / "w"
+        self._static_assets_path = ContainerPath(
+            self.WEBROOT_STATIC_PATH, container=self._container
+        )
 
         self._robots_txt_path = self._webroot_path / "robots.txt"
 
@@ -137,6 +144,7 @@ class MediaWiki(Object):
             raise MediaWikiBlockedStatusException("Database relation is not ready")
         config = self._charm.load_charm_config()
 
+        self._ensure_static_assets_symlink()
         self._ssh_config_reconciliation(config, ssh_key)
         self._composer_reconciliation(config)
         self._robots_txt_reconciliation(config)
@@ -228,6 +236,20 @@ class MediaWiki(Object):
             return False
 
         return self._job_runner_config.exists()
+
+    def _ensure_static_assets_symlink(self) -> None:
+        """Create or replace the symlink that exposes the git-sync storage under the webroot.
+
+        The shared storage is mounted outside the document root at
+        :attr:`STATIC_ASSETS_MOUNT_POINT`. git-sync places its worktree at
+        :attr:`STATIC_ASSETS_REPO_PATH`. This creates a symlink at
+        :attr:`WEBROOT_STATIC_PATH` pointing directly to that worktree so that
+        checked-out assets are served under ``/static`` without the extra
+        ``/repo`` path component.
+        """
+        self._container.exec(
+            ["ln", "-sfn", self.STATIC_ASSETS_REPO_PATH, self.WEBROOT_STATIC_PATH]
+        ).wait()
 
     def _ssh_config_reconciliation(self, config: CharmConfig, ssh_key: Optional[str]) -> None:
         """Configure the SSH environment for the webroot_owner user.

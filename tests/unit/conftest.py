@@ -14,7 +14,8 @@ from ops import testing
 from pytest_mock import MockerFixture, MockType
 
 from charm import Charm
-from mediawiki import MediaWikiSecrets
+from git_sync import GitSync
+from mediawiki import MediaWiki, MediaWikiSecrets
 
 
 class ExecCmd(enum.Enum):
@@ -41,6 +42,12 @@ class ExecCmd(enum.Enum):
         "update",
         "--conf",
         "/etc/mediawiki/UpdateWrapper.php",
+    )
+    SYMLINK_STATIC_ASSETS = (
+        "ln",
+        "-sfn",
+        MediaWiki.STATIC_ASSETS_REPO_PATH,
+        MediaWiki.WEBROOT_STATIC_PATH,
     )
 
     def ran_in(self, exec_history: list) -> bool:
@@ -174,6 +181,10 @@ def execs() -> Generator[set[testing.Exec], None, None]:
             return_code=0,
             stdout="Mocked maintenance update",
             stderr="",
+        ),
+        testing.Exec(
+            ExecCmd.SYMLINK_STATIC_ASSETS.value,
+            return_code=0,
         ),
     }
 

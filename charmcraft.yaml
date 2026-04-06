@@ -83,7 +83,7 @@ config:
 
         Make sure to "grant-secret" this secret to the mediawiki charm.
       type: secret
-    
+
     ssh-known-hosts:
       type: string
       description: |
@@ -226,7 +226,7 @@ containers:
     resource: mediawiki-image
     mounts:
       - storage: static-assets-repo
-        location: /var/www/html/static
+        location: /mnt/static-assets
 
 resources:
   git-sync-image:

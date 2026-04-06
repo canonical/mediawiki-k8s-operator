@@ -8,8 +8,13 @@
 #   1. Installs openssh-server and git.
 #   2. Creates a "git" user whose authorized_keys is injected via the
 #      GIT_SSH_PUBLIC_KEY environment variable.
-#   3. Initialises a bare repo at /srv/repo.git with a single commit
-#      containing an asset.txt file.
+#   3. Initialises a bare repo at /srv/repo.git with two commits on two
+#      branches ("main" and "feature"), each containing an asset.txt file
+#      with different content, plus a .hidden dot file on main to allow
+#      testing that Apache blocks access to dot files. Ownership of
+#      /srv/repo.git is transferred to
+#      the git user only after all pushes are complete to avoid git's
+#      dubious-ownership check blocking root-initiated pushes.
 #   4. Runs sshd in the foreground.
 #
 # Template variables (to be substituted before applying):
@@ -55,6 +60,7 @@ spec:
           git config user.email "test@test"
           git config user.name "test"
           echo "hello from git-ssh-server" > asset.txt
+          echo "hidden content" > .hidden
           git add .
           git commit -m "initial commit"
           git remote add origin /srv/repo.git

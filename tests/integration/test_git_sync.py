@@ -14,6 +14,7 @@ from typing import Generator
 
 import jubilant
 import pytest
+import requests
 
 from .types_ import App
 from .utils import kubectl, req_okay
@@ -23,7 +24,8 @@ logger = logging.getLogger(__name__)
 _TEST_DATA = Path(__file__).parent / "test_data"
 _GIT_SSH_SERVER_POD = "git-ssh-server"
 _REPO_PATH = "/srv/repo.git"
-_STATIC_ASSETS_PATH = "/var/www/html/static/repo"
+_STATIC_ASSETS_PATH = "/var/www/html/static"
+_STATIC_ASSETS_URL_PATH = "/static"
 
 
 def _check_command_output(
@@ -211,6 +213,21 @@ def test_git_sync_ssh(
     response = requests.get(url, timeout=requests_timeout)  # nosec: B113
     assert response.status_code == 200, f"Expected 200 OK for {url!r}, got {response.status_code}"
     assert response.text.strip() == "hello from git-ssh-server", f"Unexpected content at {url!r}"
+
+
+@pytest.mark.abort_on_fail
+def test_git_sync_dotfiles_blocked(
+    ingress_address: str,
+    requests_timeout: int,
+):
+    """Test that Apache blocks HTTP access to dot files under /static."""
+    dot_paths = [".hidden", ".git/config"]
+    for path in dot_paths:
+        url = f"{ingress_address}{_STATIC_ASSETS_URL_PATH}/{path}"
+        response = requests.get(url, timeout=requests_timeout, allow_redirects=True)  # nosec: B113
+        assert response.status_code == 403, (
+            f"Expected 403 Forbidden for dot file {url!r}, got {response.status_code}"
+        )
 
 
 @pytest.mark.abort_on_fail
