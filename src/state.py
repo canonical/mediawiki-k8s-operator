@@ -33,6 +33,7 @@ class CharmConfig(BaseModel):
     ssh_known_hosts: str = Field("")
     static_assets_git_repo: str = Field("")
     static_assets_git_ref: str = Field("")
+    static_assets_git_sparse_checkout: str = Field("")
     url_origin: str = Field("")
     oauth_extra_scopes: str = Field("")
     local_settings: str = Field("")

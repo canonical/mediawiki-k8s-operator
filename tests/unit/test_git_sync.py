@@ -36,37 +36,8 @@ def ctx(meta: dict) -> testing.Context:
     return testing.Context(WrapperCharm, meta=m, config=config, actions=actions)
 
 
-@pytest.fixture
-def git_sync_mounts(tmp_path):
-    """Create the mount for the git-sync repo."""
-    repo_dir = tmp_path / "static-assets"
-    repo_dir.mkdir(parents=True)
-    return {"static_assets": testing.Mount(location=GitSync.REPO_MOUNT_POINT, source=repo_dir)}
-
-
-@pytest.fixture
-def git_sync_container(git_sync_mounts: dict) -> testing.Container:
-    """Return a ready git-sync container with a mounted repo directory."""
-    return testing.Container(
-        name="git-sync",
-        can_connect=True,
-        mounts=git_sync_mounts,
-    )
-
-
-@pytest.fixture
-def base_state(
-    mediawiki_container: testing.Container,
-    git_sync_container: testing.Container,
-    secrets: list[testing.Secret],
-) -> testing.State:
-    """Provide a state with both containers, storages, and secrets."""
-    return testing.State(
-        containers=[mediawiki_container, git_sync_container],
-        storages=[testing.Storage(name="static-assets-repo")],
-        secrets=secrets,
-        leader=True,
-    )
+_KNOWN_HOSTS = "github.com ssh-rsa AAAAB3...\n"
+_GIT_REPO = "git@github.com:user/repo.git"
 
 
 @pytest.fixture
@@ -317,7 +288,7 @@ class TestGitSyncCommand:
         configured_git_sync_state: testing.State,
     ) -> None:
         """Test that the command includes the repo URL and root path."""
-        state_in = dataclasses.replace(
+        with ctx(ctx.on.update_status(), configured_git_sync_state) as mgr:
             cmd = mgr.charm.git_sync._git_sync_command
 
         assert cmd[0] == "/git-sync"
@@ -325,57 +296,54 @@ class TestGitSyncCommand:
         assert _GIT_REPO in cmd
         assert "--root" in cmd
         assert "/mnt/static-assets" in cmd
-            active_state,
-            config={
-                **active_state.config,
-        configured_git_sync_state: testing.State,
-        configured_git_sync_state: testing.State,
-            },
-        with ctx(ctx.on.update_status(), configured_git_sync_state) as mgr:
-        configured_git_sync_state = dataclasses.replace(
-            configured_git_sync_state,
+
+    def test_includes_ref_when_configured(
         self,
         ctx: testing.Context,
-        active_state: testing.State,
+        configured_git_sync_state: testing.State,
     ) -> None:
         """Test that --ref is included when a git ref is configured."""
-        state_in = dataclasses.replace(
-            active_state,
+        configured_git_sync_state = dataclasses.replace(
+            configured_git_sync_state,
+            config={
+                **configured_git_sync_state.config,
+                "static-assets-git-ref": "v1.0.0",
+            },
+        )
+
+        with ctx(ctx.on.update_status(), configured_git_sync_state) as mgr:
             cmd = mgr.charm.git_sync._git_sync_command
 
         ref_idx = cmd.index("--ref")
         assert cmd[ref_idx + 1] == "v1.0.0"
 
-            config={
-                **active_state.config,
-                "static-assets-git-repo": _GIT_REPO,
-        configured_git_sync_state: testing.State,
-        with ctx(ctx.on.update_status(), configured_git_sync_state) as mgr:
     def test_no_ref_when_not_configured(
-            configured_git_sync_state,
         self,
-                **configured_git_sync_state.config,
-                **configured_git_sync_state.config,
+        ctx: testing.Context,
+        configured_git_sync_state: testing.State,
+    ) -> None:
+        """Test that --ref is not present when git ref is empty."""
         state_in = dataclasses.replace(
+            configured_git_sync_state,
             config={
-                **active_state.config,
-                "static-assets-git-repo": _GIT_REPO,
+                **configured_git_sync_state.config,
                 "static-assets-git-ref": "",
-                "ssh-known-hosts": _KNOWN_HOSTS,
             },
         )
         with ctx(ctx.on.update_status(), state_in) as mgr:
             cmd = mgr.charm.git_sync._git_sync_command
 
         assert "--ref" not in cmd
-        configured_git_sync_state: testing.State,
+
     def test_includes_sparse_checkout_file_when_present(
         self,
         ctx: testing.Context,
-            configured_git_sync_state,
+        active_state: testing.State,
     ) -> None:
-                **configured_git_sync_state.config,
+        """Test that --sparse-checkout-file is included when the file has been written."""
+        state_in = dataclasses.replace(
             active_state,
+            config={
                 **active_state.config,
                 "static-assets-git-repo": _GIT_REPO,
                 "ssh-known-hosts": _KNOWN_HOSTS,
@@ -387,8 +355,15 @@ class TestGitSyncCommand:
 
         assert "--sparse-checkout-file" in cmd
         idx = cmd.index("--sparse-checkout-file")
+        assert "git-sync-sparse-checkout" in cmd[idx + 1]
 
-        with ctx(ctx.on.update_status(), state_in) as mgr:
+    def test_no_sparse_checkout_when_file_absent(
+        self,
+        ctx: testing.Context,
+        configured_git_sync_state: testing.State,
+    ) -> None:
+        """Test that --sparse-checkout-file is absent when the file does not exist."""
+        with ctx(ctx.on.update_status(), configured_git_sync_state) as mgr:
             cmd = mgr.charm.git_sync._git_sync_command
 
         assert "--sparse-checkout-file" not in cmd

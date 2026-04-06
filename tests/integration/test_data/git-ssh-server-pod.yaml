@@ -61,6 +61,7 @@ spec:
           git config user.name "test"
           echo "hello from git-ssh-server" > asset.txt
           echo "hidden content" > .hidden
+          echo "# Test Repository" > README.md
           git add .
           git commit -m "initial commit"
           git remote add origin /srv/repo.git

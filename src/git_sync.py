@@ -54,6 +54,9 @@ class GitSync(Object):
             "/etc/ssh/ssh_config.d/git-sync.conf", container=self._container
         )
         self._ssh_key_file = ContainerPath("/run/git-sync-ssh-key.priv", container=self._container)
+        self._sparse_checkout_file = ContainerPath(
+            "/run/git-sync-sparse-checkout", container=self._container
+        )
 
     def reconciliation(self, ssh_key: str | None = None) -> None:
         """Reconcile the git-sync container configuration.
@@ -74,6 +77,7 @@ class GitSync(Object):
         except Exception:
             self._reconcile_services(force_disable=True)
             raise
+        self._sparse_checkout_reconciliation()
         self._reconcile_services()
 
         if not self._git_sync_command:
@@ -128,6 +132,8 @@ class GitSync(Object):
             cmd.extend(["--ref", config.static_assets_git_ref])
         if self._ssh_key_file.exists():
             cmd.extend(["--ssh-key-file", self._ssh_key_file.as_posix()])
+        if self._sparse_checkout_file.exists():
+            cmd.extend(["--sparse-checkout-file", self._sparse_checkout_file.as_posix()])
 
         return cmd
 
@@ -185,6 +191,14 @@ class GitSync(Object):
             self._service_name, self._pebble_layer(force_disable=force_disable), combine=True
         )
         self._container.replan()
+
+    def _sparse_checkout_reconciliation(self) -> None:
+        """Write or remove the sparse-checkout file based on the current configuration."""
+        config = self._charm.load_charm_config()
+        if config.static_assets_git_sparse_checkout:
+            self._sparse_checkout_file.write_text(config.static_assets_git_sparse_checkout)
+        elif self._sparse_checkout_file.exists():
+            self._container.remove_path(self._sparse_checkout_file.as_posix())
 
     def _ssh_config_reconciliation(self, ssh_key: str | None) -> None:
         """Configure the SSH environment for git-sync.

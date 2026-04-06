@@ -114,6 +114,8 @@ config:
 
         See the MediaWiki documentation page on [$wgLogos](https://www.mediawiki.org/wiki/Manual:$wgLogos) for more information on setting logos. Other static assets can be configured similarly.
 
+        Note that hidden files (those starting with a dot) will not be served by the web server.
+
         Should a clone operation fail, any existing assets will not be cleared out. To clear out existing assets, set this configuration option to an empty string.
       type: string
 
@@ -122,6 +124,17 @@ config:
         The Git reference (branch, tag, or commit) to check out after cloning the repository specified by `static-assets-git-repo`.
 
         If not specified, the "HEAD" of the default branch of the repository will be used.
+      type: string
+
+    static-assets-git-sparse-checkout:
+      description: >
+        The contents of a sparse-checkout file to pass to git-sync, limiting which paths in the repository are checked out.
+
+        When set, only the paths matching the patterns in this file will be present under `$charmStaticAssets`. This is useful when the repository contains files that should not be served (e.g. a README or LICENSE), or when only a subdirectory of the repository is relevant.
+
+        The file format is described at https://git-scm.com/docs/git-sparse-checkout.
+
+        If not set, the entire repository is checked out.
       type: string
 
     url-origin:
