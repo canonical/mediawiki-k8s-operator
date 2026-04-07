@@ -41,7 +41,7 @@ The charm supports further customization, including:
 - [Integrating with S3 object storage for file uploads]()
  -->
 
-For more information, refer to the [charm's documentation][charm-documentation-site]. <!--Link to primary RTD documentation>
+For more information, refer to the [charm's documentation][charm-documentation-site]. <!--Link to primary RTD documentation-->
 
 ## Integrations
 
@@ -54,7 +54,7 @@ juju deploy mysql-k8s --trust
 juju integrate mediawiki-k8s mysql-k8s:database
 ```
 
-Apart from this required integration, the charm can be integrated with other Juju charms and services as well. You can find the full list of integrations in [the Charmhub documentation][charm-documentation-site]. <!--Link to the charm's integration documentation>
+Apart from this required integration, the charm can be integrated with other Juju charms and services as well. You can find the full list of integrations in [the Charmhub documentation][charm-documentation-site]. <!--Link to the charm's integration documentation-->
 
 ## Learn more
 
@@ -76,5 +76,5 @@ MediaWiki and the MediaWiki logo are trademarks of the Wikimedia Foundation and 
 <!--Placeholder, update this when available-->
 
 [charm-documentation-site]: https://documentation.ubuntu.com
-[license-image]: https://img.shields.io/badge/License-GPL3.0-blue.svg
+[license-image]: https://img.shields.io/badge/License-Apache%202.0-blue.svg
 [mediawiki-site]: https://www.mediawiki.org

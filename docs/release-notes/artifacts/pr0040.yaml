@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Minor README fixes
+  author: hk21702
+  type: minor
+  description: Update the license badge and fix some broken comments in the README.
+  urls:
+    pr:
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/40"
+  visibility: internal
+  highlight: false
