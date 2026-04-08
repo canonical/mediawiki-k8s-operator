@@ -30,4 +30,5 @@ Extensions and skins marked as "managed" are enabled and minimally configured by
 .. seealso::
 
    Please refer to this `composer.json file <https://github.com/canonical/mediawiki-k8s-operator/blob/main/mediawiki_rock/files/var/www/html/w/composer.local.json>`_ for specifics on the extensions and skins that the MediaWiki charm installs in addition to what MediaWiki bundles.
-
+   
+   Refer to the :ref:`how to install extensions and skins guide <how_to_install_extensions_and_skins>` for instructions on installing additional extensions and skins.

@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add documentation how to install extensions and skins
+  author: hk21702
+  type: minor
+  description: Add a how-to documentation page on installing additional extensions and skins using Composer.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/43"
+  visibility: public
+  highlight: false
