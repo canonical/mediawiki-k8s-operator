@@ -46,6 +46,11 @@ The following pages provide more details about the charm architecture and
 a high-level deployment with any required dependencies.
 
 .. toctree::
+    :maxdepth: 1
+
+    Charm managed configuration settings <charm-managed-settings>
+
+.. toctree::
     :hidden:
     :maxdepth: 1
 

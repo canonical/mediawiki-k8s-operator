@@ -6,6 +6,8 @@
 Relation endpoints
 ==================
 
+.. _reference_relation_endpoints_database:
+
 Database
 --------
 
@@ -28,6 +30,8 @@ Example ``database`` integrate command:
 .. code-block:: bash
 
    juju integrate mediawiki-k8s mysql-k8s:database
+
+.. _reference_relation_endpoints_oauth:
 
 OAuth
 -----
@@ -53,6 +57,8 @@ Example ``oauth`` integrate command:
 
    Read more about the `Canonical Identity Platform <https://canonical-identity.readthedocs-hosted.com>`_.
 
+.. _reference_relation_endpoints_redis:
+
 Redis
 -----
 
@@ -70,6 +76,8 @@ Example ``redis`` integrate command:
 .. seealso::
 
    Read more about how MediaWiki uses Redis as an object cache backend: `Redis <https://www.mediawiki.org/wiki/Redis>`__
+
+.. _reference_relation_endpoints_s3_parameters:
 
 S3 parameters
 -------------

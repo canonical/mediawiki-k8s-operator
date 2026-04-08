@@ -10,7 +10,7 @@ MediaWiki's basic configuration settings are managed using the ``LocalSettings.p
 
 .. warning::
 
-   Certain configuration settings, such as database credentials and secrets like ``$wgSecretKey``, are handled entirely by the MediaWiki charm. The settings are applied in such a way that the Charm's management has greater priority over most manually configured settings.
+   Certain configuration settings, such as database credentials and secrets like ``$wgSecretKey``, are :ref:`handled entirely by the MediaWiki charm <reference_charm_managed_settings>`. The settings are applied in such a way that the Charm's management has greater priority over most manually configured settings.
 
 The MediaWiki charm allows you to configure an arbitrary ``LocalSettings.php`` file using ``juju config``.
 

@@ -18,6 +18,7 @@ Each revision is versioned by the date of the revision.
 - Update the security documentation to include a section on static assets injection.
 - Added documentation page on configuring MediaWiki using LocalSettings.php.
 - Added documentation page on installing additional extensions and skins.
+- Added documentation page on configuration settings that are managed by the MediaWiki charm itself.
 
 2026-04-01
 ----------
