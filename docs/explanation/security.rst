@@ -51,7 +51,14 @@ SSH keys
 
 The MediaWiki charm optionally allows for private SSH keys to be :ref:`configured <reference_configurations>` using a `Juju user secret <https://documentation.ubuntu.com/juju/latest/reference/secret/#user-secret>`_ for use in Git operations, such as when using an extension or skin hosted in a private repository. The SSH keys are injected into the relevant workload containers as needed, in a manner which ensures that they are inaccessible to the web server process.
 
-To reduce risk further, ensure that the SSH key is properly scoped with read-only permissions, only has read permissions, and does not have access to unnecessary resources.
+To reduce risk further, ensure that the SSH key is properly scoped with read-only permissions, only has read permissions, and does not have access to unnecessary resources. Only add trustworthy hosts to the ``ssh-known-hosts`` :ref:`configuration option <reference_configurations>`.
+
+Static assets
+^^^^^^^^^^^^^
+
+When using syncing in static assets from a Git repository, all contents of the repository other than hidden files will be in the webroot and are thus served by the web server.
+
+To prevent abuse, make sure that the remote repository is trustworthy and configure a git reference instead of using the default branch's HEAD. Also, it is recommended to use the ``static-assets-git-sparse-checkout`` :ref:`configuration option <reference_configurations>` to only checkout necessary files from the repository.
 
 HTTP
 ^^^^

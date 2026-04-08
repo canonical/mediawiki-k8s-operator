@@ -12,6 +12,11 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
 Each revision is versioned by the date of the revision.
 
+2026-04-08
+----------
+
+- Update the security documentation to include a section on static assets injection.
+
 2026-04-01
 ----------
 
