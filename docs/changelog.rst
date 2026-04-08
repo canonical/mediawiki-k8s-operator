@@ -16,6 +16,7 @@ Each revision is versioned by the date of the revision.
 ----------
 
 - Update the security documentation to include a section on static assets injection.
+- Added documentation page on configuring MediaWiki using LocalSettings.php.
 
 2026-04-01
 ----------
