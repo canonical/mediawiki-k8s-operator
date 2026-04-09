@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add documentation on configuring MediaWiki
+  author: hk21702
+  type: minor
+  description: Add how to page on configuring MediaWiki using LocalSettings.php.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/50"
+  visibility: public
+  highlight: false

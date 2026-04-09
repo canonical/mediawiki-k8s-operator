@@ -26,6 +26,11 @@ of actions with your deployment. These guides provide instructions on
 basic operations you can complete with the charm.
 
 .. toctree::
+    :maxdepth: 1
+
+    Configure MediaWiki <configure-mediawiki>
+
+.. toctree::
     :hidden:
     :maxdepth: 1
 
