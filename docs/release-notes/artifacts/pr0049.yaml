@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add static assets section to the security documentation
+  author: hk21702
+  type: minor
+  description: Add a section on security risks when using the static assets git-sync feature. We also update the SSH keys section to reference the known hosts configuration.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/49"
+  visibility: public
+  highlight: false
