@@ -6,11 +6,6 @@
 How-to guides
 =============
 
-.. TODO: Update the name of the charm!
-         The following subsections are examples and don't need to be followed exactly.
-         Define themes and subsections based on the charm's unique needs and features.
-         Provide 1-2 sentence introductions for each subsection.
-         More examples of subsections: Initial setup, Security
 
 The following guides cover key processes and common tasks for managing and
 using the MediaWiki charm.
@@ -29,6 +24,7 @@ basic operations you can complete with the charm.
     :maxdepth: 1
 
     Configure MediaWiki <configure-mediawiki>
+    Install extensions and skins <install-extensions-and-skins>
 
 .. toctree::
     :hidden:
