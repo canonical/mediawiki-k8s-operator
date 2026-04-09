@@ -23,6 +23,9 @@ $wgServer = %wg_server;
 $wgScriptPath = "/w";
 $wgArticlePath = "/wiki/$1";
 
+# Expected location of static-assets-repo
+$charmStaticAssets = "/static";
+
 ## The URL path to static resources (images, scripts, etc.)
 $wgResourceBasePath = $wgScriptPath;
 

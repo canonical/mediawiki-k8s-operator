@@ -55,6 +55,10 @@ class MediaWiki(Object):
     _BUNDLED_EXTENSIONS = ("PluggableAuth", "OpenIDConnect")
 
     _SECURE_SETTINGS_BASE_PATH = "/etc/mediawiki"
+
+    STATIC_ASSETS_MOUNT_POINT = "/mnt/static-assets"
+    STATIC_ASSETS_REPO_PATH = STATIC_ASSETS_MOUNT_POINT + "/repo"
+    WEBROOT_STATIC_PATH = "/var/www/html/static"
     JOB_RUNNER_CONFIG_PATH = _SECURE_SETTINGS_BASE_PATH + "/JobRunnerConfig.json"
 
     # Template paths
@@ -82,6 +86,9 @@ class MediaWiki(Object):
 
         self._webroot_path = ContainerPath("/var/www/html", container=self._container)
         self._mediawiki_path = self._webroot_path / "w"
+        self._static_assets_path = ContainerPath(
+            self.WEBROOT_STATIC_PATH, container=self._container
+        )
 
         self._robots_txt_path = self._webroot_path / "robots.txt"
 
@@ -110,6 +117,7 @@ class MediaWiki(Object):
         self._webroot_owner_ssh_dir = _webroot_owner_home / ".ssh"
         self._webroot_owner_ssh_key = self._webroot_owner_ssh_dir / "id_charm"
         self._webroot_owner_ssh_config = self._webroot_owner_ssh_dir / "config"
+        self._webroot_owner_known_hosts = self._webroot_owner_ssh_dir / "known_hosts"
 
     def reconciliation(
         self, secrets: "MediaWikiSecrets", ssh_key: Optional[str] = None, ro_database: bool = False
@@ -136,7 +144,8 @@ class MediaWiki(Object):
             raise MediaWikiBlockedStatusException("Database relation is not ready")
         config = self._charm.load_charm_config()
 
-        self._ssh_config_reconciliation(ssh_key)
+        self._ensure_static_assets_symlink()
+        self._ssh_config_reconciliation(config, ssh_key)
         self._composer_reconciliation(config)
         self._robots_txt_reconciliation(config)
 
@@ -228,7 +237,21 @@ class MediaWiki(Object):
 
         return self._job_runner_config.exists()
 
-    def _ssh_config_reconciliation(self, ssh_key: Optional[str]) -> None:
+    def _ensure_static_assets_symlink(self) -> None:
+        """Create or replace the symlink that exposes the git-sync storage under the webroot.
+
+        The shared storage is mounted outside the document root at
+        :attr:`STATIC_ASSETS_MOUNT_POINT`. git-sync places its worktree at
+        :attr:`STATIC_ASSETS_REPO_PATH`. This creates a symlink at
+        :attr:`WEBROOT_STATIC_PATH` pointing directly to that worktree so that
+        checked-out assets are served under ``/static`` without the extra
+        ``/repo`` path component.
+        """
+        self._container.exec(
+            ["ln", "-sfn", self.STATIC_ASSETS_REPO_PATH, self.WEBROOT_STATIC_PATH]
+        ).wait()
+
+    def _ssh_config_reconciliation(self, config: CharmConfig, ssh_key: Optional[str]) -> None:
         """Configure the SSH environment for the webroot_owner user.
 
         - Creates ~/.ssh/ with mode 700 if it does not exist.
@@ -243,48 +266,18 @@ class MediaWiki(Object):
         one is present.
 
         Args:
+            config: The charm configuration, used to get the known hosts configuration.
             ssh_key: Optional SSH private key content to write into the container.
         """
-        self._webroot_owner_ssh_dir.mkdir(
-            mode=0o700,
-            parents=True,
-            exist_ok=True,
-            user=self._WEBROOT_OWNER_USER,
+        utils.ssh_reconcile_config(
+            ssh_key=ssh_key,
+            key_file=self._webroot_owner_ssh_key,
+            config_file=self._webroot_owner_ssh_config,
+            known_hosts_file=self._webroot_owner_known_hosts,
+            known_hosts_content=config.ssh_known_hosts,
+            proxy_config=self._charm.state.proxy_config,
+            owner=self._WEBROOT_OWNER_USER,
         )
-
-        if ssh_key:
-            ssh_key = ssh_key.strip() + "\n"
-            self._webroot_owner_ssh_key.write_text(
-                ssh_key,
-                mode=0o600,
-                user=self._WEBROOT_OWNER_USER,
-            )
-            logger.info("SSH key written for %s.", self._WEBROOT_OWNER_USER)
-        elif self._webroot_owner_ssh_key.exists():
-            self._webroot_owner_ssh_key.unlink()
-            logger.info("SSH key removed for %s.", self._WEBROOT_OWNER_USER)
-
-        ssh_config_lines = ["Host *", "    StrictHostKeyChecking accept-new"]
-        if ssh_key:
-            ssh_config_lines.append(f"    IdentityFile {self._webroot_owner_ssh_key}")
-        if (proxy := self._charm.state.proxy_config) and proxy.http_proxy:
-            proxy_host = str(proxy.http_proxy.host)
-            if not proxy.http_proxy.port:
-                logger.debug(
-                    "Using fallback proxy port 3128 for SSH ProxyCommand because proxy configuration did not include a port."
-                )
-            proxy_port = str(proxy.http_proxy.port) if proxy.http_proxy.port else "3128"
-            ssh_config_lines.append(
-                f"    ProxyCommand socat - PROXY:{proxy_host}:%h:%p,proxyport={proxy_port}"
-            )
-        ssh_config = "\n".join(ssh_config_lines) + "\n"
-
-        self._webroot_owner_ssh_config.write_text(
-            ssh_config,
-            mode=0o600,
-            user=self._WEBROOT_OWNER_USER,
-        )
-        logger.debug("SSH configuration written for %s.", self._WEBROOT_OWNER_USER)
 
     def _composer_reconciliation(self, config: CharmConfig) -> None:
         """Reconcile the composer configuration, pushing the composer.user.json file if needed and running composer update.

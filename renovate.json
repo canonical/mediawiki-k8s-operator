@@ -33,6 +33,17 @@
       ],
       "matchStringsStrategy": "any",
       "versioningTemplate": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "datasourceTemplate": "docker",
+      "description": "Update git-sync upstream-source in charmcraft.yaml",
+      "managerFilePatterns": [
+        "/(^|/)charmcraft.yaml$/"
+      ],
+      "matchStrings": [
+        "git-sync-image:[\\s\\S]*?upstream-source:\\s*(?<depName>[^:]+):(?<currentValue>[^\\s@]*)(@(?<currentDigest>sha256:[0-9a-f]*))?"
+      ]
     }
   ],
   "extends": [

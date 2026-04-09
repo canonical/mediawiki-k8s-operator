@@ -32,7 +32,7 @@ charm-libs:
 config:
   options:
     composer:
-      description: >
+      description: |
         The contents of a composer.local.json file to customize MediaWiki extensions and dependencies on top of what is provided by default.
 
         For example:
@@ -48,7 +48,7 @@ config:
       type: string
 
     robots-txt:
-      description: >
+      description: |
         The contents of a robots.txt file to be served at the web root of the MediaWiki deployment. This is useful for controlling how search engines index the wiki.
 
         The default is sensible for the majority of use cases, but it may need to be changed depending on specific requirements or certain settings overrides, such as `$wgArticlePath`.
@@ -63,7 +63,7 @@ config:
         Allow: /*&action=raw
 
     ssh-key:
-      description: >
+      description: |
         An optional Juju user secret containing SSH private keys to enable git via SSH for
         operations inside the charm's containers.
 
@@ -73,7 +73,7 @@ config:
           mediawiki — used inside the mediawiki container, e.g. for installing extensions via
           Composer from private repositories.
 
-          git-sync — (not implemented) used by the git-sync sidecar container for fetching static assets
+          git-sync — used by the git-sync sidecar container for fetching static assets
           from a private repository.
 
         Each field is individually optional; if a field is absent, that container will not use
@@ -84,41 +84,66 @@ config:
         Make sure to "grant-secret" this secret to the mediawiki charm.
       type: secret
 
+    ssh-known-hosts:
+      type: string
+      description: |
+        Contents for the SSH known_hosts file used when cloning via SSH.
+
+        Each line should follow the standard known_hosts format (e.g. "hostname algorithm base64-key").
+        The remote extracted from static-assets-git-repo must appear in this value, otherwise the charm will block.
+
+        The default includes public host keys for github.com and git.launchpad.net.
+        To add another host (e.g. gitlab.com), run "ssh-keyscan gitlab.com" and append the output lines to this value.
+      default: |
+        github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+        github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+        github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+        git.launchpad.net ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDEFREwBD2ye2Xrc2SVcUmmJ44MF1BCB3W11NTaiqzVj7XZnQmgWZk9UadHVY2wBXvelcDO51MPN5ozJjFAknw09rP7XMRJMlAOLSIVoU6DRF1u1j8kJVY+dfiDHheS7+siADnrmb8HGn2xQQ6EJDjAXrw1x58x5eZjQ0PFWdI+pRTdYGvWkpHdXKFO6a9/lDx4uo9MCnePEGi/QnkCmKqLCBUlYNZYRiB8nVee2tMF0mjV8xk1rJ+/UP+897+FXFR9w/B1EPRjiQ35ZNQZKPP4isxPtyMuCQkZY7ckWr5YsylNfvNcyGDnO1XazZhJ71rzDpi1RmnFXBW5i+2dm2y7
+
     static-assets-git-repo:
-      description: >
+      description: |
         The Git repository URL to clone static assets from. This is useful for serving assets such as custom logos and a favicon.
 
         Supports HTTP(S), SSH, and SCP-style (git@github.com:user/repo.git) URLs.
 
-        The repository will be cloned to `$IP/static` inside the MediaWiki container. 
+        The repository will be cloned to `$charmStaticAssets` inside the MediaWiki container. 
 
-        For instance, a logo named `my_logo.svg` in the root of the git repository will end up with the path `$IP/static/my_logo.svg`. It is up to the user to configure MediaWiki to use these assets.
+        For instance, a logo named `my_logo.svg` in the root of the git repository will end up with the path `$charmStaticAssets/my_logo.svg`. It is up to the user to configure MediaWiki to use these assets.
 
         See the MediaWiki documentation page on [$wgLogos](https://www.mediawiki.org/wiki/Manual:$wgLogos) for more information on setting logos. Other static assets can be configured similarly.
 
-        Should a clone operation fail, any existing assets will not be cleared out. To clear out existing assets, set this configuration option to an empty string.
+        Note that hidden files (those starting with a dot) will not be served by the web server.
 
-        To be implemented.
+        Should a clone operation fail, any existing assets will not be cleared out. To clear out existing assets, set this configuration option to an empty string.
       type: string
 
     static-assets-git-ref:
-      description: >
+      description: |
         The Git reference (branch, tag, or commit) to check out after cloning the repository specified by `static-assets-git-repo`.
 
-        If not specified, the default branch of the repository will be used.
+        If not specified, the "HEAD" of the default branch of the repository will be used.
+      type: string
 
-        To be implemented.
+    static-assets-git-sparse-checkout:
+      description: |
+        The contents of a sparse-checkout file to pass to git-sync, limiting which paths in the repository are checked out.
+
+        When set, only the paths matching the patterns in this file will be present under `$charmStaticAssets`. This is useful when the repository contains files that should not be served (e.g. a README or LICENSE), or when only a subdirectory of the repository is relevant.
+
+        The file format is described at https://git-scm.com/docs/git-sparse-checkout.
+
+        If not set, the entire repository is checked out.
       type: string
 
     url-origin:
-      description: >
+      description: |
         The URL origin for the MediaWiki deployment. It should either be protocol-relative or specify either http:// or https://. For example, '//my-wiki.example.com' or 'https://my-wiki.example.com'. This is used for '$wgServer' and configuring ingress.
 
         If not specified, the charm will fall back to the application name. '$wgServer' may be overridden with the `local-settings` configuration option.
       type: string
 
     oauth-extra-scopes:
-      description: >
+      description: |
         Additional OAuth/OIDC scopes to request from the identity provider, as a space-separated string.
 
         The charm always requests 'openid', 'profile', and 'email'. Use this option to request additional scopes beyond those defaults.
@@ -127,7 +152,7 @@ config:
       type: string
 
     local-settings:
-      description: >
+      description: |
         The contents of a LocalSettings.php like file to customize MediaWiki configuration on top of what is provided by default. These settings will be inserted into the base
         `LocalSettings.php` file used by MediaWiki using `require_once`.
 
@@ -144,12 +169,6 @@ config:
       type: string
 
 actions:
-  refresh-custom-assets:
-    description: >
-      Force re-fetch custom static assets from the configured Git repository.
-
-      To be implemented.
-
   rotate-root-credentials:
     description: >
       Rotate the MediaWiki root bureaucrat user credentials and return the new credentials.
@@ -209,10 +228,28 @@ peers:
     interface: mediawiki-replica
 
 containers:
+  git-sync:
+    resource: git-sync-image
+    mounts:
+      - storage: static-assets-repo
+        location: /mnt/static-assets
   mediawiki:
     resource: mediawiki-image
+    mounts:
+      - storage: static-assets-repo
+        location: /mnt/static-assets
 
 resources:
+  git-sync-image:
+    type: oci-image
+    description: OCI image for git-sync
+    upstream-source: registry.k8s.io/git-sync/git-sync:v4.6.0
   mediawiki-image:
     type: oci-image
     description: OCI image for MediaWiki
+
+storage:
+  static-assets-repo:
+    type: filesystem
+    description: >
+      Where to store the checked-out content from the static assets Git repo.

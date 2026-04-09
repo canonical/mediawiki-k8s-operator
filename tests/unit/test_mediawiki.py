@@ -189,7 +189,9 @@ class TestReconciliation:
 
             state_out = mgr.run()
 
-        assert ctx.exec_history == {}, "Did not expect any commands to be executed"
+        ln_cmd = list(ExecCmd.SYMLINK_STATIC_ASSETS.value)
+        executed = [e.command for e in ctx.exec_history.get(Charm._CONTAINER_NAME, [])]
+        assert executed == [ln_cmd], "Only the webroot symlink command should have run"
 
         validate_container(ctx, state_out, meta=meta)
 
@@ -272,7 +274,11 @@ class TestReconciliation:
                 return_code=1,
                 stdout="",
                 stderr="Mocked composer update failure",
-            )
+            ),
+            testing.Exec(
+                ExecCmd.SYMLINK_STATIC_ASSETS.value,
+                return_code=0,
+            ),
         }
         mediawiki_container = dataclasses.replace(mediawiki_container, execs=execs)
         state_in = dataclasses.replace(configured_state, containers=[mediawiki_container])

@@ -14,7 +14,8 @@ from ops import testing
 from pytest_mock import MockerFixture, MockType
 
 from charm import Charm
-from mediawiki import MediaWikiSecrets
+from git_sync import GitSync
+from mediawiki import MediaWiki, MediaWikiSecrets
 
 
 class ExecCmd(enum.Enum):
@@ -42,6 +43,12 @@ class ExecCmd(enum.Enum):
         "--conf",
         "/etc/mediawiki/UpdateWrapper.php",
     )
+    SYMLINK_STATIC_ASSETS = (
+        "ln",
+        "-sfn",
+        MediaWiki.STATIC_ASSETS_REPO_PATH,
+        MediaWiki.WEBROOT_STATIC_PATH,
+    )
 
     def ran_in(self, exec_history: list) -> bool:
         """Return True if this command was executed (all tokens present in some command)."""
@@ -63,11 +70,37 @@ def ctx() -> testing.Context:
 
 
 @pytest.fixture
+def git_sync_mounts(tmp_path):
+    """Create the mounts for the git-sync container."""
+    repo_dir = tmp_path / "static-assets"
+    repo_dir.mkdir(parents=True)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(parents=True)
+    return {
+        "static_assets": testing.Mount(location=GitSync.REPO_MOUNT_POINT, source=repo_dir),
+        "run_dir": testing.Mount(location="/run", source=run_dir),
+    }
+
+
+@pytest.fixture
+def git_sync_container(git_sync_mounts: dict) -> testing.Container:
+    """Return a git-sync container with a mounted repo directory."""
+    return testing.Container(
+        name="git-sync",
+        can_connect=True,
+        mounts=git_sync_mounts,
+    )
+
+
+@pytest.fixture
 def base_state(
-    mediawiki_container: testing.Container, secrets: list[testing.Secret]
+    mediawiki_container: testing.Container,
+    git_sync_container: testing.Container,
+    secrets: list[testing.Secret],
 ) -> testing.State:
     return testing.State(
-        containers=[mediawiki_container],
+        containers=[mediawiki_container, git_sync_container],
+        storages=[testing.Storage(name="static-assets-repo")],
         secrets=secrets,
         leader=True,
     )
@@ -149,6 +182,10 @@ def execs() -> Generator[set[testing.Exec], None, None]:
             stdout="Mocked maintenance update",
             stderr="",
         ),
+        testing.Exec(
+            ExecCmd.SYMLINK_STATIC_ASSETS.value,
+            return_code=0,
+        ),
     }
 
 
@@ -192,6 +229,18 @@ def secrets() -> list[testing.Secret]:
             label=Charm._REPLICA_SECRET_LABEL,
         )
     ]
+
+
+# nosec: B106 — not real credentials; used only in unit tests.
+MOCK_SSH_KEY = "-----BEGIN OPENSSH PRIVATE KEY-----\nmock\n-----END OPENSSH PRIVATE KEY-----\n"
+
+
+@pytest.fixture
+def ssh_key_secret() -> testing.Secret:
+    """Return a user-owned SSH key secret with both mediawiki and git-sync fields."""
+    return testing.Secret(
+        testing.RawSecretRevisionContents({"mediawiki": MOCK_SSH_KEY, "git-sync": MOCK_SSH_KEY}),
+    )
 
 
 @pytest.fixture(autouse=True)

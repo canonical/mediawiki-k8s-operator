@@ -16,6 +16,7 @@ import yaml
 from minio import Minio
 
 from .types_ import App
+from .utils import kubectl
 
 _S3_BUCKET_NAME = "mediawiki"
 _MINIO_ACCESS_KEY = "access"
@@ -45,13 +46,14 @@ def charm_fixture(pytestconfig: pytest.Config, metadata: Dict[str, Any]) -> str:
 
 
 @pytest.fixture(scope="module")
-def charm_resources(pytestconfig: pytest.Config) -> dict[str, str]:
+def charm_resources(pytestconfig: pytest.Config, metadata: Dict[str, Any]) -> dict[str, str]:
     """The OCI resources for the charm, read from option or env vars."""
+    resources = {"git-sync-image": metadata["resources"]["git-sync-image"]["upstream-source"]}
+
     mediawiki_image = pytestconfig.getoption("--mediawiki-image")
     if mediawiki_image:
-        return {
-            "mediawiki-image": mediawiki_image,
-        }
+        resources["mediawiki-image"] = mediawiki_image
+        return resources
 
     resource_name = os.environ.get("OCI_RESOURCE_NAME")
     rock_image_uri = os.environ.get("ROCK_IMAGE")
@@ -62,7 +64,8 @@ def charm_resources(pytestconfig: pytest.Config) -> dict[str, str]:
             "Please set '--mediawiki-image' or run tests via 'make integration'."
         )
 
-    return {resource_name: rock_image_uri}
+    resources[resource_name] = rock_image_uri
+    return resources
 
 
 @pytest.fixture(scope="session")
@@ -183,19 +186,8 @@ def traefik_lb_ip(juju: jubilant.Juju, traefik: App) -> Generator[str, None, Non
     """Get the LoadBalancer external IP for the traefik-k8s-lb service."""
     juju.wait(lambda status: jubilant.all_active(status, traefik.name), timeout=5 * 60)
 
-    command = ["kubectl"]
-    if juju.model:
-        command.extend(["-n", juju.model])
-    command.extend(
-        [
-            "get",
-            f"service/{traefik.name}-lb",
-            "-o=jsonpath='{}'",
-        ]
-    )
-
     result = subprocess.run(  # nosec: B603 # We control inputs in integration tests
-        command,
+        kubectl(juju.model, "get", f"service/{traefik.name}-lb", "-o=jsonpath='{}'"),
         capture_output=True,
         text=True,
         check=True,
