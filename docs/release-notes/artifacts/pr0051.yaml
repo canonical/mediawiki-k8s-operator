@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add documentation on settings managed by the MediaWiki charm
+  author: hk21702
+  type: minor
+  description: Add reference documentation page on configuration settings that are managed by the MediaWiki charm itself.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/51"
+  visibility: public
+  highlight: false
