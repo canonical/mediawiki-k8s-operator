@@ -119,10 +119,19 @@ def test_add_extensions(
 
 
 @pytest.mark.abort_on_fail
-def test_rotate_root_credentials_action(juju: jubilant.Juju, app: App):
-    """Check that the rotate-root-credentials action works as expected."""
+def test_rotate_mediawiki_secrets_action(juju: jubilant.Juju, app: App):
+    """Check that the rotate-mediawiki-secrets action works as expected."""
+    rotate_action = juju.run(f"{app.name}/leader", "rotate-mediawiki-secrets")
+    assert rotate_action.status == "completed", (
+        f"Action failed with message: {rotate_action.message}"
+    )
+
     juju.wait(jubilant.all_active)
 
+
+@pytest.mark.abort_on_fail
+def test_rotate_root_credentials_action(juju: jubilant.Juju, app: App):
+    """Check that the rotate-root-credentials action works as expected."""
     rotate_action = juju.run(f"{app.name}/leader", "rotate-root-credentials")
     assert rotate_action.status == "completed"
     assert rotate_action.results["username"] == "root"
@@ -135,6 +144,8 @@ def test_rotate_root_credentials_action(juju: jubilant.Juju, app: App):
     assert rotate_action.results["password"] != new_rotate_action.results["password"], (
         "Expected new password to be different from previous password"
     )
+
+    juju.wait(jubilant.all_active)
 
 
 @pytest.mark.abort_on_fail

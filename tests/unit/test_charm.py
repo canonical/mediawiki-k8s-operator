@@ -11,6 +11,7 @@ from pytest_mock import MockerFixture, MockType
 
 from charm import Charm
 from exceptions import MediaWikiBlockedStatusException, MediaWikiInstallError
+from mediawiki import MediaWikiSecrets
 from mediawiki_api import SiteInfo
 
 
@@ -445,6 +446,62 @@ class TestMediaWikiReplicaChanged:
                 ctx.on.relation_changed(relation=mediawiki_replica_relation, remote_unit=0),
                 state_in,
             )
+
+
+class TestRotateMediaWikiSecretsAction:
+    def test_success(
+        self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
+    ) -> None:
+        """Test that rotate-mediawiki-secrets updates replica secret content."""
+        expected_secret_content = {
+            "key": "new-mocked-key",
+            "session": "new-mocked-session",
+        }
+        mocker.patch(
+            "charm.MediaWikiSecrets.generate",
+            return_value=MediaWikiSecrets.from_juju_secret(expected_secret_content),
+        )
+
+        state_out = ctx.run(ctx.on.action("rotate-mediawiki-secrets"), active_state)
+
+        assert (
+            state_out.get_secret(label=Charm._REPLICA_SECRET_LABEL).latest_content
+            == expected_secret_content
+        )
+        assert ctx.action_results is None
+
+    def test_not_leader(self, ctx: testing.Context, active_state: testing.State) -> None:
+        """Test that rotate-mediawiki-secrets fails when the unit is not leader."""
+        state_in = dataclasses.replace(active_state, leader=False)
+
+        with pytest.raises(
+            testing.ActionFailed, match="Only the leader unit can rotate MediaWiki secrets"
+        ):
+            ctx.run(ctx.on.action("rotate-mediawiki-secrets"), state_in)
+
+        assert ctx.action_results is None
+
+    def test_secret_not_found(self, ctx: testing.Context, active_state: testing.State) -> None:
+        """Test that rotate-mediawiki-secrets fails when replica secret is missing."""
+        state_in = dataclasses.replace(active_state, secrets=[])
+
+        with pytest.raises(testing.ActionFailed, match="replica secret not found"):
+            ctx.run(ctx.on.action("rotate-mediawiki-secrets"), state_in)
+
+        assert ctx.action_results is None
+
+    def test_unexpected_error(
+        self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
+    ) -> None:
+        """Test that rotate-mediawiki-secrets fails on unexpected exceptions."""
+        mocker.patch("charm.MediaWikiSecrets.generate", side_effect=Exception("Mocked exception"))
+
+        with pytest.raises(
+            testing.ActionFailed, match="Failed to rotate secrets due to unexpected error"
+        ):
+            ctx.run(ctx.on.action("rotate-mediawiki-secrets"), active_state)
+
+        assert ctx.action_results is None
 
 
 class TestRotateRootCredentialsAction:

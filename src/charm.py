@@ -113,6 +113,9 @@ class Charm(StatefulCharmBase):
 
         # Actions
         self.framework.observe(
+            self.on.rotate_mediawiki_secrets_action, self._on_rotate_mediawiki_secrets
+        )
+        self.framework.observe(
             self.on.rotate_root_credentials_action, self._on_rotate_root_credentials
         )
         self.framework.observe(self.on.update_database_action, self._on_update_database)
@@ -470,6 +473,31 @@ class Charm(StatefulCharmBase):
         )
 
         logger.info("Reconciliation process complete.")
+
+    def _on_rotate_mediawiki_secrets(self, event: ActionEvent) -> None:
+        """Handle the rotate-mediawiki-secrets action.
+
+        Rotate the secrets shared between MediaWiki replicas.
+
+        Args:
+            event: The event that triggered the secrets rotation.
+        """
+        logger.info("Rotating MediaWiki secrets due to event: %s", event)
+
+        if not self.unit.is_leader():
+            event.fail("Only the leader unit can rotate MediaWiki secrets")
+            return
+
+        try:
+            new_secrets = MediaWikiSecrets.generate()
+            secret_content = new_secrets.to_juju_secret()
+            self.model.get_secret(label=self._REPLICA_SECRET_LABEL).set_content(secret_content)
+            event.log("MediaWiki secrets rotated successfully")
+        except SecretNotFoundError:
+            event.fail("Failed to rotate secrets: replica secret not found")
+        except Exception as e:
+            logger.error("Failed to rotate secrets due to unexpected error: %s", e)
+            event.fail("Failed to rotate secrets due to unexpected error")
 
     def _on_rotate_root_credentials(self, event: ActionEvent) -> None:
         """Handle the rotate-root-credentials action.
