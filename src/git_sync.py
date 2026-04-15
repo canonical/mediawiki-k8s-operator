@@ -11,7 +11,7 @@ from ops import ModelError, Object, pebble
 
 import utils
 from exceptions import MediaWikiBlockedStatusException
-from state import StatefulCharmBase
+from state import CharmConfig, StatefulCharmBase
 
 logger = logging.getLogger(__name__)
 
@@ -72,15 +72,17 @@ class GitSync(Object):
             logger.info("Skipping git-sync reconciliation, container is not ready")
             return
 
-        try:
-            self._ssh_config_reconciliation(ssh_key)
-        except Exception:
-            self._reconcile_services(force_disable=True)
-            raise
-        self._sparse_checkout_reconciliation()
-        self._reconcile_services()
+        config = self._charm.load_charm_config()
 
-        if not self._git_sync_command:
+        try:
+            self._ssh_config_reconciliation(config, ssh_key)
+        except Exception:
+            self._reconcile_services(config, force_disable=True)
+            raise
+        self._sparse_checkout_reconciliation(config)
+        self._reconcile_services(config)
+
+        if not self._git_sync_command(config):
             self._clear_repo_contents()
 
     def _clear_repo_contents(self) -> None:
@@ -111,10 +113,8 @@ class GitSync(Object):
 
         return self._repo_mount_point.exists()
 
-    @property
-    def _git_sync_command(self) -> list[str]:
+    def _git_sync_command(self, config: CharmConfig) -> list[str]:
         """Get the command to run git-sync with the current configuration."""
-        config = self._charm.load_charm_config()
         if not config.static_assets_git_repo:
             return []
 
@@ -137,14 +137,15 @@ class GitSync(Object):
 
         return cmd
 
-    def _pebble_layer(self, *, force_disable: bool = False) -> pebble.LayerDict:
+    def _pebble_layer(self, config: CharmConfig, force_disable: bool = False) -> pebble.LayerDict:
         """Build the Pebble layer for the git-sync service.
 
         Args:
+            config: The current charm configuration.
             force_disable: Whether the service should be forcefully disabled. When True, the
                 service is set to disabled so it won't start even if pebble restarts.
         """
-        cmd = self._git_sync_command
+        cmd = self._git_sync_command(config)
         startup: Literal["enabled", "disabled"] = (
             "enabled" if cmd and not force_disable else "disabled"
         )
@@ -181,36 +182,37 @@ class GitSync(Object):
 
         return layer
 
-    def _reconcile_services(self, *, force_disable: bool = False) -> None:
+    def _reconcile_services(self, config: CharmConfig, force_disable: bool = False) -> None:
         """Apply the Pebble layer and replan.
 
         Args:
+            config: The current charm configuration.
             force_disable: Whether the git-sync service should be forcefully disabled.
         """
         self._container.add_layer(
-            self._service_name, self._pebble_layer(force_disable=force_disable), combine=True
+            self._service_name,
+            self._pebble_layer(config, force_disable=force_disable),
+            combine=True,
         )
         self._container.replan()
 
-    def _sparse_checkout_reconciliation(self) -> None:
+    def _sparse_checkout_reconciliation(self, config: CharmConfig) -> None:
         """Write or remove the sparse-checkout file based on the current configuration."""
-        config = self._charm.load_charm_config()
         if config.static_assets_git_sparse_checkout:
             self._sparse_checkout_file.write_text(config.static_assets_git_sparse_checkout)
         elif self._sparse_checkout_file.exists():
             self._container.remove_path(self._sparse_checkout_file.as_posix())
 
-    def _ssh_config_reconciliation(self, ssh_key: str | None) -> None:
+    def _ssh_config_reconciliation(self, config: CharmConfig, ssh_key: str | None) -> None:
         """Configure the SSH environment for git-sync.
 
         Args:
+            config: The current charm configuration.
             ssh_key: Optional SSH private key content to write into the container.
 
         Raises:
             MediaWikiBlockedStatusException: If the git remote is not in the known hosts configuration.
         """
-        config = self._charm.load_charm_config()
-
         utils.ssh_reconcile_config(
             ssh_key=ssh_key,
             key_file=self._ssh_key_file,

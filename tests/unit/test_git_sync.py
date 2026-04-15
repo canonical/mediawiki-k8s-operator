@@ -181,7 +181,8 @@ class TestSshConfigReconciliation:
             ),
             ctx(ctx.on.update_status(), state_in) as mgr,
         ):
-            mgr.charm.git_sync._ssh_config_reconciliation(ssh_key=None)
+            config = mgr.charm.load_charm_config()
+            mgr.charm.git_sync._ssh_config_reconciliation(config, ssh_key=None)
 
     def test_no_error_for_known_remote(
         self,
@@ -190,7 +191,8 @@ class TestSshConfigReconciliation:
     ) -> None:
         """Test that a known SSH remote does not raise."""
         with ctx(ctx.on.update_status(), configured_git_sync_state) as mgr:
-            mgr.charm.git_sync._ssh_config_reconciliation(ssh_key=None)
+            config = mgr.charm.load_charm_config()
+            mgr.charm.git_sync._ssh_config_reconciliation(config, ssh_key=None)
 
     def test_no_error_for_https_repo(
         self,
@@ -207,7 +209,8 @@ class TestSshConfigReconciliation:
             },
         )
         with ctx(ctx.on.update_status(), state_in) as mgr:
-            mgr.charm.git_sync._ssh_config_reconciliation(ssh_key=None)
+            config = mgr.charm.load_charm_config()
+            mgr.charm.git_sync._ssh_config_reconciliation(config, ssh_key=None)
 
 
 class TestPebbleLayer:
@@ -220,7 +223,8 @@ class TestPebbleLayer:
     ) -> None:
         """Test that the service is enabled when a git repo is configured."""
         with ctx(ctx.on.update_status(), configured_git_sync_state) as mgr:
-            layer = mgr.charm.git_sync._pebble_layer()
+            config = mgr.charm.load_charm_config()
+            layer = mgr.charm.git_sync._pebble_layer(config)
 
         service = layer["services"]["git-sync"]
         assert service["startup"] == "enabled"
@@ -237,7 +241,8 @@ class TestPebbleLayer:
             config={**active_state.config, "static-assets-git-repo": ""},
         )
         with ctx(ctx.on.update_status(), state_in) as mgr:
-            layer = mgr.charm.git_sync._pebble_layer()
+            config = mgr.charm.load_charm_config()
+            layer = mgr.charm.git_sync._pebble_layer(config)
 
         assert layer["services"]["git-sync"]["startup"] == "disabled"
 
@@ -248,7 +253,8 @@ class TestPebbleLayer:
     ) -> None:
         """Test that force_disable overrides the startup to disabled."""
         with ctx(ctx.on.update_status(), configured_git_sync_state) as mgr:
-            layer = mgr.charm.git_sync._pebble_layer(force_disable=True)
+            config = mgr.charm.load_charm_config()
+            layer = mgr.charm.git_sync._pebble_layer(config, force_disable=True)
 
         assert layer["services"]["git-sync"]["startup"] == "disabled"
 
@@ -259,8 +265,9 @@ class TestPebbleLayer:
     ) -> None:
         """Test that the health check startup matches the service startup."""
         with ctx(ctx.on.update_status(), configured_git_sync_state) as mgr:
-            layer = mgr.charm.git_sync._pebble_layer()
-            layer_disabled = mgr.charm.git_sync._pebble_layer(force_disable=True)
+            config = mgr.charm.load_charm_config()
+            layer = mgr.charm.git_sync._pebble_layer(config)
+            layer_disabled = mgr.charm.git_sync._pebble_layer(config, force_disable=True)
 
         assert layer["checks"]["git-sync-alive"]["startup"] == "enabled"
         assert layer_disabled["checks"]["git-sync-alive"]["startup"] == "disabled"
@@ -280,7 +287,8 @@ class TestGitSyncCommand:
             config={**active_state.config, "static-assets-git-repo": ""},
         )
         with ctx(ctx.on.update_status(), state_in) as mgr:
-            assert mgr.charm.git_sync._git_sync_command == []
+            config = mgr.charm.load_charm_config()
+            assert mgr.charm.git_sync._git_sync_command(config) == []
 
     def test_includes_repo_and_root(
         self,
@@ -289,7 +297,8 @@ class TestGitSyncCommand:
     ) -> None:
         """Test that the command includes the repo URL and root path."""
         with ctx(ctx.on.update_status(), configured_git_sync_state) as mgr:
-            cmd = mgr.charm.git_sync._git_sync_command
+            config = mgr.charm.load_charm_config()
+            cmd = mgr.charm.git_sync._git_sync_command(config)
 
         assert cmd[0] == "/git-sync"
         assert "--repo" in cmd
@@ -312,7 +321,8 @@ class TestGitSyncCommand:
         )
 
         with ctx(ctx.on.update_status(), configured_git_sync_state) as mgr:
-            cmd = mgr.charm.git_sync._git_sync_command
+            config = mgr.charm.load_charm_config()
+            cmd = mgr.charm.git_sync._git_sync_command(config)
 
         ref_idx = cmd.index("--ref")
         assert cmd[ref_idx + 1] == "v1.0.0"
@@ -331,7 +341,8 @@ class TestGitSyncCommand:
             },
         )
         with ctx(ctx.on.update_status(), state_in) as mgr:
-            cmd = mgr.charm.git_sync._git_sync_command
+            config = mgr.charm.load_charm_config()
+            cmd = mgr.charm.git_sync._git_sync_command(config)
 
         assert "--ref" not in cmd
 
@@ -351,7 +362,8 @@ class TestGitSyncCommand:
         )
         with ctx(ctx.on.update_status(), state_in) as mgr:
             mgr.charm.git_sync._sparse_checkout_file.write_text("asset.txt\n")
-            cmd = mgr.charm.git_sync._git_sync_command
+            config = mgr.charm.load_charm_config()
+            cmd = mgr.charm.git_sync._git_sync_command(config)
 
         assert "--sparse-checkout-file" in cmd
         idx = cmd.index("--sparse-checkout-file")
@@ -364,7 +376,8 @@ class TestGitSyncCommand:
     ) -> None:
         """Test that --sparse-checkout-file is absent when the file does not exist."""
         with ctx(ctx.on.update_status(), configured_git_sync_state) as mgr:
-            cmd = mgr.charm.git_sync._git_sync_command
+            config = mgr.charm.load_charm_config()
+            cmd = mgr.charm.git_sync._git_sync_command(config)
 
         assert "--sparse-checkout-file" not in cmd
 
@@ -386,7 +399,8 @@ class TestSparseCheckoutReconciliation:
             },
         )
         with ctx(ctx.on.update_status(), state_in) as mgr:
-            mgr.charm.git_sync._sparse_checkout_reconciliation()
+            config = mgr.charm.load_charm_config()
+            mgr.charm.git_sync._sparse_checkout_reconciliation(config)
             assert mgr.charm.git_sync._sparse_checkout_file.exists()
 
     def test_removes_file_when_cleared(
@@ -402,5 +416,6 @@ class TestSparseCheckoutReconciliation:
         with ctx(ctx.on.update_status(), state_in) as mgr:
             mgr.charm.git_sync._sparse_checkout_file.write_text("old content\n")
             assert mgr.charm.git_sync._sparse_checkout_file.exists()
-            mgr.charm.git_sync._sparse_checkout_reconciliation()
+            config = mgr.charm.load_charm_config()
+            mgr.charm.git_sync._sparse_checkout_reconciliation(config)
             assert not mgr.charm.git_sync._sparse_checkout_file.exists()
