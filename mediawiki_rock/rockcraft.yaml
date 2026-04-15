@@ -93,7 +93,7 @@ parts:
     plugin: nil
     # Switch to LTS version only once we get to 1.47
     build-environment:
-      - MW_VERSION: 1.45.1
+      - MW_VERSION: 1.45.3
     build-packages:
       - curl
       - gnupg
