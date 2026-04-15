@@ -22,6 +22,19 @@
       "versioningTemplate": "ubuntu"
     },
     {
+      "customType": "regex",
+      "datasourceTemplate": "git-tags",
+      "depNameTemplate": "https://gerrit.wikimedia.org/r/mediawiki/core.git",
+      "description": "Update MediaWiki MW_VERSION from upstream tags",
+      "managerFilePatterns": [
+        "/(^|/)mediawiki_rock/rockcraft.yaml$/"
+      ],
+      "matchStrings": [
+        "- MW_VERSION:\\s*(?<currentValue>[^\\s]+)"
+      ],
+      "versioningTemplate": "semver"
+    },
+    {
       "datasourceTemplate": "github-tags",
       "depNameTemplate": "Lusitaniae/apache_exporter",
       "description": "Update Apache Exporter source",
@@ -49,17 +62,6 @@
       "pinDigests": true
     },
     {
-      "enabled": false,
-      "matchFileNames": [
-        "rockcraft.yaml"
-      ],
-      "matchUpdateTypes": [
-        "major",
-        "minor",
-        "patch"
-      ]
-    },
-    {
       "enabled": true,
       "matchDatasources": [
         "terraform-provider"
@@ -67,6 +69,24 @@
       "matchPackageNames": [
         "juju/juju"
       ]
+    },
+    {
+      "description": "Split minor and patch updates for MediaWiki",
+      "matchSourceUrls": [
+        "https://gerrit.wikimedia.org/r/mediawiki/core"
+      ],
+      "separateMinorPatch": true
+    },
+    {
+      "description": "Only stable patch updates for MediaWiki",
+      "matchSourceUrls": [
+        "https://gerrit.wikimedia.org/r/mediawiki/core"
+      ],
+      "matchUpdateTypes": [
+        "major",
+        "minor"
+      ],
+      "enabled": false
     }
   ]
 }
