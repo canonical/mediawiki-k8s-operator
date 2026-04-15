@@ -1,0 +1,95 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+# Ephemeral pod that runs an SSH server hosting a bare git repository.
+# Used by integration tests to verify git-sync cloning over SSH.
+#
+# The pod:
+#   1. Installs openssh-server and git.
+#   2. Creates a "git" user whose authorized_keys is injected via the
+#      GIT_SSH_PUBLIC_KEY environment variable.
+#   3. Initialises a bare repo at /srv/repo.git with two commits on two
+#      branches ("main" and "feature"), each containing an asset.txt file
+#      with different content, plus a .hidden dot file on main to allow
+#      testing that Apache blocks access to dot files. Ownership of
+#      /srv/repo.git is transferred to
+#      the git user only after all pushes are complete to avoid git's
+#      dubious-ownership check blocking root-initiated pushes.
+#   4. Runs sshd in the foreground.
+#
+# Template variables (to be substituted before applying):
+#   __GIT_SSH_PUBLIC_KEY__ — Ed25519 public key to authorise.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: git-ssh-server
+  labels:
+    app.kubernetes.io/name: git-ssh-server
+spec:
+  containers:
+    - name: git-ssh
+      image: ubuntu:24.04
+      command:
+        - /bin/bash
+        - -c
+        - |
+          set -eu
+
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq openssh-server git >/dev/null
+
+          # Prepare sshd
+          mkdir -p /run/sshd
+
+          # Create the git user and inject the public key
+          useradd -m -s /usr/bin/git-shell git
+          mkdir -p /home/git/.ssh
+          echo "${GIT_SSH_PUBLIC_KEY}" > /home/git/.ssh/authorized_keys
+          chmod 700 /home/git/.ssh
+          chmod 600 /home/git/.ssh/authorized_keys
+          chown -R git:git /home/git/.ssh
+
+          # Create a bare repository with one commit
+          git config --global init.defaultBranch main
+          git init --bare /srv/repo.git
+
+          tmp="$(mktemp -d)"
+          cd "${tmp}"
+          git init .
+          git config user.email "test@test"
+          git config user.name "test"
+          echo "hello from git-ssh-server" > asset.txt
+          echo "hidden content" > .hidden
+          echo "# Test Repository" > README.md
+          git add .
+          git commit -m "initial commit"
+          git remote add origin /srv/repo.git
+          git push origin HEAD:main
+
+          # Create a second branch with different content
+          git checkout -b feature
+          echo "hello from feature branch" > asset.txt
+          git add .
+          git commit -m "feature commit"
+          git push origin HEAD:feature
+
+          rm -rf "${tmp}"
+
+          # Transfer ownership to the git user after all pushes are complete
+          chown -R git:git /srv/repo.git
+
+          echo "git-ssh-server ready"
+
+          # Run sshd in the foreground
+          exec /usr/sbin/sshd -D -e
+      env:
+        - name: GIT_SSH_PUBLIC_KEY
+          value: __GIT_SSH_PUBLIC_KEY__
+      ports:
+        - containerPort: 22
+      readinessProbe:
+        tcpSocket:
+          port: 22
+        initialDelaySeconds: 10
+        periodSeconds: 5

@@ -72,6 +72,7 @@ parts:
       chroot $CRAFT_OVERLAY /bin/sh -x <<'EOF'
       a2enconf docker-php
       a2enconf short-url
+      a2enconf static-dotfiles
       a2enmod headers
       a2enmod mpm_prefork
       a2enmod proxy

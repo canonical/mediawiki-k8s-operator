@@ -33,6 +33,7 @@ from exceptions import (
     MediaWikiStatusException,
     MediaWikiWaitingStatusException,
 )
+from git_sync import GitSync
 from mediawiki import MediaWiki, MediaWikiSecrets
 from mediawiki_api import SiteInfo
 from oauth import OAuth
@@ -79,6 +80,7 @@ class Charm(StatefulCharmBase):
         self._redis = Redis(self, self._REDIS_RELATION_NAME)
         self._s3 = S3(self, self._S3_RELATION_NAME)
         self._mediawiki = MediaWiki(self, self._database, self._oauth, self._redis, self._s3)
+        self._git_sync = GitSync(self)
 
         self._ingress_requirer = TraefikRouteRequirer(
             self,
@@ -91,6 +93,7 @@ class Charm(StatefulCharmBase):
         # Reconciliation events
         reconciliation_events = [
             self.on.mediawiki_pebble_ready,
+            self.on.git_sync_pebble_ready,
             self._database.db.on.database_created,
             self._database.db.on.endpoints_changed,
             self.on[self._DATABASE_RELATION_NAME].relation_broken,
@@ -420,6 +423,7 @@ class Charm(StatefulCharmBase):
 
         Otherwise, if prerequisite criteria is met, the following actions are attempted:
         - Configure ingress.
+        - Trigger the git-sync reconciliation process
         - Trigger the MediaWiki workload reconciliation process.
         - Flag the unit as being in read-only mode if the database was set to read-only mode.
         - Trigger the database reconciliation process.
@@ -437,6 +441,11 @@ class Charm(StatefulCharmBase):
             self.unit.status = WaitingStatus("Waiting for pebble")
             return
 
+        if not self._git_sync.is_ready():
+            logger.info("Reconciliation process terminated early, git-sync sidecar is not ready")
+            self.unit.status = WaitingStatus("Waiting for git-sync sidecar")
+            return
+
         try:
             replica_data, secrets = self._pre_reconciliation()
             set_ro_database = (
@@ -444,6 +453,9 @@ class Charm(StatefulCharmBase):
             )
 
             self._configure_ingress()
+            self._git_sync.reconciliation(
+                ssh_key=self._ssh_key(self._SSH_KEY_GIT_SYNC_FIELD),
+            )
             self._mediawiki.reconciliation(
                 secrets,
                 ssh_key=self._ssh_key(self._SSH_KEY_MEDIAWIKI_FIELD),
