@@ -150,15 +150,17 @@ actions:
 
       To be implemented.
 
+  rotate-mediawiki-secrets:
+    description: >
+      Rotate the MediaWiki secrets generated and managed by the charm. Must be run on the leader unit.
+
+      Managed secrets include: $wgSecretKey, $wgSessionSecret
+
   rotate-root-credentials:
     description: >
       Rotate the MediaWiki root bureaucrat user credentials and return the new credentials.
 
       This user is only in the bureaucrat group and should only be used to assign permissions to real users, not for regular use.
-
-  rotate-mediawiki-secrets:
-    description: >
-      To be implemented.
 
   update-database:
     description: >

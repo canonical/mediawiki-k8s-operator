@@ -190,6 +190,7 @@ def secrets() -> list[testing.Secret]:
         testing.Secret(
             testing.RawSecretRevisionContents(secrets.to_juju_secret()),
             label=Charm._REPLICA_SECRET_LABEL,
+            owner="app",
         )
     ]
 
