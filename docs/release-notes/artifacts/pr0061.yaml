@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Remove unused issues workflow
+  author: hk21702
+  type: minor
+  description: Remove the unused issues workflow from the repository.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/61"
+  visibility: internal
+  highlight: false
