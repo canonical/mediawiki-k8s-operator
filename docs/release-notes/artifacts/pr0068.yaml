@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add relevant badges to the README
+  author: hk21702
+  type: minor
+  description: Add relevant badges to the README.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/68"
+  visibility: public
+  highlight: false

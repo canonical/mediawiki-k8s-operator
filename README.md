@@ -1,5 +1,11 @@
 # MediaWiki K8s operator
 
+[![Charmhub Badge][charmhub-badge-image]][charmhub-site]
+[![Publish to edge][publish-charm-badge-image]][publish-charm-workflow]
+[![Promote charm][promote-charm-badge-image]][promote-charm-workflow]
+[![Charm documentation][charm-documentation-image]][charm-documentation-site]
+[![Allure report deployment][allure-report-image]][allure-report-site]
+
 A [Juju](https://juju.is/) [charm](https://documentation.ubuntu.com/juju/3.6/reference/charm/) deploying and managing MediaWiki on Kubernetes. [MediaWiki][mediawiki-site] is a free and open-source wiki software platform.
 
 For information about how to deploy, integrate, and manage this charm, see the Official [MediaWiki K8s charm documentation][charm-documentation-site].
@@ -74,5 +80,14 @@ The [MediaWiki logo](icon.svg) is licensed under [CC BY-SA 4.0](https://creative
 
 MediaWiki and the MediaWiki logo are trademarks of the Wikimedia Foundation and is used with the permission of the Wikimedia Foundation. We are not endorsed by or affiliated with the Wikimedia Foundation.
 
+[charmhub-badge-image]: https://charmhub.io/mediawiki-k8s/badge.svg
+[charmhub-site]: https://charmhub.io/mediawiki-k8s
+[publish-charm-badge-image]: https://github.com/canonical/mediawiki-k8s-operator/actions/workflows/publish_charm.yaml/badge.svg
+[publish-charm-workflow]: https://github.com/canonical/mediawiki-k8s-operator/actions/workflows/publish_charm.yaml
+[promote-charm-badge-image]: https://github.com/canonical/mediawiki-k8s-operator/actions/workflows/promote_charm.yaml/badge.svg
+[promote-charm-workflow]: https://github.com/canonical/mediawiki-k8s-operator/actions/workflows/promote_charm.yaml
+[charm-documentation-image]: https://img.shields.io/website?url=https%3A%2F%2Fcanonical-mediawiki-k8s-charm.readthedocs-hosted.com%2F&logo=readthedocs&label=Documentation
 [charm-documentation-site]: https://canonical-mediawiki-k8s-charm.readthedocs-hosted.com/
+[allure-report-image]: https://img.shields.io/github/deployments/canonical/mediawiki-k8s-operator/github-pages?label=Allure%20report
+[allure-report-site]: https://canonical.github.io/mediawiki-k8s-operator/
 [mediawiki-site]: https://www.mediawiki.org
