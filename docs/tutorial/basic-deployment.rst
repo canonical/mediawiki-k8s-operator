@@ -134,7 +134,7 @@ Clean up the environment
 Congratulations! You successfully...
 
 You can clean up your environment by following this guide:
-`Tear down your test environment <https://documentation.ubuntu.com/juju/3.6/howto/manage-your-juju-deployment/tear-down-your-juju-deployment-local-testing-and-development/>`_
+:doc:`Tear down your test environment <juju:howto/manage-your-juju-deployment/tear-down-your-juju-deployment-local-testing-and-development>`
 
 Next steps
 ----------

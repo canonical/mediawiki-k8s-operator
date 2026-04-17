@@ -372,6 +372,17 @@ if os.path.exists("./reuse/substitutions.yaml"):
 
 # Add configuration for intersphinx mapping
 # Map only the Sphinx documentation sets that you need to link to from your docs set.
-# intersphinx_mapping = {
-#     'sphinxcontrib-mermaid': ('https://sphinxcontrib-mermaid-demo.readthedocs.io/en/latest', None)
-# }
+intersphinx_mapping = {
+    "charmcraft": ("https://documentation.ubuntu.com/charmcraft/stable", None),
+    "rockcraft": ("https://documentation.ubuntu.com/rockcraft/stable", None),
+    "juju": ("https://documentation.ubuntu.com/juju/3.6/", None),
+}
+
+# We recommend adding the following config value.
+# Sphinx defaults to automatically resolve *unresolved* labels using all your Intersphinx mappings.
+# This behavior has unintended side-effects, namely that documentations local references can
+# suddenly resolve to an external location.
+# See also:
+# https://www.sphinx-doc.org/en/master/usage/extensions/intersphinx.html#confval-intersphinx_disabled_reftypes
+# https://docs.readthedocs.com/platform/latest/guides/intersphinx.html#using-intersphinx
+intersphinx_disabled_reftypes = ["*"]
