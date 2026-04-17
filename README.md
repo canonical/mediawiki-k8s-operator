@@ -26,20 +26,22 @@ This section could be structured in the following way:
 
 The following actions are available for the charm:
 
+- `rotate-mediawiki-secrets`
 - `rotate-root-credentials`
 - `update-database`
 
-<!-- Uncomment when pages are ready
-You can find more information about supported actions in [the Charmhub documentation](). <!--Link to the charm's actions documentation>
+You can find more information about supported actions in [the Charmhub documentation](https://charmhub.io/mediawiki-k8s/actions).
 
 The charm supports further customization, including:
 
-- [Installing additional extensions and skins]()
-- [Configuring MediaWiki]()
+- [Configuring MediaWiki](https://canonical-mediawiki-k8s-charm.readthedocs-hosted.com/how-to/configure-mediawiki/)
+- [Installing additional extensions and skins](https://canonical-mediawiki-k8s-charm.readthedocs-hosted.com/how-to/install-extensions-and-skins/)
+
+<!-- Uncomment when pages are ready
 - [Integrating with S3 object storage for file uploads]()
  -->
 
-For more information, refer to the [charm's documentation][charm-documentation-site]. <!--Link to primary RTD documentation-->
+For more information, refer to the [charm's documentation][charm-documentation-site].
 
 ## Integrations
 
@@ -52,11 +54,11 @@ juju deploy mysql-k8s --trust
 juju integrate mediawiki-k8s mysql-k8s:database
 ```
 
-Apart from this required integration, the charm can be integrated with other Juju charms and services as well. You can find the full list of integrations in [the Charmhub documentation][charm-documentation-site]. <!--Link to the charm's integration documentation-->
+Apart from this required integration, the charm can be integrated with other Juju charms and services as well. You can find the full list of integrations in [the Charmhub documentation](https://charmhub.io/mediawiki-k8s/integrations).
 
 ## Learn more
 
-- [Read more][charm-documentation-site] <!--Link to the charm's official documentation-->
+- [Read more][charm-documentation-site]
 - [Developer documentation](https://www.mediawiki.org/wiki/Developer_hub)
 - [Official webpage][mediawiki-site]
 
@@ -64,6 +66,7 @@ Apart from this required integration, the charm can be integrated with other Juj
 
 - [Issues](https://github.com/canonical/mediawiki-k8s-operator/issues)
 - [Contributing](CONTRIBUTING.md)
+- [Matrix](https://matrix.to/#/#charmhub-charmdev:ubuntu.com)
 
 ## Licensing and trademark
 
@@ -71,7 +74,5 @@ The [MediaWiki logo](icon.svg) is licensed under [CC BY-SA 4.0](https://creative
 
 MediaWiki and the MediaWiki logo are trademarks of the Wikimedia Foundation and is used with the permission of the Wikimedia Foundation. We are not endorsed by or affiliated with the Wikimedia Foundation.
 
-<!--Placeholder, update this when available-->
-
-[charm-documentation-site]: https://documentation.ubuntu.com
+[charm-documentation-site]: https://canonical-mediawiki-k8s-charm.readthedocs-hosted.com/
 [mediawiki-site]: https://www.mediawiki.org
