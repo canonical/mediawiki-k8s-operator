@@ -1,2 +1,5 @@
 # Used for allowlist. The root domain 404s but that is expected.
 https://repo.packagist.org/
+
+# Tends to 429
+https://www.gnu.org/licenses/
