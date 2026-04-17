@@ -1,15 +1,37 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-variables {
-  channel = "latest/edge"
-  # renovate: depName="MediaWiki"
-  revision = 1
+run "setup_tests" {
+  module {
+    source = "./tests/setup"
+  }
 }
 
 run "basic_deploy" {
+  variables {
+    model_uuid = run.setup_tests.model_uuid
+    channel    = "1.45/edge"
+    # renovate: depName="mediawiki-k8s"
+    revision = 4
+  }
+
   assert {
-    condition     = module.MediaWiki.app_name == "MediaWiki"
-    error_message = "MediaWiki app_name did not match expected"
+    condition     = output.app_name == "mediawiki-k8s"
+    error_message = "mediawiki-k8s app_name did not match expected"
+  }
+}
+
+run "integration_test" {
+  variables {
+    model_uuid = run.setup_tests.model_uuid
+  }
+
+  module {
+    source = "./tests/integration_test"
+  }
+
+  assert {
+    condition     = data.external.app_status.result.status == "active"
+    error_message = "mediawiki-k8s app_status did not match expected"
   }
 }

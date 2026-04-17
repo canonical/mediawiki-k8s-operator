@@ -1,5 +1,3 @@
-<!-- Remember to update this file for your charm -- replace MediaWiki with the appropriate name. -->
-
 # MediaWiki Terraform module
 
 This folder contains a base [Terraform][Terraform] module for the MediaWiki charm.
@@ -12,14 +10,14 @@ deployment onto any Kubernetes environment managed by [Juju][Juju].
 - **main.tf** - Defines the Juju application to be deployed.
 - **variables.tf** - Allows customization of the deployment. Also models the charm configuration,
   except for exposing the deployment options (Juju model name, channel or application name).
-- **output.tf** - Integrates the module with other Terraform modules, primarily
+- **outputs.tf** - Integrates the module with other Terraform modules, primarily
   by defining potential integration endpoints (charm integrations), but also by exposing
   the Juju application name.
 - **versions.tf** - Defines the Terraform provider version.
 
-## Using MediaWiki base module in higher level modules
+## Using mediawiki_k8s base module in higher level modules
 
-If you want to use `MediaWiki` base module as part of your Terraform module, import it
+If you want to use `mediawiki_k8s` base module as part of your Terraform module, import it
 like shown below:
 
 ```text
@@ -27,10 +25,10 @@ data "juju_model" "my_model" {
   name = var.model
 }
 
-module "MediaWiki" {
-  source = "git::https://github.com/canonical/MediaWiki-operator//terraform"
+module "mediawiki_k8s" {
+  source = "git::https://github.com/canonical/mediawiki-k8s-operator//terraform"
   
-  model = juju_model.my_model.name
+  model_uuid = data.juju_model.my_model.uuid
   # (Customize configuration variables here if needed)
 }
 ```
@@ -38,15 +36,15 @@ module "MediaWiki" {
 Create integrations, for instance:
 
 ```text
-resource "juju_integration" "MediaWiki-loki" {
-  model = juju_model.my_model.name
+resource "juju_integration" "mediawiki-mysql" {
+  model_uuid = data.juju_model.my_model.uuid
   application {
-    name     = module.MediaWiki.app_name
-    endpoint = module.MediaWiki.endpoints.logging
+    name     = module.mediawiki_k8s.application.name
+    endpoint = module.mediawiki_k8s.requires.database
   }
   application {
-    name     = "loki-k8s"
-    endpoint = "logging"
+    name     = "mysql-k8s"
+    endpoint = "database"
   }
 }
 ```
@@ -56,4 +54,4 @@ The complete list of available integrations can be found [in the Integrations ta
 [Terraform]: https://developer.hashicorp.com/terraform
 [Terraform Juju provider]: https://registry.terraform.io/providers/juju/juju/latest
 [Juju]: https://juju.is
-[MediaWiki-integrations]: https://charmhub.io/MediaWiki/integrations
+[MediaWiki-integrations]: https://charmhub.io/mediawiki-k8s/integrations

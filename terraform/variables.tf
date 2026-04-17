@@ -4,17 +4,17 @@
 variable "app_name" {
   description = "Name of the application in the Juju model."
   type        = string
-  default     = "MediaWiki"
+  default     = "mediawiki-k8s"
 }
 
 variable "channel" {
   description = "The channel to use when deploying a charm."
   type        = string
-  default     = "latest/stable"
+  default     = "1.45/stable"
 }
 
 variable "config" {
-  description = "Application config. Details about available options can be found at https://charmhub.io/MediaWiki/configurations."
+  description = "Application config. Details about available options can be found at https://charmhub.io/mediawiki-k8s/configurations."
   type        = map(string)
   default     = {}
 }
@@ -36,7 +36,13 @@ variable "revision" {
   default     = null
 }
 
-variable "storage" {
+variable "resources" {
+  description = "Map of resources used by the application."
+  type        = map(string)
+  default     = {}
+}
+
+variable "storage_directives" {
   description = "Map of storage used by the application."
   type        = map(string)
   default     = {}
