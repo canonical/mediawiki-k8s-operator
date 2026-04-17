@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Include icon.svg in the *.charm output
+  author: hk21702
+  type: minor
+  description: Include the icon.svg file in the *.charm output.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/67"
+  visibility: public
+  highlight: false
