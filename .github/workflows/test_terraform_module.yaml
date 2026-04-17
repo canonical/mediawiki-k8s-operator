@@ -1,57 +1,19 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-# Attention: valid for K8s charms only
-
-name: Terraform module tests
+name: Terraform modules tests
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
-      - "terraform/**"
-
-permissions:
-  contents: read
+      - 'terraform/**'
+      - 'terraform-product/**'
 
 jobs:
-  test-terraform:
-    # remove this condition for enabling the workflow
-    if: false
-    name: Test Terraform with Juju
-    runs-on: ubuntu-latest
-    env:
-      WORKING_DIR: "terraform/tests"
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: charmed-kubernetes/actions-operator@main
-        with:
-          provider: "microk8s"
-          channel: 1.34-strict/stable
-          juju-channel: 3.6/stable
-      - name: Prepare juju tf provider environment
-        run: |
-          CONTROLLER=$(juju whoami | yq .Controller)
-          JUJU_CONTROLLER_ADDRESSES="$(juju show-controller | yq '.[$CONTROLLER]'.details.\"api-endpoints\" | tr -d "[]' "|tr -d '"'|tr -d '\n')"
-          JUJU_USERNAME="$(cat ~/.local/share/juju/accounts.yaml | yq .controllers.$CONTROLLER.user|tr -d '"')"
-          JUJU_PASSWORD="$(cat ~/.local/share/juju/accounts.yaml | yq .controllers.$CONTROLLER.password|tr -d '"')"
-
-          echo "JUJU_CONTROLLER_ADDRESSES=$JUJU_CONTROLLER_ADDRESSES" >> "$GITHUB_ENV"
-          echo "JUJU_USERNAME=$JUJU_USERNAME" >> "$GITHUB_ENV"
-          echo "JUJU_PASSWORD=$JUJU_PASSWORD" >> "$GITHUB_ENV"
-          {
-            echo 'JUJU_CA_CERT<<EOF'
-            juju show-controller $(echo $CONTROLLER|tr -d '"') | yq '.[$CONTROLLER]'.details.\"ca-cert\"|tr -d '"'
-            echo EOF
-          } >> "$GITHUB_ENV"
-      - uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4.0.0
-      - run: terraform init
-        working-directory: ${{env.WORKING_DIR}}
-      - run: terraform plan -out=tfplan
-        working-directory: ${{env.WORKING_DIR}}
-      - run: terraform show tfplan
-        working-directory: ${{env.WORKING_DIR}}
-      - run: |
-          juju add-model prod-chat-example
-          set -e  # Exit on error
-          terraform test || { echo "Terraform test failed"; exit 1; }
-        working-directory: ${{env.WORKING_DIR}}
+  terraform-tests:
+    uses: canonical/operator-workflows/.github/workflows/terraform_modules_test.yaml@main
+    secrets: inherit
+    with:
+      k8s-controller: true
+      terraform-directories: '["terraform"]'
