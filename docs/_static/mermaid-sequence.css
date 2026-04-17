@@ -1,3 +1,7 @@
 #containers-architecture-diagram>svg {
     height: 800px;
 }
+
+#update-database-diagram>svg {
+    height: 1200px;
+}

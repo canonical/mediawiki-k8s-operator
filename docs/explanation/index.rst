@@ -14,11 +14,5 @@ of foundational topics and concepts related to the MediaWiki charm.
 .. toctree::
     :maxdepth: 1
 
-    Security overview <security>
-
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-
     Charm design overview <charm-design>
-
+    Security overview <security>
