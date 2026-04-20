@@ -17,3 +17,4 @@ jobs:
     with:
       k8s-controller: true
       terraform-directories: '["terraform"]'
+      self-hosted-runner: false
