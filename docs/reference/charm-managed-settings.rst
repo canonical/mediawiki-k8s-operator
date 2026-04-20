@@ -50,7 +50,7 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
      - This is sometimes set when the :ref:`s3-parameters relation <reference_relation_endpoints_s3_parameters>` is in use.
    * - `$wgHTTPProxy <https://www.mediawiki.org/wiki/Manual:$wgHTTPProxy>`__
      - .. centered:: :bdg-danger:`No`
-     - This is based on the model configuration key `juju-http-proxy <https://documentation.ubuntu.com/juju/latest/reference/configuration/list-of-model-configuration-keys/#juju-http-proxy>`__.
+     - This is based on the model configuration key :ref:`juju-http-proxy <juju:model-config-juju-http-proxy>`.
    * - `$wgImageMagickConvertCommand <https://www.mediawiki.org/wiki/Manual:$wgImageMagickConvertCommand>`__
      - .. centered:: :bdg-danger:`No`
      - 

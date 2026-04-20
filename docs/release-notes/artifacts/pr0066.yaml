@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Update documentation links to use intersphinx references 
+  author: hk21702
+  type: minor
+  description: Update documentation links to use intersphinx references for Canonical RTD documentation. This simplifies maintenance a little and makes the code a little easier to read.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/66"
+  visibility: internal
+  highlight: false

@@ -12,4 +12,4 @@ See Actions.
 
 .. seealso::
 
-   Read more about actions in the Juju docs: `Action <https://documentation.ubuntu.com/juju/latest/user/reference/action/>`_
+   Read more about actions in the Juju docs: :doc:`Action <juju:reference/action>`

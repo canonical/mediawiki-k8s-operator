@@ -55,8 +55,7 @@ Charm architecture
 
 The MediaWiki K8s charm provides the core functionality of MediaWiki with a horizontally scalable architecture, all while maintaining user flexibility.
 
-The charm design leverages the `sidecar <https://kubernetes.io/blog/2015/06/the-distributed-system-toolkit-patterns/#example-1-sidecar-containers>`_ pattern to allow multiple containers in each pod with `Pebble <https://documentation.ubuntu.com/juju/3.6/reference/pebble/>`_ running as the workload container's entrypoint.
-
+The charm design leverages the `sidecar <https://kubernetes.io/blog/2015/06/the-distributed-system-toolkit-patterns/#example-1-sidecar-containers>`_ pattern to allow multiple containers in each pod with :doc:`Pebble <juju:reference/pebble>` running as the workload container's entrypoint.
 
 Pebble is a lightweight, API-driven process supervisor that is responsible for configuring processes to run in a container and controlling those processes throughout the workload lifecycle.
 
@@ -77,7 +76,7 @@ This shows there are three containers: MediaWiki, git-sync, and the charm operat
 Containers
 ----------
 
-The MediaWiki charm is driven by the :ref:`charm operator container <reference_charm_architecture_containers_charm>` that manages the workload sidecars. The core workload is the in the :ref:`MediaWiki container <reference_charm_architecture_containers_mediawiki>`. Supporting it is the :ref:`git-sync workload container <reference_charm_architecture_containers_git_sync>`, which can be optionally used for syncing static assets from a git repository. Both of these containers are managed by :ref:`Pebble <reference_charm_architecture_containers_charm>`.
+The MediaWiki charm is driven by the :ref:`charm operator container <reference_charm_architecture_containers_charm>` that manages the workload sidecars. The core workload is the in the :ref:`MediaWiki container <reference_charm_architecture_containers_mediawiki>`. Supporting it is the :ref:`git-sync workload container <reference_charm_architecture_containers_git_sync>`, which can be optionally used for syncing static assets from a git repository. Both of these containers are managed by :doc:`Pebble <juju:reference/pebble>`.
 
 .. vale Canonical.000-US-spellcheck = NO
 
@@ -169,7 +168,7 @@ This container is the main point-of-contact with the Juju controller. It communi
 OCI images
 ----------
 
-We use `Rockcraft <https://documentation.ubuntu.com/rockcraft/stable/>`_ to build the OCI Image for the MediaWiki container.
+We use :doc:`Rockcraft <rockcraft:index>` to build the OCI Image for the MediaWiki container.
 The image is defined in |mediawiki_rock_link|_. Here, we include :ref:`a set of extensions and skins <reference_included_extensions_and_skins>`, in addition to the ones that MediaWiki bundles by default.
 
 .. |mediawiki_rock_link| replace:: ``mediawiki_rock/``
@@ -179,7 +178,7 @@ The ``git-sync`` container uses the `official git-sync image <https://github.com
 
 Both of these OCI images are published to `Charmhub <https://charmhub.io/>`_, the official repository for charms.
 
-Learn more: `How to publish your charm on Charmhub <https://documentation.ubuntu.com/charmcraft/stable/howto/manage-charms/#publish-a-charm-on-charmhub>`_
+Learn more: :ref:`How to publish your charm on Charmhub <charmcraft:publish-a-charm>`
 
 ..
    Metrics
@@ -198,7 +197,7 @@ The ``src/charm.py`` is the default entry point for a charm and has the ``Charm`
 from CharmBase. CharmBase is the base class from which all charms are formed, defined
 by `Ops <https://ops.readthedocs.io/en/latest/index.html>`_ (Python framework for developing charms).
 
-   See more in the Juju docs: `Charm <https://documentation.ubuntu.com/juju/latest/user/reference/charm/>`_
+   See more in the Juju docs: :doc:`Charm <juju:reference/charm>`
 
 The ``__init__`` method guarantees that the charm observes all events relevant to its operation and handles them.
 

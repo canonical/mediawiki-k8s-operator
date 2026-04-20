@@ -12,4 +12,4 @@ See Configurations.
 
 .. seealso::
    
-   Read more about configurations in the Juju docs: `Configuration <https://documentation.ubuntu.com/juju/latest/user/reference/configuration/>`_
+   Read more about configurations in the Juju docs: :doc:`Configuration <juju:reference/configuration>`

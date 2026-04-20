@@ -10,7 +10,7 @@ MediaWiki operator
 
 .. vale Canonical.007-Headings-sentence-case = YES
 
-A `Juju <https://juju.is/>`_ `charm <https://documentation.ubuntu.com/juju/3.6/reference/charm/>`_
+A `Juju <https://juju.is/>`_ :doc:`charm <juju:reference/charm>`
 deploying and managing `MediaWiki`_ on Kubernetes.
 MediaWiki is a free and open-source wiki software developed by the Wikimedia Foundation, the host of Wikipedia.
 
