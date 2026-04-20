@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add terraform module
+  author: hk21702
+  type: minor
+  description: Add a terraform module for the MediaWiki charm.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/72"
+  visibility: public
+  highlight: false
