@@ -79,6 +79,7 @@ def s3_integrator_fixture(
 def test_integrate_s3_integrator_with_mediawiki(
     juju: jubilant.Juju,
     app: App,
+    local_settings: str,
     s3_integrator: App,
     minio: App,
 ):
@@ -113,11 +114,14 @@ def test_integrate_s3_integrator_with_mediawiki(
         }
         mc_client.set_bucket_policy(_S3_BUCKET_NAME, json.dumps(policy))
 
+    local_settings += f"$wgAWSBucketDomain = '{minio_address}:9000/$1';\n"
+    juju.config(app.name, {"local-settings": local_settings})
+
+    juju.integrate(app.name, s3_integrator.name)
+
     juju.wait(
         jubilant.all_active,
     )
-
-    juju.integrate(app.name, s3_integrator.name)
 
 
 @pytest.mark.abort_on_fail

@@ -76,16 +76,12 @@ def requests_timeout():
 
 
 @pytest.fixture(scope="module")
-def local_settings(juju: jubilant.Juju, minio: App) -> Generator[str, None, None]:
+def local_settings() -> str:
     """The base local settings."""
     path = Path(__file__).parent / "test_data" / "LocalSettings.php"
     ls_contents = path.read_text()
 
-    status = juju.status()
-    minio_address = status.apps[minio.name].units[f"{minio.name}/0"].address
-    ls_contents += f"$wgAWSBucketDomain = '{minio_address}:9000/$1';\n"
-
-    yield ls_contents
+    return ls_contents
 
 
 @pytest.fixture(scope="module")
