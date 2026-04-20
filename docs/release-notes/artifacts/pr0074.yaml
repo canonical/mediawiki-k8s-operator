@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Fix flakey integration tests
+  author: hk21702
+  type: minor
+  description: Fix flakey integration tests related to dying but not removed relations.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/74"
+  visibility: internal
+  highlight: false
