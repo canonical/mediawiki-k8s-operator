@@ -18,7 +18,7 @@ jobs:
       juju-channel: "3/stable"
       channel: "1.35-strict/stable"
       microk8s-addons: "dns ingress rbac storage metallb:10.64.140.43-10.64.140.49"
-      modules: '["test_charm", "test_git_sync", "test_oauth"]'
+      modules: '["test_charm", "test_git_sync", "test_oauth", "test_s3"]'
       with-uv: true
   integration-tests:
     uses: canonical/operator-workflows/.github/workflows/integration_test.yaml@main
@@ -31,7 +31,7 @@ jobs:
       self-hosted-runner-label: "medium"
       juju-channel: "4/stable"
       channel: "1.35-strict/stable"
-      modules: '["test_charm", "test_git_sync", "test_oauth"]'
+      modules: '["test_charm", "test_git_sync", "test_oauth", "test_s3"]'
       with-uv: true
   allure-report:
     if: ${{ !cancelled() && github.event_name == 'schedule' }}

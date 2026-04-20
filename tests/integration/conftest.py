@@ -13,14 +13,9 @@ from typing import Any, Dict, Generator
 import jubilant
 import pytest
 import yaml
-from minio import Minio
 
 from .types_ import App
-from .utils import kubectl
-
-_S3_BUCKET_NAME = "mediawiki"
-_MINIO_ACCESS_KEY = "access"
-_MINIO_SECRET_KEY = "secretsecret"  # nosec: B105
+from .utils import kubectl, req_okay
 
 
 @pytest.fixture(scope="module", name="charm")
@@ -200,53 +195,6 @@ def traefik_lb_ip(juju: jubilant.Juju, traefik: App) -> Generator[str, None, Non
     yield result["status"]["loadBalancer"]["ingress"][0]["ip"]
 
 
-@pytest.fixture(scope="module", name="minio")
-def minio_fixture(juju: jubilant.Juju, pytestconfig: pytest.Config) -> Generator[App, None, None]:
-    """Deploy minio and return its app information."""
-    use_existing = pytestconfig.getoption("--use-existing", default=False)
-    if use_existing:
-        yield App(name="minio")
-        return
-
-    juju.deploy(
-        "minio",
-        channel="ckf-1.10/stable",
-        config={"access-key": _MINIO_ACCESS_KEY, "secret-key": _MINIO_SECRET_KEY},
-    )
-
-    juju.wait(lambda status: jubilant.all_active(status, "minio"))
-
-    status = juju.status()
-    minio_address = status.apps["minio"].units["minio/0"].address
-    mc_client = Minio(
-        f"{minio_address}:9000",
-        access_key=_MINIO_ACCESS_KEY,
-        secret_key=_MINIO_SECRET_KEY,
-        secure=False,
-    )
-    found = mc_client.bucket_exists(_S3_BUCKET_NAME)
-    if not found:
-        mc_client.make_bucket(_S3_BUCKET_NAME)
-        # Allow anonymous read access to the bucket
-        policy = {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Principal": {"AWS": "*"},
-                    "Action": ["s3:GetBucketLocation", "s3:GetObject"],
-                    "Resource": [
-                        f"arn:aws:s3:::{_S3_BUCKET_NAME}",
-                        f"arn:aws:s3:::{_S3_BUCKET_NAME}/*",
-                    ],
-                }
-            ],
-        }
-        mc_client.set_bucket_policy(_S3_BUCKET_NAME, json.dumps(policy))
-
-    yield App(name="minio")
-
-
 @pytest.fixture(scope="module", name="redis")
 def redis_fixture(juju: jubilant.Juju, pytestconfig: pytest.Config) -> Generator[App, None, None]:
     """Deploy redis and return its app information."""
@@ -262,56 +210,21 @@ def redis_fixture(juju: jubilant.Juju, pytestconfig: pytest.Config) -> Generator
     yield App(name="redis-k8s")
 
 
-@pytest.fixture(scope="module", name="s3_integrator")
-def s3_integrator_fixture(
-    juju: jubilant.Juju, pytestconfig: pytest.Config
-) -> Generator[App, None, None]:
-    """Deploy s3 integrator and return its app information."""
-    use_existing = pytestconfig.getoption("--use-existing", default=False)
-    if use_existing:
-        yield App(name="s3-integrator")
-        return
-
-    secret_uri = juju.add_secret(
-        "s3-credentials",
-        {
-            "access-key": _MINIO_ACCESS_KEY,
-            "secret-key": _MINIO_SECRET_KEY,
-        },
-    )
-
-    juju.deploy(
-        "s3-integrator",
-        channel="2/edge",
-        config={
-            "bucket": _S3_BUCKET_NAME,
-            "endpoint": f"http://minio.{juju.model}.svc.cluster.local:9000",
-            "credentials": secret_uri,
-            "s3-uri-style": "path",
-        },
-    )
-
-    juju.grant_secret(secret_uri, "s3-integrator")
-
-    yield App(name="s3-integrator")
-
-
-@pytest.fixture(scope="module", name="app")
-def app_fixture(
+@pytest.fixture(scope="module", name="early_app")
+def early_app_fixture(
     juju: jubilant.Juju,
     db: App,
     traefik: App,
-    minio: App,
     redis: App,
-    s3_integrator: App,
     metadata: Dict[str, Any],
-    app_config: Dict[str, Any],
     pytestconfig: pytest.Config,
     charm: str,
     charm_resources: Dict[str, str],
 ) -> Generator[App, None, None]:
-    """MediaWiki charm used for integration testing.
+    """Early MediaWiki charm used for integration testing.
     Builds the charm and deploys it and the relations it depends on.
+
+    Non-blocking dependencies only such that dependencies are deployed together.
     """
     app_name = metadata["name"]
 
@@ -323,7 +236,6 @@ def app_fixture(
     juju.deploy(
         charm=charm,
         app=app_name,
-        config=app_config,
         resources=charm_resources,
         num_units=3,
         base="ubuntu@24.04",
@@ -336,9 +248,7 @@ def app_fixture(
                 status,
                 db.name,
                 traefik.name,
-                minio.name,
                 redis.name,
-                s3_integrator.name,
             )
         ),
         timeout=20 * 60,
@@ -347,10 +257,26 @@ def app_fixture(
     juju.integrate(app_name, traefik.name)
     juju.integrate(app_name, db.name)
     juju.integrate(app_name, redis.name)
-    juju.integrate(app_name, s3_integrator.name)
     juju.wait(jubilant.all_active)
 
     yield App(name=app_name)
+
+
+@pytest.fixture(scope="module", name="app")
+def app_fixture(
+    juju: jubilant.Juju,
+    early_app: App,
+    app_config: Dict[str, Any],
+    ingress_address: str,
+    requests_timeout: int,
+) -> Generator[App, None, None]:
+    """MediaWiki charm used for integration testing."""
+    juju.config(early_app.name, app_config)
+    juju.wait(
+        lambda status: jubilant.all_active(status) and req_okay(ingress_address, requests_timeout),
+    )
+
+    yield early_app
 
 
 @pytest.fixture(scope="module", name="ssh_key_secret")

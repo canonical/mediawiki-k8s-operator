@@ -21,19 +21,6 @@ logger = logging.getLogger(__name__)
 
 
 @pytest.mark.abort_on_fail
-def test_active(juju: jubilant.Juju, app: App, ingress_address: str, requests_timeout: int):
-    """Check that the charm is active.
-    Assume that the charm has already been built and is running.
-    """
-    status = juju.status()
-    assert status.apps[app.name].units[app.name + "/0"].is_active
-
-    assert req_okay(ingress_address, requests_timeout), (
-        f"MediaWiki not responding at ingress {ingress_address}"
-    )
-
-
-@pytest.mark.abort_on_fail
 def test_workload_version_is_set(juju: jubilant.Juju, app: App):
     """Check that the charm is the expected version."""
     status = juju.status()
@@ -147,87 +134,6 @@ def test_rotate_root_credentials_action(juju: jubilant.Juju, app: App):
     )
 
     juju.wait(jubilant.all_active)
-
-
-@pytest.mark.abort_on_fail
-def test_upload(
-    juju: jubilant.Juju,
-    app: App,
-    ingress_address: str,
-    requests_timeout: int,
-):
-    """Check uploading a file to MediaWiki via the API."""
-    juju.wait(jubilant.all_active)
-
-    rotate_action = juju.run(f"{app.name}/leader", "rotate-root-credentials")
-    assert rotate_action.status == "completed"
-    username = rotate_action.results["username"]
-    password = rotate_action.results["password"]
-
-    url = f"{ingress_address}/w/api.php"
-    with requests.Session() as session:
-        # Retrieve a login token
-        req = session.get(
-            url=url,
-            params={
-                "action": "query",
-                "meta": "tokens",
-                "type": "login",
-                "format": "json",
-            },
-            timeout=requests_timeout,
-        )
-        login_token = req.json()["query"]["tokens"]["logintoken"]
-
-        # Log in
-        req = session.post(
-            url=url,
-            data={
-                "action": "login",
-                "lgname": username,
-                "lgpassword": password,
-                "lgtoken": login_token,
-                "format": "json",
-            },
-            timeout=requests_timeout,
-        )
-        assert req.status_code == 200, f"Expected status code 200, got {req.status_code}"
-
-        # Get CSRF token
-        req = session.get(
-            url=url,
-            params={
-                "action": "query",
-                "meta": "tokens",
-                "format": "json",
-            },
-            timeout=requests_timeout,
-        )
-        csrf_token = req.json()["query"]["tokens"]["csrftoken"]
-
-        # Upload
-        with open(Path(__file__).parent / "test_data" / "test_image.png", "rb") as f:
-            image_data = f.read()
-
-        req = session.post(
-            url=url,
-            data={
-                "action": "upload",
-                "filename": "Test-Image.png",
-                "token": csrf_token,
-                "format": "json",
-                "ignorewarnings": 1,
-            },
-            files={"file": ("Test-Image.png", image_data, "multipart/form-data")},
-            timeout=requests_timeout,
-        )
-
-    logger.info("Upload response: %s", req.text)
-    assert req.status_code == 200, f"Expected status code 200, got {req.status_code}"
-    assert "upload" in req.json(), f"Expected 'upload' in response, got {req.json()}"
-    assert req.json()["upload"]["result"] == "Success", (
-        f"Expected upload result to be 'Success', got {req.json()['upload']['result']}"
-    )
 
 
 @pytest.mark.abort_on_fail
