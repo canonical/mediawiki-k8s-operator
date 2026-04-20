@@ -76,10 +76,25 @@ Apart from this required integration, the charm can be integrated with other Juj
 
 ## Licensing and trademark
 
-The [MediaWiki logo](icon.svg) is licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+<!--vale Canonical.013-Spell-out-numbers-below-10 = NO-->
 
-MediaWiki and the MediaWiki logo are trademarks of the Wikimedia Foundation and is used with the permission of the Wikimedia Foundation. We are not endorsed by or affiliated with the Wikimedia Foundation.
+| Component                                          | License                                                                                                    | Notes                                                                                           |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| MediaWiki K8s operator                             | [Apache License, Version 2.0][apache-2.0-site]                                                             |                                                                                                 |
+| [MediaWiki K8s operator documentation](docs)       | [CC BY-SA 4.0][cc-by-sa-4.0-site]                                                                          |                                                                                                 |
+| [MediaWiki][mediawiki-site]                        | [GNU General Public License, version 2.0 or later](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html) | See [MediaWiki copyright information](https://www.mediawiki.org/wiki/Copyright)                 |
+| [MediaWiki rock](mediawiki_rock)                   | [GNU General Public License, version 3](https://www.gnu.org/licenses/gpl-3.0.html)                         | Packages and redistributes [MediaWiki][mediawiki-site]                                          |
+| [git-sync](https://github.com/kubernetes/git-sync) | [Apache License, Version 2.0][apache-2.0-site]                                                             | See the upstream [git-sync LICENSE](https://github.com/kubernetes/git-sync/blob/master/LICENSE) |
+| [MediaWiki logo](icon.svg)                         | [CC BY-SA 4.0][cc-by-sa-4.0-site]                                                                          |                                                                                                 |
 
+<!--vale Canonical.013-Spell-out-numbers-below-10 = YES-->
+
+MediaWiki and the MediaWiki logo are trademarks of the Wikimedia Foundation and are used with permission of the Wikimedia Foundation. This project is not endorsed by, or affiliated with, the Wikimedia Foundation.
+
+For additional details, please refer to the [LICENSE](LICENSE).
+
+[apache-2.0-site]: https://www.apache.org/licenses/LICENSE-2.0
+[cc-by-sa-4.0-site]: https://creativecommons.org/licenses/by-sa/4.0/
 [charmhub-badge-image]: https://charmhub.io/mediawiki-k8s/badge.svg
 [charmhub-site]: https://charmhub.io/mediawiki-k8s
 [publish-charm-badge-image]: https://github.com/canonical/mediawiki-k8s-operator/actions/workflows/publish_charm.yaml/badge.svg
