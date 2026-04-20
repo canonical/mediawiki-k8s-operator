@@ -6,12 +6,15 @@ name: mediawiki-k8s
 title: MediaWiki K8s
 summary: Charm for deploying MediaWiki on Kubernetes.
 links:
-  documentation: https://discourse.charmhub.io
+  documentation: https://canonical-mediawiki-k8s-charm.readthedocs-hosted.com/
   issues: https://github.com/canonical/mediawiki-k8s-operator/issues
   source: https://github.com/canonical/mediawiki-k8s-operator
 
 description: |
   A [Juju](https://juju.is/) [charm](https://documentation.ubuntu.com/juju/3.6/reference/charm/) deploying and managing MediaWiki on Kubernetes. [MediaWiki](https://www.mediawiki.org) is a free and open-source wiki software platform.
+
+  For information about how to deploy, integrate, and manage this charm, see the Official [MediaWiki K8s charm
+  documentation](https://canonical-mediawiki-k8s-charm.readthedocs-hosted.com/).
 
 base: ubuntu@24.04
 platforms:

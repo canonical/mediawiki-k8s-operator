@@ -25,7 +25,7 @@ import yaml
 #
 # TODO: Update with the official name of your project or product
 
-project = "MediaWiki K8s charm"
+project = "MediaWiki charm"
 author = "Canonical Ltd."
 
 # The year in the copyright statement defaults to the current year, so
@@ -53,7 +53,8 @@ html_title = project + " documentation"
 # NOTE: The Open Graph Protocol (OGP) enhances page display in a social graph
 #       and is used by social media platforms; see https://ogp.me/
 
-ogp_site_url = "https://canonical-starter-pack.readthedocs-hosted.com/"
+# NOTE: Ensure the URL has "mediawiki-k8s-charm" instead of just "mediawiki-charm" even though the project name does not have it to avoid conflicts.
+ogp_site_url = "https://canonical-mediawiki-k8s-charm.readthedocs-hosted.com/"
 
 
 # Preview name of the documentation website
@@ -89,7 +90,7 @@ html_context = {
     # TODO: If there's no such website,
     #       remove the {{ product_page }} link from the page header template
     #       (usually .sphinx/_templates/header.html; also, see README.rst).
-    "product_page": "documentation.ubuntu.com",
+    "product_page": "charmhub.io/mediawiki-k8s",
     # Product tag image; the orange part of your logo, shown in the page header
     #
     # TODO: To add a tag image, uncomment and update as needed.
@@ -100,7 +101,7 @@ html_context = {
     #
     # NOTE: If set, adding ':discourse: 123' to an .rst file
     #       will add a link to Discourse topic 123 at the bottom of the page.
-    "discourse": "https://discourse.ubuntu.com",
+    "discourse": "https://discourse.charmhub.io",
     # Your Mattermost channel URL
     #
     # TODO: Change to your Mattermost channel URL or leave empty.
@@ -163,17 +164,17 @@ if os.getenv("OPENAPI", ""):
 # - https://github.com/example-org/example"
 # - https://launchpad.net/example
 # - https://git.launchpad.net/example
-#
-# html_theme_options = {
-# 'source_edit_link': 'https://github.com/canonical/sphinx-docs-starter-pack',
-# }
+
+html_theme_options = {
+    "source_edit_link": "https://github.com/canonical/mediawiki-k8s-operator",
+}
 
 # Project slug; see https://meta.discourse.org/t/what-is-category-slug/87897
 #
 # TODO: If your documentation is hosted on https://docs.ubuntu.com/,
 #       uncomment and update as needed.
 
-# slug = ''
+# slug = 'mediawiki-k8s-charm'
 
 #######################
 # Sitemap configuration: https://sphinx-sitemap.readthedocs.io/
@@ -306,7 +307,7 @@ exclude_patterns = [
 
 html_css_files = [
     "mermaid-sequence.css",
-    #"https://assets.ubuntu.com/v1/d86746ef-cookie_banner.css",
+    # "https://assets.ubuntu.com/v1/d86746ef-cookie_banner.css",
 ]
 
 
