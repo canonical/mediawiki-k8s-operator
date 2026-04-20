@@ -27,6 +27,12 @@ resource "juju_application" "mysql" {
     channel = "8.4/edge"
     name    = "mysql-k8s"
   }
+
+  config = {
+    "profile" = "testing"
+  }
+
+  trust = true
 }
 
 resource "juju_integration" "database" {

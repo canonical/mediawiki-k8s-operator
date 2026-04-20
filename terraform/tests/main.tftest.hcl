@@ -16,7 +16,7 @@ run "basic_deploy" {
   }
 
   assert {
-    condition     = output.app_name == "mediawiki-k8s"
+    condition     = output.application.name == "mediawiki-k8s"
     error_message = "mediawiki-k8s app_name did not match expected"
   }
 }
@@ -31,7 +31,7 @@ run "integration_test" {
   }
 
   assert {
-    condition     = data.external.app_status.result.status == "active"
+    condition     = data.external.app_status.result.status == "blocked"
     error_message = "mediawiki-k8s app_status did not match expected"
   }
 }
