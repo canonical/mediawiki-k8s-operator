@@ -250,22 +250,59 @@ def test_relations(
 
     # Remove traefik relation and check that the charm remains active, but the ingress address is no longer responsive
     juju.remove_relation(app.name, traefik.name)
-    juju.wait(lambda status: jubilant.all_active(status) and not is_reachable())
+    juju.wait(
+        lambda status: (
+            jubilant.all_active(status)
+            and not is_reachable()
+            and "traefik-route" not in status.apps[app.name].relations
+        )
+    )
 
     juju.integrate(app.name, traefik.name)
-    juju.wait(lambda status: jubilant.all_active(status) and is_reachable())
+    juju.wait(
+        lambda status: (
+            jubilant.all_active(status)
+            and is_reachable()
+            and "traefik-route" in status.apps[app.name].relations
+        )
+    )
 
     # Removing database blocks and stops responsiveness entirely
     juju.remove_relation(app.name, db.name)
     juju.wait(lambda status: status.apps[app.name].is_blocked and not is_reachable())
-    juju.wait(lambda status: jubilant.all_active(status, db.name))
+    juju.wait(
+        lambda status: (
+            jubilant.all_active(status, db.name)
+            and "database" not in status.apps[app.name].relations
+        )
+    )
 
     juju.integrate(app.name, db.name)
-    juju.wait(lambda status: jubilant.all_active(status) and is_reachable())
+    juju.wait(
+        lambda status: (
+            jubilant.all_active(status)
+            and is_reachable()
+            and "database" in status.apps[app.name].relations
+        )
+    )
 
     # Removing Redis does not block
     juju.remove_relation(app.name, redis.name)
-    juju.wait(lambda status: jubilant.all_active(status) and is_reachable(), successes=5)
+    juju.wait(
+        lambda status: (
+            jubilant.all_active(status)
+            and is_reachable()
+            and "redis" not in status.apps[app.name].relations
+        ),
+        successes=5,
+    )
 
     juju.integrate(app.name, redis.name)
-    juju.wait(lambda status: jubilant.all_active(status) and is_reachable(), successes=5)
+    juju.wait(
+        lambda status: (
+            jubilant.all_active(status)
+            and is_reachable()
+            and "redis" in status.apps[app.name].relations
+        ),
+        successes=5,
+    )

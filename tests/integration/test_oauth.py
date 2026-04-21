@@ -69,4 +69,4 @@ def test_oauth_integration(app: App, juju: jubilant.Juju):
 
     juju.integrate(app.name, f"{any_app_name}:provide-oauth")
 
-    juju.wait(jubilant.all_active)
+    juju.wait(jubilant.all_active, timeout=5 * 60)
