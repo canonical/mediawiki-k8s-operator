@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add documentation pages on the Terraform module
+  author: hk21702
+  type: minor
+  description: Add a how-to page on using the Terraform module and an accompanying reference page.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/75"
+  visibility: public
+  highlight: false
