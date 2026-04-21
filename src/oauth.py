@@ -35,6 +35,7 @@ class OAuth(Object):
 
         self._charm = charm
         self.oauth = OAuthRequirer(self._charm, relation_name=relation_name)
+        self.relation_name = relation_name
 
     def scopes(self) -> frozenset[str]:
         """Get the set of scopes we want to request from the provider.
@@ -54,10 +55,16 @@ class OAuth(Object):
 
         Note, if a protocol-relative URL is used, we fall back to HTTPS for the redirect URI.
 
+        Does nothing if the relation is not established.
+
         Raises:
             MediaWikiBlockedStatusException: If the client config update fails.
         """
         if not self._charm.unit.is_leader():
+            return
+
+        if self.model.get_relation(self.relation_name) is None:
+            logger.debug("OAuth relation is not established, skipping client config update")
             return
 
         site_info = SiteInfo.fetch()

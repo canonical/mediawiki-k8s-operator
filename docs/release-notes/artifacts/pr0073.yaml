@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Refactor integration tests for better async setup
+  author: hk21702
+  type: minor
+  description: Refactor integration tests for better parallelization of the setup, moving upload tests into its own module.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/73"
+  visibility: internal
+  highlight: false
