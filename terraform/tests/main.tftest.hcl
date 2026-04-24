@@ -12,7 +12,7 @@ run "basic_deploy" {
     model_uuid = run.setup_tests.model_uuid
     channel    = "1.45/edge"
     # renovate: depName="mediawiki-k8s"
-    revision = 4
+    revision = 10
   }
 
   assert {
