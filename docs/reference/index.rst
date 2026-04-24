@@ -6,11 +6,6 @@
 Reference
 =========
 
-.. TODO: Update the name of the charm!
-         The following subsections are examples and don't need to be followed exactly.
-         Define themes and subsections based on the charm's unique needs and features.
-         Provide 1-2 sentence introductions for each subsection.
-
 This section contains technical details and information about the MediaWiki charm.
 
 Charm usage
@@ -67,18 +62,12 @@ as firewall allowlist requirements and Terraform.
     :maxdepth: 1
 
     Firewall allowlist <allowlist>
-
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-
     Terraform <terraform>
 
 Other
 -----
 
 .. toctree::
-    :hidden:
     :maxdepth: 1
 
     Changelog <../changelog>

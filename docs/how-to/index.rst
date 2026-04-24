@@ -48,12 +48,16 @@ including backup and redeployment processes.
 Development
 -----------
 
-These guides can help you with troubleshooting and contributing to the project.
+These guides can help you with deploying the MediaWiki charm, troubleshooting your deployment, and contributing to the project.
+
+.. toctree::
+    :maxdepth: 1
+
+    Use Terraform <terraform>
+    Contribute <contribute>
 
 .. toctree::
     :hidden:
     :maxdepth: 1
 
-    Use Terraform <terraform>
     Troubleshoot <troubleshoot>
-    Contribute <contribute>

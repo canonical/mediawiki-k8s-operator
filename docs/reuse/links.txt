@@ -49,3 +49,6 @@
 .. _file a bug: https://github.com/canonical/mediawiki-k8s-operator/issues
 .. _MediaWiki: https://www.mediawiki.org
 .. _Read the Docs: https://about.readthedocs.com/
+.. _MediaWiki Terraform module: https://github.com/canonical/mediawiki-k8s-operator/tree/main/terraform
+.. _Terraform: https://developer.hashicorp.com/terraform
+.. _Terraform Juju provider: https://registry.terraform.io/providers/juju/juju/latest
