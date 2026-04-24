@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Update TF integration test dependency mediawiki-k8s
+  author: hk21702
+  type: minor
+  description: Update the Terraform integration test to use mediawiki-k8s v10 and change expected state.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/80"
+  visibility: public
+  highlight: false
