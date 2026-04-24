@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add documentation on the design of the update-database action
+  author: hk21702
+  type: minor
+  description: Add an explanation on the design of the update-database action.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/76"
+  visibility: public
+  highlight: false

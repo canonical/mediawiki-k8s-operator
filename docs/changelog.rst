@@ -17,6 +17,7 @@ Each revision is versioned by the date of the revision.
 
 - Add documentation how-to page on using Terraform.
 - Add documentation reference page on the Terraform module.
+- Add documentation on the design of the update-database action.
 
 2026-04-17
 ----------
