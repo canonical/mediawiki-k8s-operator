@@ -12,7 +12,7 @@ run "basic_deploy" {
     model_uuid = run.setup_tests.model_uuid
     channel    = "1.45/edge"
     # renovate: depName="mediawiki-k8s"
-    revision = 4
+    revision = 10
   }
 
   assert {
@@ -31,7 +31,7 @@ run "integration_test" {
   }
 
   assert {
-    condition     = data.external.app_status.result.status == "blocked"
+    condition     = data.external.app_status.result.status == "active"
     error_message = "mediawiki-k8s app_status did not match expected"
   }
 }
