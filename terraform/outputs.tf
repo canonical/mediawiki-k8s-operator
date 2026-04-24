@@ -1,8 +1,18 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-output "app_name" {
-  description = "Name of the deployed application."
-  value       = juju_application.mediawiki.name
+output "application" {
+  description = "Object representing the deployed application"
+  value = juju_application.mediawiki_k8s
 }
 
+output "requires" {
+  description = "Requires endpoints"
+  value = {
+    database      = "database"
+    oauth         = "oauth"
+    redis         = "redis"
+    s3_parameters = "s3-parameters"
+    traefik_route = "traefik-route"
+  }
+}

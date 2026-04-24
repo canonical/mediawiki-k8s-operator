@@ -2,9 +2,16 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "automerge": true,
   "composer": {
-    "managerFilePatterns": [
-      "/^composer-?[a-z]*.json$/"
-    ]
+    "enabled": false // Doesn't work well with non-semver and git-based dependencies. Certain extension updates may be incompatible.
+  },
+  "customDatasources": {
+    "charmhub": {
+      "defaultRegistryUrlTemplate": "https://api.charmhub.io/v2/charms/info/{{packageName}}?fields=channel-map",
+      "format": "json",
+      "transformTemplates": [
+        "{\"releases\": [{\"version\": $string($$.(`channel-map`[channel.risk = 'edge' and channel.track = '1.45' and channel.base.architecture = 'amd64' and channel.base.channel = '24.04'].revision.revision))}]}"
+      ]
+    }
   },
   "customManagers": [
     {
@@ -35,11 +42,12 @@
       "versioningTemplate": "semver"
     },
     {
+      "customType": "regex",
       "datasourceTemplate": "github-tags",
       "depNameTemplate": "Lusitaniae/apache_exporter",
       "description": "Update Apache Exporter source",
-      "fileMatch": [
-        "(^|/)rockcraft.yaml$"
+      "managerFilePatterns": [
+        "/(^|/)rockcraft.yaml$/"
       ],
       "matchStrings": [
         "source:.*Lusitaniae/apache_exporter\\.git.*\\n.*source-tag: (?<currentValue>.+)"
@@ -57,28 +65,39 @@
       "matchStrings": [
         "git-sync-image:[\\s\\S]*?upstream-source:\\s*(?<depName>[^:]+):(?<currentValue>[^\\s@]*)(@(?<currentDigest>sha256:[0-9a-f]*))?"
       ]
+    },
+    {
+      "customType": "regex",
+      "datasourceTemplate": "custom.charmhub",
+      "description": "Update charm revision from CharmHub",
+      "managerFilePatterns": [
+        "/\\.tftest\\.hcl$/",
+        "/\\.tf$/"
+      ],
+      "matchStrings": [
+        "# renovate: depName=\"(?<packageName>[^\"]+)\"\\s*\\n\\s*(?<fieldName>[a-zA-Z0-9_]+)\\s*=\\s*(?<currentValue>\\d+)"
+      ],
+      "versioningTemplate": "semver-coerced"
     }
   ],
   "extends": [
     "config:recommended",
     "group:allNonMajor"
   ],
+  "ignorePaths": [], // Override defaults from config:recommended
   "packageRules": [
     {
       "enabled": true,
       "matchDatasources": [
-        "docker",
         "github-tags"
       ],
       "pinDigests": true
     },
     {
+      "automerge": true,
       "enabled": true,
       "matchDatasources": [
-        "terraform-provider"
-      ],
-      "matchPackageNames": [
-        "juju/juju"
+        "custom.charmhub"
       ]
     },
     {
