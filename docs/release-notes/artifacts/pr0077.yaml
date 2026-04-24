@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Adjust self-hosted runner for integration tests
+  author: hk21702
+  type: minor
+  description: Adjust the self-hosted runner used for integration tests to try and speed up queue times.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/77"
+  visibility: internal
+  highlight: false
