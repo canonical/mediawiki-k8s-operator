@@ -14,7 +14,6 @@ jobs:
       trivy-fs-enabled: false
       trivy-image-config: "trivy.yaml"
       self-hosted-runner: true
-      self-hosted-runner-label: "medium"
       juju-channel: "3/stable"
       channel: "1.35-strict/stable"
       microk8s-addons: "dns ingress rbac storage metallb:10.64.140.43-10.64.140.49"
@@ -28,7 +27,6 @@ jobs:
       trivy-fs-enabled: true
       trivy-image-config: "trivy.yaml"
       self-hosted-runner: true
-      self-hosted-runner-label: "medium"
       juju-channel: "4/stable"
       channel: "1.35-strict/stable"
       modules: '["test_charm", "test_git_sync", "test_oauth", "test_s3"]'
