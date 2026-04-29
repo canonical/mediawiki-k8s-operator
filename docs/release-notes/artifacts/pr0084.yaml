@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add charmlibs needed for COS
+  author: hk21702
+  type: minor
+  description: Add charmlibs needed for COS.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/84"
+  visibility: internal
+  highlight: false
