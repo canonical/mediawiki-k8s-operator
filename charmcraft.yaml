@@ -25,7 +25,13 @@ charm-libs:
     version: "0"
   - lib: data_platform_libs.s3
     version: "0"
+  - lib: grafana_k8s.grafana_dashboard
+    version: "0"
   - lib: hydra.oauth
+    version: "0"
+  - lib: loki_k8s.loki_push_api
+    version: "1"
+  - lib: prometheus_k8s.prometheus_scrape
     version: "0"
   - lib: redis_k8s.redis
     version: "0"
@@ -174,24 +180,30 @@ config:
 actions:
   rotate-mediawiki-secrets:
     description: >
-      Rotate the MediaWiki secrets generated and managed by the charm. Must be run on the leader unit.
+      Rotate the MediaWiki secrets generated and managed by the charm. Must be
+      run on the leader unit.
 
       Managed secrets include: $wgSecretKey, $wgSessionSecret
 
   rotate-root-credentials:
     description: >
-      Rotate the MediaWiki root bureaucrat user credentials and return the new credentials.
+      Rotate the MediaWiki root bureaucrat user credentials and return the new
+      credentials.
 
-      This user is only in the bureaucrat group and should only be used to assign permissions to real users, not for regular use.
+      This user is only in the bureaucrat group and should only be used to
+      assign permissions to real users, not for regular use.
 
   update-database:
     description: >
-      Request an update to the MediaWiki database schema using the `update.php` maintenance script.
-      This may be required after upgrading MediaWiki or installing extensions that modify the database schema.
+      Request an update to the MediaWiki database schema using the `update.php`
+      maintenance script. This may be required after upgrading MediaWiki or
+      installing extensions that modify the database schema.
 
-      The charm will asynchronously request all units to enter a read-only mode before performing the database update to ensure data consistency.
+      The charm will asynchronously request all units to enter a read-only mode
+      before performing the database update to ensure data consistency.
 
-      It is highly recommended to back up your database before running this action.
+      It is highly recommended to back up your database before running this
+      action.
 
 requires:
   #TODO: Switch to ingress once gateway-api-integrator supports an upstream ingress, or once we can connect to HAProxy more directly.
@@ -214,8 +226,6 @@ requires:
     interface: s3
     limit: 1
     optional: true
-
-provides: {}
 
 assumes:
   - k8s-api
