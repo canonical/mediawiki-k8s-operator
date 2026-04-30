@@ -27,7 +27,7 @@ dependencies = [
 fmt = ["ruff"]
 lint = [
   "codespell",
-  "jubilant==1.8.0",
+  "jubilant==1.9.0",
   "mypy",
   "pep8-naming",
   "pytest",
@@ -42,7 +42,7 @@ static = ["bandit[toml]"]
 integration = [
   "allure-pytest>=2.8.18",
   "allure-pytest-collection-report @ git+https://github.com/canonical/data-platform-workflows@v24.0.0#subdirectory=python/pytest_plugins/allure_pytest_collection_report",
-  "jubilant==1.8.0",
+  "jubilant==1.9.0",
   "minio>=7.2.20",
   "pytest",
 ]
