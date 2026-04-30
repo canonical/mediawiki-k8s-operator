@@ -12,6 +12,7 @@ header:
   - '**'
   paths-ignore:
   - '.github/**'
+  - '**/.gitkeep'
   - '**/*.cfg'
   - '**/*.conf'
   - '**/*.json'

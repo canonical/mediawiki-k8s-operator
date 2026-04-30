@@ -3,13 +3,14 @@
 
 output "application" {
   description = "Object representing the deployed application"
-  value = juju_application.mediawiki_k8s
+  value       = juju_application.mediawiki_k8s
 }
 
 output "requires" {
   description = "Requires endpoints"
   value = {
     database      = "database"
+    logging       = "logging"
     oauth         = "oauth"
     redis         = "redis"
     s3_parameters = "s3-parameters"
