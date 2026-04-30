@@ -214,6 +214,9 @@ requires:
   database:
     interface: mysql_client
     limit: 1
+  logging:
+    interface: loki_push_api
+    optional: true
   oauth:
     interface: oauth
     limit: 1
@@ -229,7 +232,7 @@ requires:
 
 assumes:
   - k8s-api
-  - juju >= 3.3
+  - juju >= 3.4
 
 parts:
   charm:

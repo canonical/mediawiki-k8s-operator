@@ -89,6 +89,7 @@ class MediaWiki(Object):
         self._static_assets_path = ContainerPath(
             self.WEBROOT_STATIC_PATH, container=self._container
         )
+        self._logs_path = ContainerPath("/var/log/mediawiki", container=self._container)
 
         self._robots_txt_path = self._webroot_path / "robots.txt"
 
@@ -125,6 +126,7 @@ class MediaWiki(Object):
         """Reconcile the state of MediaWiki installation and configuration.
 
         The following actions are completed here:
+        - Ensure the logs directory exists with proper permissions.
         - Reconcile the SSH configuration for the webroot_owner user.
         - Reconcile the composer configuration, running composer update if needed.
         - Reconcile MediaWiki settings that are part of LocalSettings.php.
@@ -144,6 +146,13 @@ class MediaWiki(Object):
             raise MediaWikiBlockedStatusException("Database relation is not ready")
         config = self._charm.load_charm_config()
 
+        self._logs_path.mkdir(
+            exist_ok=True,
+            parents=True,
+            mode=0o700,
+            user=self._DAEMON_USER,
+            group=self._DAEMON_GROUP,
+        )
         self._ensure_static_assets_symlink()
         self._ssh_config_reconciliation(config, ssh_key)
         self._composer_reconciliation(config)
