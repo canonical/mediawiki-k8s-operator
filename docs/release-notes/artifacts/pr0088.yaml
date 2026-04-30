@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add COS Loki support
+  author: hk21702
+  type: major
+  description: Add COS Loki support.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/88"
+  visibility: public
+  highlight: true
