@@ -67,5 +67,7 @@ Outputs
      - Description
    * - ``application``
      - An object representing the deployed application.
+   * - ``provides``
+     - Map of the provides endpoints. See :ref:`relation endpoints <reference_relation_endpoints>`.
    * - ``requires``
      - Map of the requires endpoints. See :ref:`relation endpoints <reference_relation_endpoints>`.
