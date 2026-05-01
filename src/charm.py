@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 import ops
 from charms.loki_k8s.v1.loki_push_api import LogForwarder
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.redis_k8s.v0.redis import RedisRelationCharmEvents
 from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
 from ops import (
@@ -52,7 +53,10 @@ class Charm(StatefulCharmBase):
     _CONTAINER_NAME = "mediawiki"
     _SERVICE_NAME = "mediawiki"
     _LOGROTATE_SERVICE_NAME = "logrotate"
+    _APACHE_EXPORTER_SERVICE_NAME = "apache-exporter"
     _REDIS_JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
+
+    _APACHE_EXPORTER_PORT = 9117
 
     _DATABASE_RELATION_NAME = "database"
     _DATABASE_NAME = "mediawiki"
@@ -91,6 +95,24 @@ class Charm(StatefulCharmBase):
         )
 
         self._logging = LogForwarder(self, relation_name="logging")
+        self._metrics = MetricsEndpointProvider(
+            self,
+            relation_name="metrics-endpoint",
+            jobs=[
+                {
+                    "job_name": "apache_exporter",
+                    "static_configs": [{"targets": [f"*:{self._APACHE_EXPORTER_PORT}"]}],
+                },
+                {
+                    "job_name": "git_sync",
+                    "static_configs": [{"targets": [f"*:{self._git_sync.GIT_SYNC_PORT}"]}],
+                },
+            ],
+            refresh_event=[
+                self.on.mediawiki_pebble_ready,
+                self.on.git_sync_pebble_ready,
+            ],
+        )
 
         self.framework.observe(self.on.leader_elected, self._setup_replica_data)
 
@@ -170,6 +192,12 @@ class Charm(StatefulCharmBase):
                     'done"',
                     "startup": "enabled",
                 },
+                self._APACHE_EXPORTER_SERVICE_NAME: {
+                    "override": "replace",
+                    "summary": "Apache exporter for Prometheus",
+                    "command": "/usr/bin/apache_exporter",
+                    "startup": "enabled",
+                },
             },
             "checks": {
                 "mediawiki-api-ready": {
@@ -187,6 +215,13 @@ class Charm(StatefulCharmBase):
                     "http": {"url": "http://localhost/w/api.php"},
                     "period": f"{max(10, health_check_timeout * 2)}s",
                     "timeout": f"{health_check_timeout}s",
+                },
+                "apache-exporter-up": {
+                    "override": "replace",
+                    "level": "alive",
+                    "http": {
+                        "url": f"http://localhost:{self._APACHE_EXPORTER_PORT}/metrics",
+                    },
                 },
             },
         }
@@ -299,7 +334,11 @@ class Charm(StatefulCharmBase):
             raise MediaWikiWaitingStatusException("Waiting for pebble")
 
         self._init_pebble_layer()
-        primary_services = (self._SERVICE_NAME, self._LOGROTATE_SERVICE_NAME)
+        primary_services = (
+            self._SERVICE_NAME,
+            self._LOGROTATE_SERVICE_NAME,
+            self._APACHE_EXPORTER_SERVICE_NAME,
+        )
         for service in primary_services:
             if not container.get_service(service).is_running():
                 container.start(service)

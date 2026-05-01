@@ -19,11 +19,12 @@ logger = logging.getLogger(__name__)
 class GitSync(Object):
     """Class to manage the git-sync sidecar container."""
 
+    GIT_SYNC_PORT = 8081
+
     _sync_period = "10s"
     _max_sync_failures = 3
 
     _service_name = "git-sync"
-    _git_sync_port = 8081
     _link = "repo"
 
     REPO_MOUNT_POINT = "/mnt/static-assets"
@@ -124,7 +125,8 @@ class GitSync(Object):
         cmd.extend(["--root", self._repo_mount_point.as_posix()])
         cmd.extend(["--period", self._sync_period])
         cmd.extend(["--max-failures", str(self._max_sync_failures)])
-        cmd.extend(["--http-bind", f":{self._git_sync_port}"])
+        cmd.extend(["--http-bind", f":{self.GIT_SYNC_PORT}"])
+        cmd.extend(["--http-metrics"])
         cmd.extend(["--ssh-known-hosts-file", self._known_hosts_file.as_posix()])
         cmd.extend(["--link", self._link])
 
@@ -173,7 +175,7 @@ class GitSync(Object):
                     "override": "replace",
                     "level": "ready",
                     "startup": startup,
-                    "http": {"url": f"http://localhost:{self._git_sync_port}/"},
+                    "http": {"url": f"http://localhost:{self.GIT_SYNC_PORT}/"},
                     "period": "10s",
                     "timeout": "5s",
                 }
