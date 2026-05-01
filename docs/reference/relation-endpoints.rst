@@ -47,6 +47,22 @@ Example ``logging`` integrate command:
 
    juju integrate mediawiki-k8s loki-k8s
 
+.. _reference_relation_endpoints_metrics_endpoint:
+
+Metrics endpoint
+----------------
+
+* **Interface**: `prometheus_scrape <https://charmhub.io/integrations/prometheus_scrape>`_
+* **Supported charms**: `prometheus-k8s <https://charmhub.io/prometheus-k8s>`_ `opentelemetry-collector-k8s <https://charmhub.io/opentelemetry-collector-k8s>`_
+
+The ``metrics-endpoint`` relation exposes workload metrics for supported charms in the `open metrics format <https://github.com/OpenObservability/OpenMetrics/blob/main/specification/OpenMetrics.md#data-model>`_. Apache metrics are collected from the internal ``/server-status`` endpoint using `Apache exporter <https://github.com/Lusitaniae/apache_exporter>`__ and then published through this relation. The ``/server-status`` route is not externally exposed and is only reachable from within the same Kubernetes pod. Metrics from the `git-sync <https://github.com/kubernetes/git-sync>`_ sidecar are also published through the ``metrics-endpoint`` relation. This relation is part of the :abbr:`COS (Canonical Observability Stack)` observability integration. Learn more about COS `here <https://charmhub.io/topics/canonical-observability-stack>`__.
+
+Example ``metrics-endpoint`` integrate command:
+
+.. code-block:: bash
+
+   juju integrate mediawiki-k8s prometheus-k8s
+
 .. _reference_relation_endpoints_oauth:
 
 OAuth
