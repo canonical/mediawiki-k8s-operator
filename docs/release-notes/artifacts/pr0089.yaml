@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add COS Prometheus metrics support
+  author: hk21702
+  type: major
+  description: Add COS Prometheus metrics support.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/89"
+  visibility: public
+  highlight: true
