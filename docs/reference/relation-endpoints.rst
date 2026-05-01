@@ -31,6 +31,22 @@ Example ``database`` integrate command:
 
    juju integrate mediawiki-k8s mysql-k8s:database
 
+
+.. _reference_relation_endpoints_logging:
+
+Logging
+-------
+* **Interface**: `loki_push_api <https://charmhub.io/integrations/loki_push_api>`_
+* **Supported charms**: `loki-k8s <https://charmhub.io/loki-k8s>`_ `opentelemetry-collector-k8s <https://charmhub.io/opentelemetry-collector-k8s>`_
+
+The logging relation is a part of the :abbr:`COS (Canonical Observability Stack)` relation to enhance logging observability. Logging relation through the ``loki_push_api`` interface forwards the standard outputs of all workloads as well as ``/var/log/mediawiki/logs.log`` to Loki. This can then be queried through the Loki API or easily visualized through Grafana. Learn more about COS `here <https://charmhub.io/topics/canonical-observability-stack>`__.
+
+Example ``logging`` integrate command:
+
+.. code-block:: bash
+
+   juju integrate mediawiki-k8s loki-k8s
+
 .. _reference_relation_endpoints_oauth:
 
 OAuth

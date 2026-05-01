@@ -10,6 +10,7 @@ import typing
 from urllib.parse import urlparse
 
 import ops
+from charms.loki_k8s.v1.loki_push_api import LogForwarder
 from charms.redis_k8s.v0.redis import RedisRelationCharmEvents
 from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
 from ops import (
@@ -50,6 +51,7 @@ class Charm(StatefulCharmBase):
 
     _CONTAINER_NAME = "mediawiki"
     _SERVICE_NAME = "mediawiki"
+    _LOGROTATE_SERVICE_NAME = "logrotate"
     _REDIS_JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
 
     _DATABASE_RELATION_NAME = "database"
@@ -87,6 +89,8 @@ class Charm(StatefulCharmBase):
             self.model.get_relation(self._INGRESS_RELATION_NAME),  # type: ignore[arg-type]  # https://github.com/canonical/traefik-k8s-operator/issues/448
             relation_name=self._INGRESS_RELATION_NAME,
         )
+
+        self._logging = LogForwarder(self, relation_name="logging")
 
         self.framework.observe(self.on.leader_elected, self._setup_replica_data)
 
@@ -141,6 +145,8 @@ class Charm(StatefulCharmBase):
                     "override": "replace",
                     "summary": "MediaWiki service (apache)",
                     "command": "/usr/sbin/apache2ctl -D FOREGROUND",
+                    "requires": ["mediawikiLogs"],
+                    "after": ["mediawikiLogs"],
                 },
                 **{
                     service: {
@@ -149,6 +155,20 @@ class Charm(StatefulCharmBase):
                         "command": f"{php_path} {job_runner_service_dir}/{service} --config-file={self._mediawiki.JOB_RUNNER_CONFIG_PATH}",
                     }
                     for service in self._REDIS_JOB_SERVICES
+                },
+                "mediawikiLogs": {
+                    "override": "replace",
+                    "summary": "MediaWiki logs",
+                    "command": "tail -n0 -F /var/log/mediawiki/logs.log",
+                    "startup": "enabled",
+                },
+                self._LOGROTATE_SERVICE_NAME: {
+                    "override": "replace",
+                    "summary": "Logrotate service",
+                    "command": 'bash -c "while :; '
+                    "do sleep 3600; logrotate /etc/logrotate.d/mediawiki/logrotate.conf; "
+                    'done"',
+                    "startup": "enabled",
                 },
             },
             "checks": {
@@ -270,7 +290,7 @@ class Charm(StatefulCharmBase):
     def _reconcile_services(self) -> None:
         """Reconcile the MediaWiki services.
 
-        The main MediaWiki (apache) service is always started.
+        The main MediaWiki (apache) service and logrotate service are always started.
         Job runner services are started or stopped depending on whether Redis
         is available and the job runner configuration file exists.
         """
@@ -279,8 +299,10 @@ class Charm(StatefulCharmBase):
             raise MediaWikiWaitingStatusException("Waiting for pebble")
 
         self._init_pebble_layer()
-        if not self._container.get_service(self._SERVICE_NAME).is_running():
-            self._container.start(self._SERVICE_NAME)
+        primary_services = (self._SERVICE_NAME, self._LOGROTATE_SERVICE_NAME)
+        for service in primary_services:
+            if not container.get_service(service).is_running():
+                container.start(service)
 
         if self._mediawiki.runner_queue_service_is_ready():
             for service in self._REDIS_JOB_SERVICES:

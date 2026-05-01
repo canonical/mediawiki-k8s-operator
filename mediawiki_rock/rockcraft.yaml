@@ -45,6 +45,11 @@ parts:
       - composer
       - unzip
       - php-ldap
+      # MediaWiki log rotation
+      - logrotate
+    permissions:
+      - path: /etc/logrotate.d/mediawiki/logrotate.conf
+        mode: "444"
     build-environment:
       # Required to source $CRAFT_OVERLAY/etc/apache2/envvars
       - APACHE_CONFDIR: /etc/apache2
