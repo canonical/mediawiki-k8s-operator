@@ -1,0 +1,26 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"Test that setting static-assets-git-ref checks out the specified branch.","11616","test_git_sync_ref","tests.integration","2026-05-02","passed","2026-05-02","","test_git_sync","",""
+"Check that the charm behaves correctly when certain relations are removed.","69408","test_relations","tests.integration","2026-05-02","passed","2026-05-02","","test_charm","",""
+"Test that the charm can integrate with an OAuth provider and enter an active state.","22673","test_oauth_integration","tests.integration","2026-05-02","passed","2026-05-02","","test_oauth","",""
+"Prepare the S3 bucket and integrate the S3 integrator with MediaWiki.","47166","test_integrate_s3_integrator_with_mediawiki","tests.integration","2026-05-02","passed","2026-05-02","","test_s3","",""
+"Check that the charm can have extensions added after deployment.
+
+    Add extensions by editing the composer config, and then running a database update.
+    ","52052","test_add_extensions","tests.integration","2026-05-02","passed","2026-05-02","","test_charm","",""
+"Check that the rotate-root-credentials action works as expected.","5126","test_rotate_root_credentials_action","tests.integration","2026-05-02","passed","2026-05-02","","test_charm","",""
+"Test that clearing the git repo config returns to active.","11717","test_git_sync_disable","tests.integration","2026-05-02","passed","2026-05-02","","test_git_sync","",""
+"Check that the rotate-mediawiki-secrets action works as expected.","5378","test_rotate_mediawiki_secrets_action","tests.integration","2026-05-02","passed","2026-05-02","","test_charm","",""
+"Check that the charm is active.
+
+    Assume that the charm has already been built and is running.
+    ","327","test_active","tests.integration","2026-05-02","passed","2026-05-02","","test_git_sync","",""
+"Test that Apache blocks HTTP access to dot files under /static.","329","test_git_sync_dotfiles_blocked","tests.integration","2026-05-02","passed","2026-05-02","","test_git_sync","",""
+"Test that static-assets-git-sparse-checkout limits which files are checked out.","17664","test_git_sync_sparse_checkout","tests.integration","2026-05-02","passed","2026-05-02","","test_git_sync","",""
+"Check that the charm is the expected version.","244","test_workload_version_is_set","tests.integration","2026-05-02","passed","2026-05-02","","test_charm","",""
+"Check that the charm behaves correct regarding the ssh_key Juju secret.
+
+    Note that this test does not attempt to utilize the SSH key as the passed key is not expected to be
+    authorized anywhere.
+    ","23219","test_ssh_key_secret","tests.integration","2026-05-02","passed","2026-05-02","","test_charm","",""
+"Check uploading a file to MediaWiki via the API.","4618","test_upload","tests.integration","2026-05-02","passed","2026-05-02","","test_s3","",""
+"Test that git-sync clones a repository over SSH and assets are available.","11688","test_git_sync_ssh","tests.integration","2026-05-02","passed","2026-05-02","","test_git_sync","",""
