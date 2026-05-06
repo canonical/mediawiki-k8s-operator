@@ -126,12 +126,12 @@ Apache server
 
 .. vale Canonical.025a-latinisms-with-english-equivalents = NO
 
-The Apache server is configured by default to accept all web traffic on port 80, redirecting non-existing file and directory requests to the MediaWiki PHP index file with a ``RewriteRule`` directive. This enables the usage of `short URLs <https://www.mediawiki.org/wiki/Manual:Short_URL>`_ for the MediaWiki application. The Apache configuration files can be found in the |mediawiki_rock/files/etc/apache2|_ directory of the charm's source code.
+The Apache server is configured by default to accept all web traffic on port 80, redirecting non-existing file and directory requests to the MediaWiki PHP index file with a ``RewriteRule`` directive. This enables the usage of `short URLs <https://www.mediawiki.org/wiki/Manual:Short_URL>`_ for the MediaWiki application. The Apache configuration files can be found in the |mediawiki_rock/files/apache/etc/apache2|_ directory of the charm's source code.
 
 .. vale Canonical.025a-latinisms-with-english-equivalents = YES
 
-.. |mediawiki_rock/files/etc/apache2| replace:: ``mediawiki_rock/files/etc/apache2/``
-.. _mediawiki_rock/files/etc/apache2: https://github.com/canonical/mediawiki-k8s-operator/tree/main/mediawiki_rock/files/etc/apache2
+.. |mediawiki_rock/files/apache/etc/apache2| replace:: ``mediawiki_rock/files/apache/etc/apache2/``
+.. _mediawiki_rock/files/apache/etc/apache2: https://github.com/canonical/mediawiki-k8s-operator/tree/main/mediawiki_rock/files/apache/etc/apache2
 
 Job runner
 """""""""""
