@@ -12,21 +12,7 @@ For information about how to deploy, integrate, and manage this charm, see the O
 
 ## Get started
 
-<!--If the charm already contains a relevant how-to guide or tutorial in its documentation,
-use this section to link the documentation. You don’t need to duplicate documentation here.
-If the tutorial is more complex than getting started, then provide brief descriptions of the
-steps needed for the simplest possible deployment. Make sure to include software and hardware
-prerequisites.
-
-This section could be structured in the following way:
-
-### Set up
-<Steps for setting up the environment (e.g. via Multipass)>
-
-### Deploy
-<Steps for deploying the charm>
-
--->
+Refer to the [tutorial present in the documentation](https://canonical-mediawiki-k8s-charm.readthedocs-hosted.com/tutorial/) to get started using the charm.
 
 ### Basic operations
 

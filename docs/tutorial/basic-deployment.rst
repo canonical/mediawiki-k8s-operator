@@ -6,20 +6,18 @@
 Deploy the MediaWiki charm for the first time
 ==================================================
 
-.. TODO: 1-2 sentences that introduce the charm and outlines what the tutorial will cover.
-   For example, successfully deploying the charm and its required dependencies.
+The ``mediawiki-k8s`` charm can be used to deploy a horizontally-scalable MediaWiki application. This
+tutorial will walk you through each step of deploying MediaWiki using the charm.
 
 What you'll do
 --------------
 
-.. TODO: Add numbered list of steps outlining what happens in this tutorial.
-   Example:
-
-    1. Deploy the WordPress K8s charm
-    2. Deploy and integrate a database
-    3. Get admin credentials
-    4. Access the WordPress instance
-    5. Clean up the environment
+1. Deploy the `MediaWiki K8s charm`_
+2. Deploy and integrate a database
+3. Configure the URL origin
+4. Get admin credentials
+5. Access the MediaWiki instance
+6. Clean up the environment
 
 What you'll need
 ----------------
@@ -28,27 +26,28 @@ What you'll need
 
 .. SPREAD SKIP
 
-You will need a working station, e.g., a laptop, with AMD64 architecture. Your working station
+You will need a working station, for example, a laptop, with AMD64 architecture. Your working station
 should have at least 4 CPU cores, 8 GB of RAM, and 50 GB of disk space.
 
-.. tip::
+.. tip:: Using a Multipass VM (optional)
 
-    You can use Multipass to create an isolated environment by running:
+    You can use `Multipass`_ to create an isolated virtual machine (VM) by running:
 
     .. code-block::
 
-        multipass launch 24.04 --name charm-tutorial-vm --cpus 4 --memory 8G --disk 50G
+        multipass launch 26.04 --name mediawiki-tutorial-vm --cpus 4 --memory 8G --disk 50G
 
+    To be able to work inside the Multipass VM, open a shell with the following command:
+
+    .. code-block:: bash
+
+        multipass shell mediawiki-tutorial-vm
 
 This tutorial requires the following software to be installed on your working station
 (either locally or in the Multipass VM):
 
-.. TODO: Does this tutorial require a specific version of Juju?
-         Does this tutorial require MicroK8s at all?
-         If this is a machine charm, what version of LXD is required?
-
-- Juju 3
-- MicroK8s 1.33
+- Juju 3.6
+- MicroK8s 1.35
 
 Use `Concierge <https://github.com/canonical/concierge>`_ to set up Juju and MicroK8s:
 
@@ -56,9 +55,6 @@ Use `Concierge <https://github.com/canonical/concierge>`_ to set up Juju and Mic
 
     sudo snap install --classic concierge
     sudo concierge prepare -p microk8s
-
-.. TODO: If the tutorial requires a LXD controller, update "microk8s" to "machine"
-         Double check that the text below is accurate!
 
 This first command installs Concierge, and the second command uses Concierge to install
 and configure Juju and MicroK8s.
@@ -74,17 +70,6 @@ If Concierge did not perform the bootstrap, run:
 
     juju bootstrap microk8s tutorial-controller
 
-
-To be able to work inside the Multipass VM, log in with the following command:
-
-.. code-block:: bash
-
-    multipass shell charm-tutorial-vm 
-
-.. note::
-
-    If you're working locally, you don't need to do this step.
-
 .. SPREAD SKIP END
 
 Set up the environment
@@ -95,58 +80,141 @@ your usual work, create a new model in the MicroK8s controller using the followi
 
 .. code-block::
 
-    juju add-model wordpress-tutorial
+    juju add-model mediawiki-tutorial
 
 Deploy the charm
 ----------------
 
-.. TODO: Add instructions on deploying the charm
+Start by deploying the MediaWiki charm.
 
-Deploy and integrate dependencies 
+.. TODO: Update when we have something in stable.
+
+.. code-block:: bash
+
+    juju deploy mediawiki-k8s --channel 1.45/edge
+
+Deploy and integrate database 
 ---------------------------------
 
-.. TODO: If required, add instructions on deploying and integrating any other required charms
-         Rename the section to something more specific (e.g., "Deploy and integrate database")
+MediaWiki requires a relational database. As the ``mysql_client`` :doc:`interface <juju:reference/relation>` is required by the ``mediawiki-k8s`` charm, we will use the `MySQL K8s charm <https://charmhub.io/mysql-k8s>`_ for this tutorial. 
 
+Deploy the ``mysql-k8s`` charm and integrate it with ``mediawiki-k8s`` with the following:
+
+.. code-block:: bash
+
+    juju deploy mysql-k8s --trust --config profile=testing
+    juju relate mediawiki-k8s mysql-k8s
 
 Run ``juju status`` to check the current status of the deployment.
 The output should be similar to the following:
 
-.. TODO: Add the output of juju status into a command block, showing a successful deployment. 
-         If using the starter pack, use the terminal directive: https://github.com/canonical/sphinx-terminal/blob/main/README.md
+.. terminal::
+    :user: ubuntu
+    :host: mediawiki-tutorial-vm
 
+    juju status
 
-When the status shows "Active" for both the charm, the deployment is considered finished.
+    Model               Controller          Cloud/Region        Version  SLA          Timestamp
+    mediawiki-tutorial  concierge-microk8s  microk8s/localhost  3.6.21   unsupported  18:43:02-04:00
 
-Perform an action/configuration
--------------------------------
+    App            Version           Status  Scale  Charm          Channel     Rev  Address         Exposed  Message
+    mediawiki-k8s  mediawiki-1.45.3  active      1  mediawiki-k8s  1.45/edge    17  10.152.183.157  no       
+    mysql-k8s      8.0.44            active      1  mysql-k8s      8.0/stable  400  10.152.183.82   no       
 
-.. TODO: Provide instructions for running an action or updating a configuration.
-         Choose a common task or operation. 
-         Show any terminal output so the user can verify that their attempt was successful.
+    Unit              Workload  Agent  Address      Ports  Message
+    mediawiki-k8s/0*  active    idle   10.1.153.77         
+    mysql-k8s/0*      active    idle   10.1.153.82         Primary
+
+When the status shows "Active" for both the MediaWiki and MySQL charms, the deployment is considered finished.
+
+.. vale Canonical.007-Headings-sentence-case = NO
+
+Configure URL origin
+--------------------
+
+.. vale Canonical.007-Headings-sentence-case = YES
+
+For MediaWiki to work properly, it needs to know how users will access it. We can do this by configuring the URL origin. To keep things simple, we will use the IP of our sole ``mediawiki-k8s`` unit.
+
+First, save the IP address of the MediaWiki charm unit in an environment variable:
+
+.. code-block:: bash
+
+    UNIT_IP=$(juju status --format json | jq -r '.applications."mediawiki-k8s".units."mediawiki-k8s/0".address')
+
+Then set the URL origin configuration to the unit's IP:
+
+.. code-block:: bash
+
+    juju config mediawiki-k8s url-origin="http://${UNIT_IP}"
+
+Access the MediaWiki application
+--------------------------------
+
+Now that we have an active deployment, let's access the MediaWiki application by accessing the IP of a mediawiki-k8s unit. To start managing MediaWiki as an administrator, you need to get the credentials for the admin account.
+
+By running the ``rotate-root-credentials`` action on a ``mediawiki-k8s`` unit, Juju will rotate and fetch the root user's credentials for you:
+
+.. code-block:: bash
+
+    juju run mediawiki-k8s/0 rotate-root-credentials
+
+The result should be similar to the following, with the password value filled in:
+
+.. terminal::
+    :user: ubuntu
+    :host: mediawiki-tutorial-vm
+
+    juju run mediawiki-k8s/0 rotate-root-credentials
+
+    Running operation 1 with 1 task
+      - task 2 on unit-mediawiki-k8s-0
+
+    Waiting for task 2...
+    18:48:57 Root bureaucrat user credentials rotated successfully
+
+    password: <password>
+    username: root
+
+Now we can access MediaWiki in a browser at ``http://<UNIT_IP>``. Log in with the credentials retrieved from the action above.
+
+.. note:: 
+    If you are using a Multipass VM for this tutorial, you will need to route the IP from Multipass. To do this, first get the IP of the Multipass VM.
+    Outside the Multipass VM run:
+
+    .. code-block:: bash
+
+        multipass info mediawiki-tutorial-vm
+
+    The first IP from this command's output is the ``<VM_IP>``.
+
+    Then route:
+
+    .. code-block:: bash
+   
+        sudo ip route add <UNIT_IP> via <VM_IP>
 
 Clean up the environment
 ------------------------
 
-.. TODO: Add a one-sentence summary about what the user accomplished in the tutorial.
-         If using the starter pack, update the link to use intersphinx.
+Congratulations! You successfully deployed the MediaWiki charm, added a database, customized it, and accessed the application.
 
-Congratulations! You successfully...
+.. vale Canonical.004-Canonical-product-names = NO
 
 You can clean up your environment by following this guide:
 :doc:`Tear down your test environment <juju:howto/manage-your-juju-deployment/tear-down-your-juju-deployment-local-testing-and-development>`
 
+.. vale Canonical.004-Canonical-product-names = YES
+
 Next steps
 ----------
 
-.. TODO: Fill in the list below with how-to guides or further reading about the charm.
-
-You achieved a basic deployment of the charm. If you want to go farther in your deployment
+You achieved a basic deployment of the MediaWiki charm. If you want to go further in your deployment
 or learn more about the charm, check out these pages:
 
-- Continue with the advanced tutorial, which...
-- Perform basic operations with your deployment like...
-- Set up monitoring for your deployment by...
-- Make your deployment more secure by...
-- Learn more about the available :ref:`relation endpoints <reference_relation_endpoints>`
-  for the charm.
+.. - Continue with the advanced tutorial, which...
+
+- Perform basic operations with your deployment like :doc:`installing extensions and skins </how-to/install-extensions-and-skins>`.
+- Set up monitoring for your deployment by :doc:`integrating with the Canonical Observability Stack (COS) </how-to/integrate-with-cos>`.
+- Make your deployment more secure by learning more about the charm's security in the :doc:`security overview </explanation/security>` page.
+- Learn more about the available :doc:`relation endpoints </reference/relation-endpoints>` for the MediaWiki charm.
