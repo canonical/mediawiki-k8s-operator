@@ -46,6 +46,13 @@ The MediaWiki charm comes with a limited number of MediaWiki extensions that are
 
 Additionally, users can choose to install arbitrary MediaWiki extensions by configuring the charm with a custom ``composer.json`` file. Risk is minimized by installing the extensions with a non-root user with write permissions against the webroot, but it is still prudent to only install trusted extensions. Changes to the extensions installed take effect once a change in the configured ``composer.json`` file is detected.
 
+File uploads
+^^^^^^^^^^^^
+
+The MediaWiki charm allows for file uploads to S3-compatible object storage. By default, uploaded files are scanned using `ClamAV <https://www.clamav.net/>`_ for viruses before being stored in the object storage. Definitions for ClamAV are updated regularly. To ensure that the latest definitions are being used, make sure to add the relevant ClamAV database URLs to your firewall allowlist as described in the :ref:`allowlist reference documentation <reference_allowlist>`.
+
+Even with virus scanning in place, allowing file uploads introduces risk. Refer to the `MediaWiki documentation on file uploads <https://www.mediawiki.org/wiki/Manual:Configuring_file_uploads>`_ for best practices and additional security considerations when allowing file uploads.
+
 SSH keys
 ^^^^^^^^
 

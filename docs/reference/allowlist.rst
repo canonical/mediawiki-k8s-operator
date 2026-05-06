@@ -33,6 +33,8 @@ Domain URLs to allow
      - Extensions
    * - https://codeload.github.com
      - Extensions
+   * - https://database.clamav.net
+     - ClamAV virus definition updates (regional mirrors under \*.clamav.net may also be used)
 
 
 Object storage

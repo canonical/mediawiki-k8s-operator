@@ -27,6 +27,12 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
    * - `$wgAllowSchemaUpdates <https://www.mediawiki.org/wiki/Manual:$wgAllowSchemaUpdates>`__
      - .. centered:: :bdg-danger:`No`
      - This is always set to ``false`` other than when the charm is performing a database update.
+   * - `$wgAntivirus <https://www.mediawiki.org/wiki/Manual:$wgAntivirus>`__
+     - .. centered:: :bdg-success:`Yes`
+     - Defaults to ``clamavd``.
+   * - `$wgAntivirusSetup['clamavd'] <https://www.mediawiki.org/wiki/Manual:$wgAntivirusSetup>`__
+     - .. centered:: :bdg-success:`Yes`
+     - Configuration for antivirus scans using ``clamdscan``.
    * - `$wgArticlePath <https://www.mediawiki.org/wiki/Manual:$wgArticlePath>`__
      - .. centered:: :bdg-success:`Yes`
      - 
