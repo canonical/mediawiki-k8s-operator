@@ -124,82 +124,132 @@ def test_integrate_s3_integrator_with_mediawiki(
     )
 
 
+@pytest.fixture(scope="module", name="root_credentials")
+def root_credentials_fixture(juju: jubilant.Juju, app: App) -> tuple[str, str]:
+    """Rotate and return the root bureaucrat credentials once per module."""
+    rotate_action = juju.run(f"{app.name}/leader", "rotate-root-credentials")
+    assert rotate_action.status == "completed"
+    return rotate_action.results["username"], rotate_action.results["password"]
+
+
+@pytest.fixture(name="authenticated_session")
+def authenticated_session_fixture(
+    requests_timeout: int,
+    ingress_address: str,
+    root_credentials: tuple[str, str],
+) -> Generator[tuple[requests.Session, str, str], None, None]:
+    """Return an authenticated MediaWiki session with a CSRF token.
+
+    Yields (session, csrf_token, api_url). The session is closed after use.
+    """
+    username, password = root_credentials
+    url = f"{ingress_address}/w/api.php"
+    session = requests.Session()
+
+    # Retrieve a login token
+    req = session.get(
+        url=url,
+        params={"action": "query", "meta": "tokens", "type": "login", "format": "json"},
+        timeout=requests_timeout,
+    )
+    login_token = req.json()["query"]["tokens"]["logintoken"]
+
+    # Log in
+    req = session.post(
+        url=url,
+        data={
+            "action": "login",
+            "lgname": username,
+            "lgpassword": password,
+            "lgtoken": login_token,
+            "format": "json",
+        },
+        timeout=requests_timeout,
+    )
+    assert req.status_code == 200, f"Expected status code 200, got {req.status_code}"
+
+    # Get CSRF token
+    req = session.get(
+        url=url,
+        params={"action": "query", "meta": "tokens", "format": "json"},
+        timeout=requests_timeout,
+    )
+    csrf_token = req.json()["query"]["tokens"]["csrftoken"]
+
+    yield session, csrf_token, url
+    session.close()
+
+
 @pytest.mark.abort_on_fail
 def test_upload(
     juju: jubilant.Juju,
-    app: App,
-    ingress_address: str,
     requests_timeout: int,
+    authenticated_session: tuple[requests.Session, str, str],
 ):
     """Check uploading a file to MediaWiki via the API."""
     juju.wait(jubilant.all_active)
 
-    rotate_action = juju.run(f"{app.name}/leader", "rotate-root-credentials")
-    assert rotate_action.status == "completed"
-    username = rotate_action.results["username"]
-    password = rotate_action.results["password"]
+    session, csrf_token, url = authenticated_session
 
-    url = f"{ingress_address}/w/api.php"
-    with requests.Session() as session:
-        # Retrieve a login token
-        req = session.get(
-            url=url,
-            params={
-                "action": "query",
-                "meta": "tokens",
-                "type": "login",
-                "format": "json",
-            },
-            timeout=requests_timeout,
-        )
-        login_token = req.json()["query"]["tokens"]["logintoken"]
+    with open(Path(__file__).parent / "test_data" / "test_image.png", "rb") as f:
+        image_data = f.read()
 
-        # Log in
-        req = session.post(
-            url=url,
-            data={
-                "action": "login",
-                "lgname": username,
-                "lgpassword": password,
-                "lgtoken": login_token,
-                "format": "json",
-            },
-            timeout=requests_timeout,
-        )
-        assert req.status_code == 200, f"Expected status code 200, got {req.status_code}"
-
-        # Get CSRF token
-        req = session.get(
-            url=url,
-            params={
-                "action": "query",
-                "meta": "tokens",
-                "format": "json",
-            },
-            timeout=requests_timeout,
-        )
-        csrf_token = req.json()["query"]["tokens"]["csrftoken"]
-
-        # Upload
-        with open(Path(__file__).parent / "test_data" / "test_image.png", "rb") as f:
-            image_data = f.read()
-
-        req = session.post(
-            url=url,
-            data={
-                "action": "upload",
-                "filename": "Test-Image.png",
-                "token": csrf_token,
-                "format": "json",
-                "ignorewarnings": 1,
-            },
-            files={"file": ("Test-Image.png", image_data, "multipart/form-data")},
-            timeout=requests_timeout,
-        )
+    req = session.post(
+        url=url,
+        data={
+            "action": "upload",
+            "filename": "Test-Image.png",
+            "token": csrf_token,
+            "format": "json",
+            "ignorewarnings": 1,
+        },
+        files={"file": ("Test-Image.png", image_data, "multipart/form-data")},
+        timeout=requests_timeout,
+    )
 
     logger.info("Upload response: %s", req.text)
     assert req.status_code == 200, f"Expected status code 200, got {req.status_code}"
     assert "upload" in req.json(), f"Expected 'upload' in response, got {req.json()}"
     assert req.json()["upload"]["result"] == "Success", (
         f"Expected upload result to be 'Success', got {req.json()['upload']['result']}"
+    )
+
+
+def test_clamav(
+    juju: jubilant.Juju,
+    requests_timeout: int,
+    authenticated_session: tuple[requests.Session, str, str],
+):
+    """Check that ClamAV is working by uploading a test file containing the EICAR test signature."""
+    juju.wait(jubilant.all_active)
+
+    session, csrf_token, url = authenticated_session
+
+    eicar_test_string = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+    req = session.post(
+        url=url,
+        data={
+            "action": "upload",
+            "filename": "EICAR-Test-File.png",
+            "token": csrf_token,
+            "format": "json",
+            "ignorewarnings": 1,
+        },
+        files={
+            "file": (
+                "EICAR-Test-File.png",
+                bytes(eicar_test_string, "utf-8"),
+                "multipart/form-data",
+            )
+        },
+        timeout=requests_timeout,
+    )
+
+    logger.info("ClamAV upload response: %s", req.text)
+    assert req.status_code == 200, f"Expected status code 200, got {req.status_code}"
+    assert req.json()["error"]["code"] == "verification-error", (
+        f"Expected error code to be 'verification-error', got {req.json()['error']['code']}"
+    )
+    assert " Eicar-Test-Signature FOUND" in req.json()["error"]["details"], (
+        f"Expected error details to contain ' Eicar-Test-Signature FOUND', got {req.json()['error']['details']}"
     )

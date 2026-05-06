@@ -44,3 +44,17 @@ $wgDebugLogGroups['exception'] =
 	$wgDebugLogGroups['HttpError'] = 
 	$wgDebugLogGroups['ratelimit'] = 
 	$wgDebugLogGroups['throttler'] ='/var/log/mediawiki/logs.log';
+
+$wgAntivirusSetup['clamavd'] = [
+	// Appended --log to force clamscan to write its own results
+	'command' => 'clamdscan --no-summary --fdpass',
+	'codemap' => [
+		"0" => AV_NO_VIRUS,
+		"1" => AV_VIRUS_FOUND,
+		"52" => AV_SCAN_ABORTED,
+		"*" => AV_SCAN_FAILED,
+	],
+	'messagepattern' => '/.*?:(.*)/sim',
+];
+
+$wgAntivirus = "clamavd";

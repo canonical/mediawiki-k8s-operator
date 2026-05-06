@@ -58,6 +58,8 @@ class Charm(StatefulCharmBase):
     _REDIS_JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
 
     _APACHE_EXPORTER_PORT = 9117
+    _FRESHCLAM_SERVICE_NAME = "freshclam"
+    _CLAMD_SERVICE_NAME = "clamd"
 
     _DATABASE_RELATION_NAME = "database"
     _DATABASE_NAME = "mediawiki"
@@ -200,6 +202,20 @@ class Charm(StatefulCharmBase):
                     "command": "/usr/bin/apache_exporter",
                     "startup": "enabled",
                 },
+                self._FRESHCLAM_SERVICE_NAME: {
+                    "override": "replace",
+                    "summary": "FreshClam service",
+                    "command": "/usr/bin/freshclam --daemon --foreground",
+                    "environment": self.state.proxy_config.as_dict
+                    if self.state.proxy_config
+                    else {},
+                },
+                self._CLAMD_SERVICE_NAME: {
+                    "override": "replace",
+                    "summary": "ClamAV Daemon service",
+                    "command": "/usr/sbin/clamd --foreground",
+                    "after": self._FRESHCLAM_SERVICE_NAME,
+                },
             },
             "checks": {
                 "mediawiki-api-ready": {
@@ -340,6 +356,8 @@ class Charm(StatefulCharmBase):
             self._SERVICE_NAME,
             self._LOGROTATE_SERVICE_NAME,
             self._APACHE_EXPORTER_SERVICE_NAME,
+            self._FRESHCLAM_SERVICE_NAME,
+            self._CLAMD_SERVICE_NAME,
         )
         for service in primary_services:
             if not container.get_service(service).is_running():
