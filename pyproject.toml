@@ -19,7 +19,7 @@ dependencies = [
   "jsonschema>=4.26.0",
   "mysql-connector-python>=9.6.0",
   "ops==3.7.0",
-  "pydantic==2.13.3",
+  "pydantic==2.13.4",
   "requests>=2.32.5",
 ]
 
