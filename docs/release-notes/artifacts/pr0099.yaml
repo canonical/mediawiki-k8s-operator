@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Load Vector 2022 by default
+  author: hk21702
+  type: minor
+  description: Load the bundled Vector 2022 skin and set it as the default skin by default through the `local-settings` configuration option.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/99"
+  visibility: public
+  highlight: false

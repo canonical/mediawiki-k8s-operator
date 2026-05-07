@@ -167,15 +167,15 @@ config:
 
         Certain settings such as secrets and database credentials are restricted and will always be overridden by the charm.
 
-        For example, to set `vector2022` as the default skin:
-        ```php
-        <?php
-        $wgDefaultSkin = 'vector2022';
-        ?>
-        ```
+        The default configuration will load the bundled Vector 2022 skin and set it as the default skin.
 
         See [MediaWiki's documentation](https://www.mediawiki.org/wiki/Manual:LocalSettings.php) for more information about LocalSettings.php.
       type: string
+      default: |
+        <?php
+        wfLoadSkin( 'Vector' );
+        $wgDefaultSkin = 'vector-2022';
+        ?>
 
 actions:
   rotate-mediawiki-secrets:
