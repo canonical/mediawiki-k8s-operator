@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Only update Terraform charm revisions on weekends
+  author: hk21702
+  type: minor
+  description: Only update Terraform charm revisions on weekends to prevent excessive CI runs during the week.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/101"
+  visibility: internal
+  highlight: false
