@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add a high level deployment diagram to the documentation
+  author: hk21702
+  type: minor
+  description: Add a diagram showing a typical, fully featured deployment of the MediaWiki charm on a Kubernetes cloud to the documentation.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/98"
+  visibility: public
+  highlight: false

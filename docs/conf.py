@@ -377,6 +377,7 @@ intersphinx_mapping = {
     "charmcraft": ("https://documentation.ubuntu.com/charmcraft/stable", None),
     "rockcraft": ("https://documentation.ubuntu.com/rockcraft/stable", None),
     "juju": ("https://documentation.ubuntu.com/juju/3.6/", None),
+    "observability": ("https://documentation.ubuntu.com/observability/track-2/", None),
 }
 
 # We recommend adding the following config value.
