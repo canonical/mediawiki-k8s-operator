@@ -6,6 +6,8 @@
 Relation endpoints
 ==================
 
+See `Integrations <https://charmhub.io/mediawiki-k8s/integrations>`__.
+
 .. _reference_relation_endpoints_database:
 
 Database

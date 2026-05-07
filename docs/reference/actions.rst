@@ -6,9 +6,7 @@
 Actions
 =======
 
-.. TODO: Add link to the Charmhub actions tab.
-
-See Actions.
+See `Actions <https://charmhub.io/mediawiki-k8s/actions>`__.
 
 .. seealso::
 

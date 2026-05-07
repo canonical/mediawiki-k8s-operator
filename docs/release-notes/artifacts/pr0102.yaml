@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Update documentation links to Charmhub
+  author: hk21702
+  type: minor
+  description: Update documentation links to Charmhub for relation endpoints, configurations, and actions.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/102"
+  visibility: public
+  highlight: false
