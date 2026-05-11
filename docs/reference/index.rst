@@ -45,11 +45,6 @@ a high-level deployment with any required dependencies.
 
     Charm architecture <charm-architecture>
     Charm managed configuration settings <charm-managed-settings>
-
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-
     High-level deployment overview <high-level-deployment>
 
 Advanced topics
