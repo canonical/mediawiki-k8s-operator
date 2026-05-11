@@ -6,9 +6,7 @@
 Configurations
 ==============
 
-.. TODO: Add link to Charmhub configurations tab
-
-See Configurations.
+See `Configurations <https://charmhub.io/mediawiki-k8s/configurations>`__.
 
 .. seealso::
    

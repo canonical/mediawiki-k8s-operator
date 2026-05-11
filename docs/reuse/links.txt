@@ -44,6 +44,8 @@
 
 .. SHORTCUTS
 .. |RST| replace:: :abbr:`reST (reStructuredText)`
+.. |COS| replace:: :abbr:`COS (Canonical Observability Stack)`
+.. |K8s| replace:: :abbr:`K8s (Kubernetes)`
 
 .. _CONTRIBUTING.md: https://github.com/canonical/mediawiki-k8s-operator/blob/main/CONTRIBUTING.md
 .. _file a bug: https://github.com/canonical/mediawiki-k8s-operator/issues
