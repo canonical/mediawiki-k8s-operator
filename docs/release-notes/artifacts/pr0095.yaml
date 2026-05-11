@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Refactor rockcraft.yaml structure
+  author: hk21702
+  type: minor
+  description: Refactor rockcraft.yaml structure, improving speed and reliability of packing from a non-clean environment.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/95"
+  visibility: internal
+  highlight: false

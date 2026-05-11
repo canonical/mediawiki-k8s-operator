@@ -13,7 +13,7 @@ platforms:
 parts:
   apache2:
     plugin: dump
-    source: files
+    source: files/apache
     build-packages:
       - apache2
       - php
@@ -80,6 +80,7 @@ parts:
       a2enmod rewrite
       a2enmod ssl
       EOF
+
   apache-exporter:
     plugin: go
     build-snaps:
@@ -88,21 +89,24 @@ parts:
     source-type: git
     source-tag: v1.0.12
     source-depth: 1
+
   mediawiki:
     after:
       - apache2
-    plugin: nil
+    plugin: dump
+    source: files/mediawiki
     # Switch to LTS version only once we get to 1.47
     build-environment:
       - MW_VERSION: 1.45.3
     build-packages:
-      - curl
-      - gnupg
-    override-build: |
+      - php-curl
+    override-pull: |
+      craftctl default
+
       MW_MAJOR_VERSION=$(echo $MW_VERSION | cut -d. -f1,2)
 
-      curl -sfSL --create-dirs https://releases.wikimedia.org/mediawiki/${MW_MAJOR_VERSION}/mediawiki-${MW_VERSION}.tar.gz -o mediawiki.tar.gz
-      curl -sfSL "https://releases.wikimedia.org/mediawiki/${MW_MAJOR_VERSION}/mediawiki-${MW_VERSION}.tar.gz.sig" -o mediawiki.tar.gz.sig;
+      curl -sfSL "https://releases.wikimedia.org/mediawiki/${MW_MAJOR_VERSION}/mediawiki-${MW_VERSION}.tar.gz" -o mediawiki.tar.gz
+      curl -sfSL "https://releases.wikimedia.org/mediawiki/${MW_MAJOR_VERSION}/mediawiki-${MW_VERSION}.tar.gz.sig" -o mediawiki.tar.gz.sig
 
       # gpg key from https://www.mediawiki.org/keys/keys.txt
       gpg --batch --keyserver keyserver.ubuntu.com --recv-keys \
@@ -118,13 +122,16 @@ parts:
 
       gpg --batch --verify mediawiki.tar.gz.sig mediawiki.tar.gz
 
-      mkdir mediawiki_install_dir
-      tar -xzf mediawiki.tar.gz -C mediawiki_install_dir --strip-components=1
+      tar -xzf mediawiki.tar.gz --strip-components=1
       rm mediawiki.tar.gz mediawiki.tar.gz.sig
+    override-build: |
+      # Compose MediaWiki extensions
+      COMPOSER_ALLOW_SUPERUSER=1 \
+      composer update --no-dev -n -d "${CRAFT_PART_BUILD}"
 
-      cp -R . $CRAFT_PART_INSTALL
+      craftctl default
     organize:
-      mediawiki_install_dir: /var/www/html/w
+      "*": var/www/html/w/
 
   # https://www.mediawiki.org/wiki/Redis
   redis-job-runner-service:
@@ -152,35 +159,14 @@ parts:
 
       chmod -R go-w "${CRAFT_PART_BUILD}"
 
-      cp -R . ${CRAFT_PART_INSTALL}
+      cp --archive --link --no-dereference . "${CRAFT_PART_INSTALL}"
     organize:
       "*": /opt/redis-job-runner-service/
-
-  # Compose MediaWiki extensions
-  compose-extensions:
-    plugin: nil
-    after:
-      - mediawiki
-    build-packages:
-      - unzip
-      - php-curl
-      - php-intl
-      - php-mbstring
-    override-prime: |
-      craftctl default
-
-      # Ignore dubious ownership in the webroot to fix packing when `rockcraft clean` wasn't run beforehand.
-      GIT_CONFIG_COUNT=1 \
-      GIT_CONFIG_KEY_0="safe.directory" \
-      GIT_CONFIG_VALUE_0="$CRAFT_PRIME/var/www/html/w" \
-      COMPOSER_ALLOW_SUPERUSER=1 \
-      composer update --no-dev -n --ignore-platform-reqs -d "$CRAFT_PRIME/var/www/html/w"
-
-  # Post-install configuration
+    # Post-install configuration
   mediawiki-configure:
     plugin: nil
     after:
-      - compose-extensions
+      - mediawiki
     stage-packages:
       - base-passwd
     build-environment:
