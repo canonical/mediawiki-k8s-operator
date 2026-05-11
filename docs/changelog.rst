@@ -12,6 +12,11 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
 Each revision is versioned by the date of the revision.
 
+2026-05-07
+----------
+
+- Add high level deployment diagram to the documentation.
+
 2026-04-21
 ----------
 

@@ -33,4 +33,4 @@ rst2html
 vale
 
 # Additional extensions 
-sphinxcontrib-mermaid==2.0.1
+sphinxcontrib-mermaid==2.0.2
