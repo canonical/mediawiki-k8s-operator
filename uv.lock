@@ -555,6 +555,7 @@ dependencies = [
     { name = "ops" },
     { name = "pydantic" },
     { name = "requests" },
+    { name = "urllib3" },
 ]
 
 [package.dev-dependencies]
@@ -602,6 +603,7 @@ requires-dist = [
     { name = "ops", specifier = "==3.7.0" },
     { name = "pydantic", specifier = "==2.13.4" },
     { name = "requests", specifier = ">=2.32.5" },
+    { name = "urllib3", specifier = ">=2.6.3" },
 ]
 
 [package.metadata.requires-dev]
