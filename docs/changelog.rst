@@ -22,6 +22,12 @@ Each revision is versioned by the date of the revision.
 
 - Add basic deployment tutorial.
 
+2026-05-04
+----------
+
+- Add COS Grafana dashboard support.
+- Add reference documentation on the ``grafana-dashboard`` relation.
+
 2026-05-01
 ----------
 

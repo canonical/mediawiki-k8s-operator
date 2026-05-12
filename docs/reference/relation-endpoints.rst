@@ -33,6 +33,22 @@ Example ``database`` integrate command:
 
    juju integrate mediawiki-k8s mysql-k8s:database
 
+.. _reference_relation_endpoints_grafana_dashboard:
+
+Grafana dashboard
+-----------------
+
+* **Interface**: `grafana_dashboard <https://charmhub.io/integrations/grafana_dashboard>`_
+* **Supported charms**: `grafana-k8s <https://charmhub.io/grafana-k8s>`_, `opentelemetry-collector-k8s <https://charmhub.io/opentelemetry-collector-k8s>`_
+
+The grafana dashboard relation is part of the |COS| relation, providing a pre-built Grafana dashboard tailored to fit the needs of the MediaWiki charm. The provided dashboard requires both the :ref:`logging <reference_relation_endpoints_logging>` relation and the :ref:`metrics-endpoint <reference_relation_endpoints_metrics_endpoint>` relation to be established to the COS deployment. Modifications to the dashboard can be made but will not be persisted upon restart or redeployment of the charm. Learn more about COS `here <https://charmhub.io/topics/canonical-observability-stack>`__.
+
+Example ``grafana-dashboard`` integrate command:
+
+.. code-block:: bash
+
+   juju integrate mediawiki-k8s grafana-k8s
+
 .. _reference_relation_endpoints_logging:
 
 Logging

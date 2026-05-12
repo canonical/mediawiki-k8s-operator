@@ -10,6 +10,7 @@ output "provides" {
   description = "Provided endpoints"
   value = {
     metrics_endpoint = "metrics-endpoint"
+    grafana_dashboard = "grafana-dashboard"
   }
 }
 

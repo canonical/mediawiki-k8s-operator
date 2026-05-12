@@ -206,6 +206,9 @@ actions:
       action.
 
 provides:
+  grafana-dashboard:
+    interface: grafana_dashboard
+    optional: true
   metrics-endpoint:
     interface: prometheus_scrape
     optional: true

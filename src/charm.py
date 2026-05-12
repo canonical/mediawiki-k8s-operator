@@ -10,6 +10,7 @@ import typing
 from urllib.parse import urlparse
 
 import ops
+from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v1.loki_push_api import LogForwarder
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.redis_k8s.v0.redis import RedisRelationCharmEvents
@@ -94,6 +95,7 @@ class Charm(StatefulCharmBase):
             relation_name=self._INGRESS_RELATION_NAME,
         )
 
+        self._grafana_dashboards = GrafanaDashboardProvider(self)
         self._logging = LogForwarder(self, relation_name="logging")
         self._metrics = MetricsEndpointProvider(
             self,
