@@ -17,6 +17,11 @@ Each revision is versioned by the date of the revision.
 
 - Add high level deployment diagram to the documentation.
 
+2026-05-06
+----------
+
+- Add basic deployment tutorial.
+
 2026-04-21
 ----------
 

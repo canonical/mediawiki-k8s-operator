@@ -6,11 +6,8 @@
 Tutorial
 ========
 
-.. TODO: Update the charm name, and check that the toctree entries are up-to-date.
-
-This section contains a step-by-step guide to help you start exploring
-how to install and use the MediaWiki operator. Our tutorials aim to
-provide an end-to-end learning experience as you get started with the charm.
+This section contains an end-to-end tutorial to get you started
+installing and using the MediaWiki operator.
 
 Get started
 -----------
@@ -20,7 +17,6 @@ This tutorial walks through a basic deployment of the charm.
 .. vale Canonical.013-Spell-out-numbers-below-10 = NO
 
 .. toctree::
-    :hidden:
     :maxdepth: 1
 
     Deploy the charm for the first time <basic-deployment>

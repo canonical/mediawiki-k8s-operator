@@ -54,3 +54,5 @@
 .. _MediaWiki Terraform module: https://github.com/canonical/mediawiki-k8s-operator/tree/main/terraform
 .. _Terraform: https://developer.hashicorp.com/terraform
 .. _Terraform Juju provider: https://registry.terraform.io/providers/juju/juju/latest
+.. _MediaWiki K8s charm: https://charmhub.io/mediawiki-k8s 
+.. _Multipass: https://canonical.com/multipass
