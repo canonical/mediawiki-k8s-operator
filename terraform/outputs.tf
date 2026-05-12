@@ -6,6 +6,13 @@ output "application" {
   value       = juju_application.mediawiki_k8s
 }
 
+output "provides" {
+  description = "Provided endpoints"
+  value = {
+    metrics_endpoint = "metrics-endpoint"
+  }
+}
+
 output "requires" {
   description = "Requires endpoints"
   value = {

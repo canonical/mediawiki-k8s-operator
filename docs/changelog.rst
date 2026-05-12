@@ -22,6 +22,12 @@ Each revision is versioned by the date of the revision.
 
 - Add basic deployment tutorial.
 
+2026-05-01
+----------
+
+- Add COS metrics support.
+- Add reference documentation on the ``metrics-endpoint`` relation.
+
 2026-04-21
 ----------
 

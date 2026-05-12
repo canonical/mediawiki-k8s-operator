@@ -205,6 +205,11 @@ actions:
       It is highly recommended to back up your database before running this
       action.
 
+provides:
+  metrics-endpoint:
+    interface: prometheus_scrape
+    optional: true
+
 requires:
   #TODO: Switch to ingress once gateway-api-integrator supports an upstream ingress, or once we can connect to HAProxy more directly.
   traefik-route:
