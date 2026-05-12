@@ -35,3 +35,12 @@ $wgLogos = [
 	'1x' => "$wgResourceBasePath/resources/assets/change-your-logo.svg",
 	'icon' => "$wgResourceBasePath/resources/assets/change-your-logo.svg",
 ];
+
+
+# Logs https://www.mediawiki.org/wiki/Manual:$wgDebugLogGroups
+$wgDebugLogGroups['exception'] =
+	$wgDebugLogGroups['error'] =
+	$wgDebugLogGroups['fatal'] =
+	$wgDebugLogGroups['HttpError'] = 
+	$wgDebugLogGroups['ratelimit'] = 
+	$wgDebugLogGroups['throttler'] ='/var/log/mediawiki/logs.log';
