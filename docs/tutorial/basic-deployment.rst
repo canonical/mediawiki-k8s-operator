@@ -26,7 +26,7 @@ What you'll need
 
 .. SPREAD SKIP
 
-You will need a working station, for example, a laptop, with AMD64 architecture. Your working station
+You will need a workstation, for example, a laptop, with AMD64 architecture. Your workstation
 should have at least 4 CPU cores, 8 GB of RAM, and 50 GB of disk space.
 
 .. tip:: Using a Multipass VM (optional)
@@ -43,7 +43,7 @@ should have at least 4 CPU cores, 8 GB of RAM, and 50 GB of disk space.
 
         multipass shell mediawiki-tutorial-vm
 
-This tutorial requires the following software to be installed on your working station
+This tutorial requires the following software to be installed on your workstation
 (either locally or in the Multipass VM):
 
 - Juju 3.6
