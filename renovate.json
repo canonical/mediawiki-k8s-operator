@@ -98,6 +98,9 @@
       "enabled": true,
       "matchDatasources": [
         "custom.charmhub"
+      ],
+      "schedule": [
+        "* * * * 0,6" // Every weekend to prevent excessive CI runs during the week
       ]
     },
     {
