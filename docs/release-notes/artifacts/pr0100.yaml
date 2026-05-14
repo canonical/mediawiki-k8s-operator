@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Preserve new lines in descriptions of charmcraft.yaml
+  author: hk21702
+  type: minor
+  description: Preserve new lines in descriptions of charmcraft.yaml.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/100"
+  visibility: internal
+  highlight: false
