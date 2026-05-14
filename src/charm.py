@@ -61,6 +61,10 @@ class Charm(StatefulCharmBase):
     _FRESHCLAM_SERVICE_NAME = "freshclam"
     _CLAMD_SERVICE_NAME = "clamd"
 
+    _MEDIAWIKI_API_READY_CHECK = "mediawiki-api-ready"
+    _APACHE_ALIVE_CHECK = "apache-alive"
+    _MEDIAWIKI_CHECKS = (_MEDIAWIKI_API_READY_CHECK, _APACHE_ALIVE_CHECK)
+
     _DATABASE_RELATION_NAME = "database"
     _DATABASE_NAME = "mediawiki"
 
@@ -158,11 +162,18 @@ class Charm(StatefulCharmBase):
         """Return the MediaWiki container."""
         return self.unit.get_container(self._CONTAINER_NAME)
 
-    def _init_pebble_layer(self) -> None:
-        """Initialize the Pebble layer for the MediaWiki container."""
+    def _pebble_layer(self) -> pebble.LayerDict:
+        """Build the Pebble layer for the MediaWiki container.
+
+        Services that are always running (mediawikiLogs, logrotate, apache-exporter,
+        freshclam, clamd) have startup set to enabled and are managed via replan.
+        Conditional services (mediawiki/apache, redis job runners) have startup set
+        to disabled and are explicitly started/stopped in _reconcile_services.
+        """
         health_check_timeout = 5
         php_path = "/usr/bin/php"
         job_runner_service_dir = "/opt/redis-job-runner-service"
+
         layer: pebble.LayerDict = {
             "summary": "mediawiki layer",
             "description": "Pebble layer configuration for MediaWiki",
@@ -171,6 +182,7 @@ class Charm(StatefulCharmBase):
                     "override": "replace",
                     "summary": "MediaWiki service (apache)",
                     "command": "/usr/sbin/apache2ctl -D FOREGROUND",
+                    "startup": "disabled",
                     "requires": ["mediawikiLogs"],
                     "after": ["mediawikiLogs"],
                 },
@@ -179,6 +191,7 @@ class Charm(StatefulCharmBase):
                         "override": "replace",
                         "summary": f"MediaWiki {service}",
                         "command": f"{php_path} {job_runner_service_dir}/{service} --config-file={self._mediawiki.JOB_RUNNER_CONFIG_PATH}",
+                        "startup": "disabled",
                     }
                     for service in self._REDIS_JOB_SERVICES
                 },
@@ -206,6 +219,7 @@ class Charm(StatefulCharmBase):
                     "override": "replace",
                     "summary": "FreshClam service",
                     "command": "/usr/bin/freshclam --daemon --foreground",
+                    "startup": "enabled",
                     "environment": self.state.proxy_config.as_dict
                     if self.state.proxy_config
                     else {},
@@ -214,23 +228,28 @@ class Charm(StatefulCharmBase):
                     "override": "replace",
                     "summary": "ClamAV Daemon service",
                     "command": "/usr/sbin/clamd --foreground",
+                    "startup": "enabled",
                     "after": self._FRESHCLAM_SERVICE_NAME,
                 },
             },
             "checks": {
-                "mediawiki-api-ready": {
+                self._MEDIAWIKI_API_READY_CHECK: {
                     "override": "replace",
                     "level": "ready",
+                    "startup": "disabled",
                     "http": {
                         "url": "http://localhost/w/api.php?action=query&format=json&prop=&meta=siteinfo&formatversion=2"
                     },
                     "period": f"{max(10, health_check_timeout * 2)}s",
                     "timeout": f"{health_check_timeout}s",
                 },
-                "mediawiki-api-alive": {
+                self._APACHE_ALIVE_CHECK: {
                     "override": "replace",
                     "level": "alive",
-                    "http": {"url": "http://localhost/w/api.php"},
+                    "startup": "disabled",
+                    "http": {
+                        "url": f"http://localhost:{self._APACHE_EXPORTER_PORT}/metrics",
+                    },
                     "period": f"{max(10, health_check_timeout * 2)}s",
                     "timeout": f"{health_check_timeout}s",
                 },
@@ -244,7 +263,7 @@ class Charm(StatefulCharmBase):
             },
         }
 
-        self._container.add_layer(self._SERVICE_NAME, layer, combine=True)
+        return layer
 
     def _replica_relation(self) -> Relation:
         """Get the relation object for the replica peer relation.
@@ -340,56 +359,74 @@ class Charm(StatefulCharmBase):
                 f"Waiting for {self._INGRESS_RELATION_NAME} relation to be ready"
             )
 
-    def _reconcile_services(self) -> None:
+    def _reconcile_checks(self, container: ops.Container, *, active: bool) -> None:
+        """Start or stop the MediaWiki health checks.
+
+        Args:
+            container: The Pebble container.
+            active: Whether checks should be running.
+        """
+        checks = container.get_plan().checks
+        for check in self._MEDIAWIKI_CHECKS:
+            if check not in checks:
+                continue
+            status = container.get_check(check).status
+            if active and status == pebble.CheckStatus.INACTIVE:
+                container.start_checks(check)
+            elif not active and status != pebble.CheckStatus.INACTIVE:
+                container.stop_checks(check)
+
+    def _reconcile_services(self, *, active: bool = True) -> None:
         """Reconcile the MediaWiki services.
 
-        The main MediaWiki (apache) service and logrotate service are always started.
-        Job runner services are started or stopped depending on whether Redis
-        is available and the job runner configuration file exists.
+        Applies the Pebble layer and replans to ensure always-on services are running.
+        Then explicitly starts or stops conditional services (mediawiki/apache, redis
+        job runners) based on the active flag and readiness conditions.
+
+        Ordering: checks are stopped before their dependent services are stopped,
+        and checks are started only after their dependent services are started.
+
+        Args:
+            active: Whether the mediawiki (apache) service should be running.
         """
         container = self._container
         if not container.can_connect():
             raise MediaWikiWaitingStatusException("Waiting for pebble")
 
-        self._init_pebble_layer()
-        primary_services = (
-            self._SERVICE_NAME,
-            self._LOGROTATE_SERVICE_NAME,
-            self._APACHE_EXPORTER_SERVICE_NAME,
-            self._FRESHCLAM_SERVICE_NAME,
-            self._CLAMD_SERVICE_NAME,
-        )
-        for service in primary_services:
-            if not container.get_service(service).is_running():
+        container.add_layer(self._SERVICE_NAME, self._pebble_layer(), combine=True)
+        container.replan()
+
+        # Determine which conditional services should be running.
+        redis_enabled = active and self._mediawiki.runner_queue_service_is_ready()
+        all_conditional_services = {self._SERVICE_NAME, *self._REDIS_JOB_SERVICES}
+
+        services_to_run = set()
+        if active:
+            services_to_run.add(self._SERVICE_NAME)
+        if active and redis_enabled:
+            services_to_run.update(self._REDIS_JOB_SERVICES)
+        services_to_stop = all_conditional_services - services_to_run
+
+        # Stop checks before stopping services to avoid health check failures
+        # during shutdown.
+        if not active:
+            self._reconcile_checks(container, active=False)
+
+        # Stop services that should not be running.
+        services = container.get_plan().services
+        for service in services_to_stop:
+            if service in services and container.get_service(service).is_running():
+                container.stop(service)
+
+        # Start services that should be running.
+        for service in services_to_run:
+            if service in services and not container.get_service(service).is_running():
                 container.start(service)
 
-        if self._mediawiki.runner_queue_service_is_ready():
-            for service in self._REDIS_JOB_SERVICES:
-                if not container.get_service(service).is_running():
-                    container.start(service)
-        else:
-            for service in self._REDIS_JOB_SERVICES:
-                if (
-                    service in container.get_plan().services
-                    and container.get_service(service).is_running()
-                ):
-                    container.stop(service)
-
-        self.unit.set_workload_version(SiteInfo.fetch().version)
-
-    def _stop_service(self) -> None:
-        """Stop the MediaWiki services."""
-        container = self._container
-        if not container.can_connect():
-            logger.info("Cannot connect to pebble to stop service; pebble is not ready")
-            return
-
-        for service in (self._SERVICE_NAME, *self._REDIS_JOB_SERVICES):
-            if (
-                service in container.get_plan().services
-                and container.get_service(service).is_running()
-            ):
-                container.stop(service)
+        # Start checks only after services are running.
+        if active:
+            self._reconcile_checks(container, active=True)
+            self.unit.set_workload_version(SiteInfo.fetch().version)
 
     def _ssh_key(self, field: str) -> typing.Optional[str]:
         """Get an SSH private key from the configured user secret by field name.
@@ -448,7 +485,7 @@ class Charm(StatefulCharmBase):
             replica_relation = self._replica_relation()
             replica_secrets = self._replica_secrets()
         except MediaWikiStatusException as e:
-            self._stop_service()
+            self._reconcile_services(active=False)
             raise e
 
         return replica_relation.data, replica_secrets
