@@ -6,7 +6,7 @@ import dataclasses
 
 import ops
 import pytest
-from ops import testing
+from ops import pebble, testing
 from pytest_mock import MockerFixture, MockType
 
 from charm import Charm
@@ -656,3 +656,91 @@ class TestSshKey:
 
         assert isinstance(state_out.unit_status, ops.BlockedStatus)
         assert "must not be empty" in state_out.unit_status.message
+
+
+class TestPebbleLayer:
+    """Tests for the _pebble_layer method and service reconciliation."""
+
+    def test_services_enabled(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Test that all services are running when reconciliation succeeds and redis is ready."""
+        mock_mediawiki.runner_queue_service_is_ready.return_value = True
+
+        state_out = ctx.run(ctx.on.config_changed(), active_state)
+        assert isinstance(state_out.unit_status, ops.ActiveStatus)
+
+        container = state_out.get_container(Charm._CONTAINER_NAME)
+        plan = container.plan
+        # Always-on services have startup enabled (managed via replan)
+        assert plan.services[Charm._LOGROTATE_SERVICE_NAME].startup == "enabled"
+        assert plan.services[Charm._APACHE_EXPORTER_SERVICE_NAME].startup == "enabled"
+        assert plan.services[Charm._FRESHCLAM_SERVICE_NAME].startup == "enabled"
+        assert plan.services[Charm._CLAMD_SERVICE_NAME].startup == "enabled"
+        # Conditional services are explicitly started
+        assert container.service_statuses[Charm._SERVICE_NAME] == pebble.ServiceStatus.ACTIVE
+        for service in Charm._REDIS_JOB_SERVICES:
+            assert container.service_statuses[service] == pebble.ServiceStatus.ACTIVE
+
+    def test_redis_services_stopped_when_not_ready(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Test that redis job services are stopped when runner queue is not ready."""
+        mock_mediawiki.runner_queue_service_is_ready.return_value = False
+
+        state_out = ctx.run(ctx.on.config_changed(), active_state)
+        assert isinstance(state_out.unit_status, ops.ActiveStatus)
+
+        container = state_out.get_container(Charm._CONTAINER_NAME)
+        plan = container.plan
+        # Always-on services remain enabled
+        assert plan.services[Charm._LOGROTATE_SERVICE_NAME].startup == "enabled"
+        assert plan.services[Charm._APACHE_EXPORTER_SERVICE_NAME].startup == "enabled"
+        assert plan.services[Charm._FRESHCLAM_SERVICE_NAME].startup == "enabled"
+        assert plan.services[Charm._CLAMD_SERVICE_NAME].startup == "enabled"
+        # MediaWiki is started
+        assert container.service_statuses[Charm._SERVICE_NAME] == pebble.ServiceStatus.ACTIVE
+        # Redis job services are stopped
+        for service in Charm._REDIS_JOB_SERVICES:
+            assert (
+                container.service_statuses.get(service, pebble.ServiceStatus.INACTIVE)
+                == pebble.ServiceStatus.INACTIVE
+            )
+
+    def test_services_stopped_on_pre_reconciliation_failure(
+        self,
+        ctx: testing.Context,
+        base_state: testing.State,
+        mediawiki_container: testing.Container,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Test that mediawiki and redis services are stopped when pre-reconciliation fails (no database)."""
+        mock_mediawiki.runner_queue_service_is_ready.return_value = True
+
+        # No database relation means _reconcile_services(enabled=False) is called
+        state_out = ctx.run(ctx.on.pebble_ready(container=mediawiki_container), base_state)
+        assert isinstance(state_out.unit_status, ops.BlockedStatus)
+
+        container = state_out.get_container(Charm._CONTAINER_NAME)
+        plan = container.plan
+        # Always-on services remain enabled
+        assert plan.services[Charm._LOGROTATE_SERVICE_NAME].startup == "enabled"
+        assert plan.services[Charm._APACHE_EXPORTER_SERVICE_NAME].startup == "enabled"
+        assert plan.services[Charm._FRESHCLAM_SERVICE_NAME].startup == "enabled"
+        assert plan.services[Charm._CLAMD_SERVICE_NAME].startup == "enabled"
+        # Conditional services are stopped
+        assert (
+            container.service_statuses.get(Charm._SERVICE_NAME, pebble.ServiceStatus.INACTIVE)
+            == pebble.ServiceStatus.INACTIVE
+        )
+        for service in Charm._REDIS_JOB_SERVICES:
+            assert (
+                container.service_statuses.get(service, pebble.ServiceStatus.INACTIVE)
+                == pebble.ServiceStatus.INACTIVE
+            )

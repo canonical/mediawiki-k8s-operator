@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Refactor service management in the MediaWiki container
+  author: hk21702
+  type: minor
+  description: Refactor the service management for the MW container, switching from direct control to using startup and replan.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/114"
+  visibility: internal
+  highlight: false
