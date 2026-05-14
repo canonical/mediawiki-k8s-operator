@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add urllib3 explicitly as a dependency and update lock file
+  author: hk21702
+  type: minor
+  description: Add urllib3 explicitly as a dependency and update the lock file.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/108"
+  visibility: internal
+  highlight: false
