@@ -21,7 +21,7 @@ dependencies = [
   "ops==3.7.0",
   "pydantic==2.13.4",
   "requests>=2.32.5",
-  "urllib3>=2.6.3",
+  "urllib3>=2.7.0",
 ]
 
 [dependency-groups]
