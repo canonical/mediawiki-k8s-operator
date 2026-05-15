@@ -222,6 +222,7 @@ def secrets() -> list[testing.Secret]:
     secrets = MediaWikiSecrets(
         secret_key="mock_key",
         session_secret="mock_session",
+        saml_secret_salt="mock_saml_salt",
     )  # nosec: B106
     return [
         testing.Secret(

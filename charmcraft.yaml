@@ -251,6 +251,10 @@ requires:
     interface: s3
     limit: 1
     optional: true
+  saml:
+    interface: saml
+    limit: 1
+    optional: true
 
 assumes:
   - k8s-api

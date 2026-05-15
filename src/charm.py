@@ -29,6 +29,7 @@ from ops import (
     pebble,
 )
 
+from auth import OAuth, Saml
 from database import Database
 from exceptions import (
     CharmConfigInvalidError,
@@ -39,7 +40,6 @@ from exceptions import (
 from git_sync import GitSync
 from mediawiki import MediaWiki, MediaWikiSecrets
 from mediawiki_api import SiteInfo
-from oauth import OAuth
 from redis import Redis
 from s3 import S3
 from state import StatefulCharmBase
@@ -72,6 +72,7 @@ class Charm(StatefulCharmBase):
     _INGRESS_RELATION_NAME = "traefik-route"
 
     _OAUTH_RELATION_NAME = "oauth"
+    _SAML_RELATION_NAME = "saml"
     _REDIS_RELATION_NAME = "redis"
     _S3_RELATION_NAME = "s3-parameters"
 
@@ -92,9 +93,12 @@ class Charm(StatefulCharmBase):
 
         self._database = Database(self, self._DATABASE_RELATION_NAME, self._DATABASE_NAME)
         self._oauth = OAuth(self, self._OAUTH_RELATION_NAME)
+        self._saml = Saml(self, self._SAML_RELATION_NAME)
         self._redis = Redis(self, self._REDIS_RELATION_NAME)
         self._s3 = S3(self, self._S3_RELATION_NAME)
-        self._mediawiki = MediaWiki(self, self._database, self._oauth, self._redis, self._s3)
+        self._mediawiki = MediaWiki(
+            self, self._database, self._oauth, self._saml, self._redis, self._s3
+        )
         self._git_sync = GitSync(self)
 
         self._ingress_requirer = TraefikRouteRequirer(
@@ -137,6 +141,8 @@ class Charm(StatefulCharmBase):
             self.on[self._OAUTH_RELATION_NAME].relation_changed,
             self._oauth.oauth.on.oauth_info_changed,
             self._oauth.oauth.on.oauth_info_removed,
+            self._saml.saml.on.saml_data_available,
+            self.on[self._SAML_RELATION_NAME].relation_broken,
             self.on.redis_relation_updated,
             self._s3.s3.on.credentials_changed,
             self._s3.s3.on.credentials_gone,
@@ -284,13 +290,27 @@ class Charm(StatefulCharmBase):
     def _replica_secrets(self) -> MediaWikiSecrets:
         """Get the generated secrets shared between the MediaWiki replicas.
 
+        If the leader detects missing fields (e.g. after an upgrade that adds new secrets),
+        they are populated with freshly generated values.
+
         Raises:
             MediaWikiWaitingStatusException: If the secrets are not available yet.
         """
         try:
-            secrets_content = self.model.get_secret(label=self._REPLICA_SECRET_LABEL).get_content(
-                refresh=True
-            )
+            secret = self.model.get_secret(label=self._REPLICA_SECRET_LABEL)
+            secrets_content = secret.get_content(refresh=True)
+            # Migrate: add any fields that were not present in older deployments.
+            expected = MediaWikiSecrets.generate().to_juju_secret()
+            missing_keys = expected.keys() - secrets_content.keys()
+            if missing_keys:
+                if not self.unit.is_leader():
+                    raise MediaWikiWaitingStatusException(
+                        "Waiting for leader to migrate replica secrets"
+                    )
+                secrets_content = dict(secrets_content)
+                for key in missing_keys:
+                    secrets_content[key] = expected[key]
+                secret.set_content(secrets_content)
             return MediaWikiSecrets.from_juju_secret(secrets_content)
         except SecretNotFoundError:
             raise MediaWikiWaitingStatusException("Waiting for replica secrets to be available")

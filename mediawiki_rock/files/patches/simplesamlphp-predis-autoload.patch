@@ -1,0 +1,10 @@
+--- a/usr/share/simplesamlphp/lib/_autoload.php
++++ b/usr/share/simplesamlphp/lib/_autoload.php
+@@ -22,3 +22,7 @@
+         throw new Exception('Unable to load Composer autoloader');
+     }
+ }
++
++// Register Debian's php-predis autoloader (/usr/share/php is on PHP's include_path).
++require 'Predis/Autoloader.php';
++Predis\Autoloader::register();

@@ -468,6 +468,7 @@ class TestRotateMediaWikiSecretsAction:
         expected_secret_content = {
             "key": "new-mocked-key",
             "session": "new-mocked-session",
+            "saml-salt": "new-mocked-saml-salt",
         }
         mocker.patch(
             "charm.MediaWikiSecrets.generate",

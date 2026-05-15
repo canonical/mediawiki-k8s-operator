@@ -9,8 +9,8 @@ import pytest
 from ops import testing
 from pytest_mock import MockerFixture, MockType
 
+import auth
 import database
-import oauth
 import redis
 import s3
 from charm import Charm
@@ -27,10 +27,11 @@ class WrapperCharm(StatefulCharmBase):
     def __init__(self, *args):
         super().__init__(*args)
         self.database = database.Database(self, "database", Charm._CONTAINER_NAME)
-        self.oauth = oauth.OAuth(self, "oauth")
+        self.oauth = auth.OAuth(self, "oauth")
+        self.saml = auth.Saml(self, "saml")
         self.redis = redis.Redis(self, "redis")
         self.s3 = s3.S3(self, "s3-parameters")
-        self.mediawiki = MediaWiki(self, self.database, self.oauth, self.redis, self.s3)
+        self.mediawiki = MediaWiki(self, self.database, self.oauth, self.saml, self.redis, self.s3)
 
 
 @pytest.fixture(autouse=True)
@@ -56,11 +57,25 @@ def mock_oauth(mocker: MockerFixture) -> MockType:
 
     By default, makes it so OAuth does nothing.
     """
-    mock_oauth_cls = mocker.patch("oauth.OAuth", autospec=True)
+    mock_oauth_cls = mocker.patch("auth.OAuth", autospec=True)
     mock_instance = mock_oauth_cls.return_value
 
     mock_instance.update_client_config.return_value = None
     mock_instance.get_provider_info.return_value = None
+
+    return mock_instance
+
+
+@pytest.fixture(autouse=True)
+def mock_saml(mocker: MockerFixture) -> MockType:
+    """Base SAML class mock.
+
+    By default, makes it so SAML does nothing.
+    """
+    mock_saml_cls = mocker.patch("auth.Saml", autospec=True)
+    mock_instance = mock_saml_cls.return_value
+
+    mock_instance.get_relation_data.return_value = None
 
     return mock_instance
 
@@ -419,7 +434,9 @@ class TestMediaWikiSecrets:
 
     def test_to_local_settings_values_match_fields(self) -> None:
         """Test that to_local_settings() values correspond to the dataclass fields."""
-        result = MediaWikiSecrets(secret_key="test-key", session_secret="test-session")  # nosec: B106
+        result = MediaWikiSecrets(
+            secret_key="test-key", session_secret="test-session", saml_secret_salt="test-salt"
+        )  # nosec: B106
         settings = result.to_local_settings()
         assert settings["$wgSecretKey"] == "test-key"
         assert settings["$wgSessionSecret"] == "test-session"
@@ -780,6 +797,168 @@ class TestRunnerQueueServiceIsReady:
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
             assert mgr.charm.mediawiki.runner_queue_service_is_ready() is True
+
+
+class TestSamlRequiresRedis:
+    """Tests for the SAML + Redis requirement behavior."""
+
+    def _get_late_settings(self, ctx: testing.Context, state_out: testing.State) -> str:
+        return (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+    @pytest.fixture(autouse=True)
+    def saml_relation_data(self, mock_saml: MockType) -> MockType:
+        """Configure the SAML mock to return valid relation data with endpoints."""
+        from unittest.mock import MagicMock
+
+        saml_data = MagicMock()
+        saml_data.entity_id = "https://login.example.com"
+        saml_data.endpoints = [
+            MagicMock(
+                name="SingleSignOnService",
+                url="https://login.example.com/sso",
+                binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect",
+                response_url=None,
+            )
+        ]
+        saml_data.certificates = ("FAKECERT",)
+        mock_saml.get_relation_data.return_value = saml_data
+        return mock_saml
+
+    def test_saml_with_redis_available_writes_config_files(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_redis: MockType,
+    ) -> None:
+        """Test that SimpleSAMLphp config files are written when SAML and Redis are both available."""
+        mock_redis.is_relation_available.return_value = True
+        mock_redis.get_endpoint.return_value = "redis-host:6379"
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+
+        authsources = container_fs / "etc/simplesamlphp/authsources.php"
+        assert authsources.exists(), "authsources.php should be written when SAML is configured"
+        assert "'default-sp'" in authsources.read_text()
+
+        config_php = container_fs / "etc/simplesamlphp/config.php"
+        assert config_php.exists(), "config.php should be written when Redis is available"
+        config_content = config_php.read_text()
+        assert "'store.type' => 'redis'" in config_content
+        assert "'store.redis.host' => 'redis-host'" in config_content
+        assert "'store.redis.port' => 6379" in config_content
+        assert "'store.redis.prefix' => 'SimpleSAMLphp'" in config_content
+
+        metadata = container_fs / "usr/share/simplesamlphp/metadata/saml20-idp-remote.php"
+        assert metadata.exists(), "saml20-idp-remote.php should be written"
+
+    def test_saml_with_redis_available_loads_extension(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_redis: MockType,
+    ) -> None:
+        """Test that SimpleSAMLphp extension is loaded in LateSettings when SAML and Redis are available."""
+        mock_redis.is_relation_available.return_value = True
+        mock_redis.get_endpoint.return_value = "redis-host:6379"
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = self._get_late_settings(ctx, state_out)
+        assert "wfLoadExtension( 'SimpleSAMLphp' );" in late_settings
+        assert "wfLoadExtension( 'PluggableAuth' );" in late_settings
+
+    def test_saml_without_redis_raises_blocked(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+    ) -> None:
+        """Test that charm raises blocked status when SAML is configured but Redis is unavailable."""
+        with (
+            ctx(ctx.on.update_status(), active_state) as mgr,
+            pytest.raises(
+                MediaWikiBlockedStatusException,
+                match="SAML requires a Redis relation",
+            ),
+        ):
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+
+    def test_saml_without_redis_removes_config_php(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+    ) -> None:
+        """Test that config.php is removed when SAML is configured but Redis is unavailable."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            with pytest.raises(MediaWikiBlockedStatusException):
+                mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        config_php = container_fs / "etc/simplesamlphp/config.php"
+        assert not config_php.exists(), "config.php should be removed when Redis is not available"
+
+    def test_saml_without_redis_still_writes_late_settings(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+    ) -> None:
+        """Test that LateSettings.php is still written even when SAML blocks (deferred pattern)."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            with pytest.raises(MediaWikiBlockedStatusException):
+                mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        late_settings_path = container_fs / "etc/mediawiki/LateSettings.php"
+        assert late_settings_path.exists(), (
+            "LateSettings.php should be written even when SAML is blocked"
+        )
+
+    def test_saml_without_redis_does_not_load_extension(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+    ) -> None:
+        """Test that SimpleSAMLphp extension is NOT loaded when Redis is unavailable."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            with pytest.raises(MediaWikiBlockedStatusException):
+                mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        late_settings = (container_fs / "etc/mediawiki/LateSettings.php").read_text()
+        assert "wfLoadExtension( 'SimpleSAMLphp' )" not in late_settings
+
+    def test_no_saml_no_simplesamlphp_regardless_of_redis(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_saml: MockType,
+        mock_redis: MockType,
+    ) -> None:
+        """Test that no SimpleSAMLphp config is written when SAML is not configured."""
+        mock_saml.get_relation_data.return_value = None
+        mock_redis.is_relation_available.return_value = True
+        mock_redis.get_endpoint.return_value = "redis-host:6379"
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        late_settings = self._get_late_settings(ctx, state_out)
+
+        assert "wfLoadExtension( 'SimpleSAMLphp' )" not in late_settings
+        assert not (container_fs / "etc/simplesamlphp/authsources.php").exists()
 
 
 def validate_container(

@@ -1,12 +1,13 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-"""Provides the OAuth class to handle OAuth relations and state."""
+"""Provides classes to handle authentication relations (OAuth, SAML)."""
 
 import logging
 from urllib.parse import urlparse
 
 from charms.hydra.v0.oauth import ClientConfig, OauthProviderConfig, OAuthRequirer
+from charms.saml_integrator.v0.saml import SamlRelationData, SamlRequires
 from ops import Object
 
 from exceptions import MediaWikiBlockedStatusException
@@ -99,3 +100,32 @@ class OAuth(Object):
     def get_provider_info(self) -> OauthProviderConfig | None:
         """Get the provider info from the relation."""
         return self.oauth.get_provider_info()
+
+
+class Saml(Object):
+    """The SAML relation handler."""
+
+    def __init__(self, charm: StatefulCharmBase, relation_name: str):
+        """Initialize the handler and register event handlers.
+
+        Args:
+            charm: The charm instance.
+            relation_name: The name of the saml relation.
+        """
+        super().__init__(charm, "saml-observer")
+
+        self._charm = charm
+        self.saml = SamlRequires(self._charm, relation_name=relation_name)
+        self.relation_name = relation_name
+
+    def get_relation_data(self) -> SamlRelationData | None:
+        """Get the SAML relation data from the relation.
+
+        Returns:
+            SamlRelationData if the relation is established and data is available, else None.
+        """
+        try:
+            return self.saml.get_relation_data()
+        except AttributeError as e:  # Block instead of error if SAML is misconfigured
+            logger.error("Failed to get SAML relation data: %s", e)
+            raise MediaWikiBlockedStatusException("Failed to get SAML relation data") from e
