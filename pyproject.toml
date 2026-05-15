@@ -171,5 +171,6 @@ ignore = [
   "lib/charms/loki_k8s/",
   "lib/charms/prometheus_k8s/",
   "lib/charms/redis_k8s/",
+  "lib/charms/saml_integrator",
   "lib/charms/traefik_k8s/",
 ]

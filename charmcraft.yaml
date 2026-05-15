@@ -35,6 +35,8 @@ charm-libs:
     version: "0"
   - lib: redis_k8s.redis
     version: "0"
+  - lib: saml_integrator.saml
+    version: "0"
   - lib: traefik_k8s.traefik_route
     version: "0"
 
