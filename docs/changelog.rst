@@ -21,6 +21,8 @@ Each revision is versioned by the date of the revision.
 ----------
 
 - Add basic deployment tutorial.
+- Implement antivirus scanning of file uploads using ClamAV.
+- Add documentation related to ClamAV and security considerations for file uploads.
 
 2026-05-04
 ----------

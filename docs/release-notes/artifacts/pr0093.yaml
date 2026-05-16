@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Implement AV scanning of uploaded files
+  author: hk21702
+  type: minor
+  description: Implement antivirus scanning of uploaded files using ClamAV.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/93"
+  visibility: public
+  highlight: true

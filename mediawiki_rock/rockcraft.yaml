@@ -193,3 +193,21 @@ parts:
       # Ensure restricted write access to MediaWiki files
       chown "${WEBROOT_UID}":"${IMAGE_RUN_GROUP_ID}" -R --no-dereference "${CRAFT_PRIME}/var/www/html"
       chmod -R go-w "${CRAFT_PRIME}/var/www/html"
+
+  clamavd:
+    plugin: nil
+    overlay-packages:
+      - clamav-freshclam
+      - clamav-daemon
+      - clamdscan
+    override-overlay: |
+      # Prepopulate the ClamAV database
+      freshclam
+    override-prime: |
+      craftctl default
+
+      CLAMAV_UID=$(awk -F: -v user="clamav" '$1 == user {print $3}' ${CRAFT_PRIME}/etc/passwd)
+      CLAMAV_GID=$(awk -F: -v group="clamav" '$1 == group {print $3}' ${CRAFT_PRIME}/etc/group)
+
+      chown "${CLAMAV_UID}":"${CLAMAV_GID}" "${CRAFT_PRIME}/var/lib/clamav"
+      install -d -o "${CLAMAV_UID}" -g "${CLAMAV_GID}" "${CRAFT_PRIME}/run/clamav"
