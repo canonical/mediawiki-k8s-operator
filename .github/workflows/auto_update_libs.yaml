@@ -8,3 +8,6 @@ jobs:
   auto-update-libs:
     uses: canonical/operator-workflows/.github/workflows/auto_update_charm_libs.yaml@main
     secrets: inherit
+    permissions:
+      contents: write
+      pull-requests: write

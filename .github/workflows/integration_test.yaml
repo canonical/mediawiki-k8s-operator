@@ -10,6 +10,8 @@ jobs:
   integration-tests-juju-3:
     uses: canonical/operator-workflows/.github/workflows/integration_test.yaml@main
     secrets: inherit
+    permissions:
+      packages: write
     with:
       trivy-fs-enabled: false
       trivy-image-config: "trivy.yaml"
@@ -23,6 +25,8 @@ jobs:
     uses: canonical/operator-workflows/.github/workflows/integration_test.yaml@main
     secrets: inherit
     if: false # The MySQL-K8s charm does not support Juju 4 yet
+    permissions:
+      packages: write
     with:
       trivy-fs-enabled: true
       trivy-image-config: "trivy.yaml"
@@ -36,4 +40,6 @@ jobs:
     needs:
       - integration-tests-juju-3
       - integration-tests
+    permissions:
+      contents: write
     uses: canonical/operator-workflows/.github/workflows/allure_report.yaml@main
