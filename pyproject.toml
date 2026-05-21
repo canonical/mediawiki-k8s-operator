@@ -161,6 +161,7 @@ exclude_dirs = ["/venv/"]
 skips = ["*/*test.py", "*/test_*.py", "*tests/*.py"]
 
 [tool.pyright]
+typeCheckingMode = "standard"
 include = ["src/**.py", "tests/**.py"]
 extraPaths = ["lib", "./src"]
 ignore = [
