@@ -46,6 +46,8 @@ integration = [
   "jubilant==1.10.0",
   "minio>=7.2.20",
   "pytest",
+  "requests",
+  "saml-test-helper @ git+https://github.com/canonical/saml-test-idp.git",
 ]
 
 [tool.uv]
