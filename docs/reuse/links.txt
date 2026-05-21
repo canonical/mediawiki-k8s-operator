@@ -46,6 +46,8 @@
 .. |RST| replace:: :abbr:`reST (reStructuredText)`
 .. |COS| replace:: :abbr:`COS (Canonical Observability Stack)`
 .. |K8s| replace:: :abbr:`K8s (Kubernetes)`
+.. |SAML| replace:: :abbr:`SAML (Security Assertion Markup Language)`
+.. |SSO| replace:: :abbr:`SSO (Single Sign-On)`
 
 .. _CONTRIBUTING.md: https://github.com/canonical/mediawiki-k8s-operator/blob/main/CONTRIBUTING.md
 .. _file a bug: https://github.com/canonical/mediawiki-k8s-operator/issues
