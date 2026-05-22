@@ -49,7 +49,7 @@ resource "juju_integration" "database" {
 
 # tflint-ignore: terraform_unused_declarations
 data "external" "app_status" {
-  program = ["bash", "${path.module}/wait-for-active.sh", var.model_uuid, "mediawiki-k8s", "3m"]
+  program = ["bash", "${path.module}/wait-for-active.sh", var.model_uuid, "mediawiki-k8s", "360"]
 
   depends_on = [
     juju_integration.database
