@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Increase status timeout for Terraform integration tests
+  author: hk21702
+  type: minor
+  description: Increased the status timeout for Terraform integration tests to 6 minutes.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/122"
+  visibility: internal
+  highlight: false
