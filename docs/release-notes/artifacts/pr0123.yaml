@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Set typeCheckingMode explicitly
+  author: hk21702
+  type: minor
+  description: Set typeCheckingMode = "standard" to improve compatibility with other tools such as basedpyright.
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/123"
+  visibility: internal
+  highlight: false
