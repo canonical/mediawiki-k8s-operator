@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+  - title: Added create-release-note Copilot skill
+    author: hk21702
+    type: minor
+    description: Added a GitHub Copilot agent skill for generating release note change artifacts, providing developers with a guided workflow to create consistently formatted release note YAML files.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/119"
+    visibility: internal
+    highlight: false
