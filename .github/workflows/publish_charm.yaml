@@ -12,5 +12,6 @@ jobs:
     secrets: inherit
     permissions:
       contents: write
+      packages: read
     with:
       channel: 1.45/edge
