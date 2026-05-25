@@ -6,6 +6,10 @@ on:
     - cron: "0 15 * * SAT"
   merge_group:
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   integration-tests-juju-3:
     uses: canonical/operator-workflows/.github/workflows/integration_test.yaml@main
