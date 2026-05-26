@@ -1,0 +1,14 @@
+version_schema: 2
+
+changes:
+  - title: Enabled lock file maintenance with weekend schedule
+    author: hk21702
+    type: minor
+    description: Enabled Renovate lock file maintenance with a weekend schedule to keep dependencies up to date.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/118"
+      related_doc:
+      related_issue:
+    visibility: internal
+    highlight: false

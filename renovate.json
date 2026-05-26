@@ -121,5 +121,12 @@
       ],
       "enabled": false
     }
-  ]
+  ],
+  "lockFileMaintenance": {
+    "automerge": true,
+    "enabled": true,
+    "schedule": [
+      "* * * * 0,6" // Every weekend
+    ]
+  }
 }
