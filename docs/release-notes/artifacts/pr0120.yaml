@@ -10,5 +10,6 @@ changes:
   urls:
     pr: 
       - "https://github.com/canonical/mediawiki-k8s-operator/pull/120"
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/126"
   visibility: internal
   highlight: false
