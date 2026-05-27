@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Added configurable number of MediaWiki units for integration tests
+    author: hk21702
+    type: minor
+    description: >-
+      Added a --num-units pytest option to configure the number of MediaWiki units
+      deployed during integration tests. This allows running tests locally or in
+      compute-constrained environments with fewer units (default remains 3).
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/129"
+      related_doc:
+      related_issue:
+    visibility: internal
+    highlight: false

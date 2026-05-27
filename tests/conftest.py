@@ -33,6 +33,13 @@ def pytest_addoption(parser):
         action="store",
         help="MediaWiki OCI image built for the MediaWiki charm",
     )
+    parser.addoption(
+        "--num-units",
+        action="store",
+        type=int,
+        default=3,
+        help="Number of MediaWiki units to deploy (default: 3)",
+    )
 
 
 def pytest_configure(config):

@@ -229,11 +229,12 @@ def early_app_fixture(
         yield App(name=app_name)
         return
 
+    num_units = pytestconfig.getoption("--num-units")
     juju.deploy(
         charm=charm,
         app=app_name,
         resources=charm_resources,
-        num_units=3,
+        num_units=num_units,
         base="ubuntu@24.04",
     )
 
