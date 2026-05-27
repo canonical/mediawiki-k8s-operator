@@ -205,6 +205,18 @@ actions:
       It is highly recommended to back up your database before running this
       action.
 
+  force-reconciliation:
+    description: |
+      Force a reconciliation run including a composer update regardless of
+      whether the composer configuration has changed.
+    params:
+      all-units:
+        type: boolean
+        default: false
+        description: |
+          If true, request a reconciliation run on all units. Must be run on the leader unit.
+        additionalProperties: false
+
 provides:
   grafana-dashboard:
     interface: grafana_dashboard

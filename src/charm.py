@@ -43,6 +43,7 @@ from oauth import OAuth
 from redis import Redis
 from s3 import S3
 from state import StatefulCharmBase
+from types_ import ForceReconciliationAction
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -78,6 +79,7 @@ class Charm(StatefulCharmBase):
     _REPLICA_SECRET_LABEL = "replica-secret"  # nosec: B105
 
     _RO_DATABASE_FLAG = "ro_db"
+    _FORCE_RECONCILIATION_FLAG = "force_reconciliation"
 
     _SSH_KEY_MEDIAWIKI_FIELD = "mediawiki"
     _SSH_KEY_GIT_SYNC_FIELD = "git-sync"
@@ -156,6 +158,7 @@ class Charm(StatefulCharmBase):
             self.on.rotate_root_credentials_action, self._on_rotate_root_credentials
         )
         self.framework.observe(self.on.update_database_action, self._on_update_database)
+        self.framework.observe(self.on.force_reconciliation_action, self._on_force_reconciliation)
 
     @property
     def _container(self) -> ops.Container:
@@ -531,7 +534,46 @@ class Charm(StatefulCharmBase):
         self.unit.status = original_status
         logger.info("Database schema update complete")
 
-    def _reconciliation(self, _event: EventBase) -> None:
+    def _check_and_clear_force_reconciliation_flag(self, replica_data: RelationData) -> bool:
+        """Check if a forced reconciliation is requested and coordinate flag cleanup.
+
+        Each unit checks the app-level force reconciliation flag. If set, the unit
+        performs the forced reconciliation and sets its own unit-level flag to acknowledge.
+        The leader clears the app-level flag once all units have acknowledged.
+
+        Args:
+            replica_data: The peer relation data bags.
+
+        Returns:
+            True if a forced reconciliation should be performed.
+        """
+        app_flag = (
+            replica_data[self.app].get(self._FORCE_RECONCILIATION_FLAG, "false").lower() == "true"
+        )
+        if not app_flag:
+            if (
+                replica_data[self.unit].get(self._FORCE_RECONCILIATION_FLAG, "false").lower()
+                == "true"
+            ):
+                replica_data[self.unit][self._FORCE_RECONCILIATION_FLAG] = "false"
+            return False
+
+        replica_data[self.unit][self._FORCE_RECONCILIATION_FLAG] = "true"
+
+        if self.unit.is_leader():
+            replica_relation = self._replica_relation()
+            all_acked = all(
+                replica_relation.data[unit].get(self._FORCE_RECONCILIATION_FLAG, "false").lower()
+                == "true"
+                for unit in replica_relation.units
+            )
+            if all_acked:
+                replica_data[self.app][self._FORCE_RECONCILIATION_FLAG] = "false"
+                logger.info("All units acknowledged force reconciliation, app flag cleared")
+
+        return True
+
+    def _reconciliation(self, _event: EventBase, *, force_composer_update: bool = False) -> None:
         """Reconcile the charm state.
 
         This method will move the charm towards an active and correct state.
@@ -551,6 +593,7 @@ class Charm(StatefulCharmBase):
 
         Args:
             _event: The event that triggered the reconciliation.
+            force_composer_update: Whether to force a composer update regardless of config changes.
         """
         self.unit.status = MaintenanceStatus("Reconciling charm state")
         logger.info("Starting reconciliation due to event: %s", _event)
@@ -574,13 +617,20 @@ class Charm(StatefulCharmBase):
             self._git_sync.reconciliation(
                 ssh_key=self._ssh_key(self._SSH_KEY_GIT_SYNC_FIELD),
             )
+
+            force_composer_update = (
+                force_composer_update
+                or self._check_and_clear_force_reconciliation_flag(replica_data)
+            )
             self._mediawiki.reconciliation(
                 secrets,
                 ssh_key=self._ssh_key(self._SSH_KEY_MEDIAWIKI_FIELD),
                 ro_database=set_ro_database,
+                force_composer_update=force_composer_update,
             )
             replica_data[self.unit][self._RO_DATABASE_FLAG] = str(set_ro_database).lower()
             self._database_reconciliation()
+
             self._reconcile_services()
 
             self._oauth.update_client_config()
@@ -673,6 +723,41 @@ class Charm(StatefulCharmBase):
 
         replica_data.data[self.app][self._RO_DATABASE_FLAG] = "true"
         event.log("Database update requested")
+
+    def _on_force_reconciliation(self, event: ActionEvent) -> None:
+        """Handle the force-reconciliation action.
+
+        If the all-units flag is set, sets the app-level flag so all units perform a
+        forced reconciliation on their next reconciliation cycle. This requires the
+        action to be run on the leader unit. The reconciliation is fully async.
+
+        Without all-units, triggers a forced reconciliation (including composer update)
+        on the current unit immediately.
+
+        Args:
+            event: The event that triggered the force reconciliation.
+        """
+        logger.info("Force reconciliation action triggered due to event: %s", event)
+
+        params = event.load_params(ForceReconciliationAction, errors="fail")
+        if params is None:
+            return
+        if params.all_units:
+            if not self.unit.is_leader():
+                event.fail("The all-units flag requires the action to be run on the leader unit")
+                return
+
+            replica_relation = self.model.get_relation(self._PEER_RELATION_NAME)
+            if replica_relation is None:
+                event.fail("Peer relation not ready yet")
+                return
+
+            replica_relation.data[self.app][self._FORCE_RECONCILIATION_FLAG] = "true"
+            event.log("Force reconciliation requested for all units")
+            return
+
+        self._reconciliation(event, force_composer_update=True)
+        event.log("Force reconciliation completed on this unit")
 
 
 if __name__ == "__main__":  # pragma: nocover

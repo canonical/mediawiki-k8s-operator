@@ -3,10 +3,19 @@
 
 """Module for internal types for the MediaWiki charm."""
 
+import dataclasses
 from string import Template
 from typing import List, NamedTuple, Optional, Union
 
 from pydantic import BaseModel, Field
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class ForceReconciliationAction:
+    """Force a reconciliation including a composer update."""
+
+    all_units: bool = False
+    """Flag all units to perform a forced reconciliation via the peer relation."""
 
 
 class CommandExecResult(NamedTuple):

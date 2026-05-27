@@ -137,6 +137,23 @@ def test_rotate_root_credentials_action(juju: jubilant.Juju, app: App):
 
 
 @pytest.mark.abort_on_fail
+def test_force_reconciliation_action(juju: jubilant.Juju, app: App):
+    """Check that the force-reconciliation action works on the leader and on all units."""
+    # Single unit (leader)
+    action = juju.run(f"{app.name}/leader", "force-reconciliation")
+    assert action.status == "completed", f"force-reconciliation on leader failed: {action.message}"
+    juju.wait(jubilant.all_active)
+
+    # All units via peer coordination
+    all_units_action = juju.run(f"{app.name}/leader", "force-reconciliation", {"all-units": True})
+    assert all_units_action.status == "completed", (
+        f"force-reconciliation all-units failed: {all_units_action.message}"
+    )
+    # The update completes asynchronously via peer relation coordination
+    juju.wait(jubilant.all_active, successes=5)
+
+
+@pytest.mark.abort_on_fail
 def test_relations(
     juju: jubilant.Juju,
     app: App,
