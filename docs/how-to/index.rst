@@ -39,6 +39,11 @@ The following guides provide instructions on upgrading your deployment,
 including backup and redeployment processes.
 
 .. toctree::
+    :maxdepth: 1
+
+    Upgrade <upgrade>
+
+.. toctree::
     :hidden:
     :maxdepth: 1
 

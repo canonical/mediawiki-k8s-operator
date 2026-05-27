@@ -39,7 +39,7 @@ Learn about what's in the charm, step through a basic deployment, and perform so
 
 - **Learn, try, and plan**: :ref:`Guided tutorial <tutorial_index>` • :ref:`High-level deployment <reference_high_level_deployment>` 
 - **Deploy and configure**: :ref:`Configure MediaWiki <how_to_configure_mediawiki>` • :ref:`Relation endpoints <reference_relation_endpoints>`
-- **Observe, maintain, and update**: :ref:`Metrics <reference_metrics>`
+- **Observe, maintain, and update**: :ref:`Metrics <reference_metrics>` • :ref:`Upgrade <how_to_upgrade>`
 
 Dive deeper
 ^^^^^^^^^^^
