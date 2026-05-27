@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+  - title: Added how-to guide for rotating secrets
+    author: hk21702
+    type: minor
+    description: Added a how-to guide explaining how to rotate secrets managed by the MediaWiki charm using the rotate-mediawiki-secrets action.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/133"
+    visibility: public
+    highlight: false
