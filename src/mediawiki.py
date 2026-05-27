@@ -553,7 +553,6 @@ class MediaWiki(Object):
         """
         db_data = self._database.get_relation_data()
 
-        # Todo: DB SSL using self-signed certs support
         servers_php = [
             textwrap.dedent(f"""\
             [
@@ -562,7 +561,7 @@ class MediaWiki(Object):
                 'user' => '{utils.escape_php_string(db_data.username)}',
                 'password' => '{utils.escape_php_string(db_data.password)}',
                 'type' => 'mysql',
-                'flags' => DBO_DEFAULT,
+                'flags' => DBO_DEFAULT | DBO_SSL,
                 'load' => 0,
             ]""")
         ]

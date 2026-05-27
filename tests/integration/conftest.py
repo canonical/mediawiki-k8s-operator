@@ -143,6 +143,8 @@ def db_fixture(juju: jubilant.Juju, pytestconfig: pytest.Config) -> Generator[Ap
         yield App(name="mysql-k8s")
         return
 
+    juju.deploy("self-signed-certificates", channel="1/stable")
+
     juju.deploy(
         "mysql-k8s",
         channel="8.0/stable",
@@ -150,6 +152,9 @@ def db_fixture(juju: jubilant.Juju, pytestconfig: pytest.Config) -> Generator[Ap
         trust=True,
         config={"profile": "testing"},
     )
+
+    juju.integrate("mysql-k8s:certificates", "self-signed-certificates:certificates")
+
     yield App(name="mysql-k8s")
 
 

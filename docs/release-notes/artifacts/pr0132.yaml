@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+  - title: Enabled TLS for database connections
+    author: hk21702
+    type: minor
+    description: Database connections now use TLS (`DBO_SSL`) by default, improving security for connections between MediaWiki and the MySQL database.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/132"
+    visibility: public
+    highlight: false
