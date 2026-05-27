@@ -9,7 +9,7 @@ terraform {
       source  = "hashicorp/external"
     }
     juju = {
-      version = "~> 1.0"
+      version = "~> 2.0"
       source  = "juju/juju"
     }
   }
