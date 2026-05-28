@@ -16,6 +16,7 @@ classifiers = [
 dependencies = [
   "charmlibs-pathops==1.3.0",
   "cosl>=1.9.1",
+  "email-validator>=2.0",
   "jsonschema>=4.26.0",
   "mysql-connector-python>=9.6.0",
   "ops==3.7.1",
@@ -174,5 +175,6 @@ ignore = [
   "lib/charms/prometheus_k8s/",
   "lib/charms/redis_k8s/",
   "lib/charms/saml_integrator",
+  "lib/charms/smtp_integrator",
   "lib/charms/traefik_k8s/",
 ]
