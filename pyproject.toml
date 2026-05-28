@@ -18,7 +18,7 @@ dependencies = [
   "cosl>=1.9.1",
   "jsonschema>=4.26.0",
   "mysql-connector-python>=9.6.0",
-  "ops==3.7.0",
+  "ops==3.7.1",
   "pydantic==2.13.4",
   "requests>=2.32.5",
   "urllib3>=2.6.3",
@@ -28,7 +28,7 @@ dependencies = [
 fmt = ["ruff"]
 lint = [
   "codespell",
-  "jubilant==1.9.0",
+  "jubilant==1.10.0",
   "mypy",
   "pep8-naming",
   "pytest",
@@ -43,7 +43,7 @@ static = ["bandit[toml]"]
 integration = [
   "allure-pytest>=2.8.18",
   "allure-pytest-collection-report @ git+https://github.com/canonical/data-platform-workflows@v24.0.0#subdirectory=python/pytest_plugins/allure_pytest_collection_report",
-  "jubilant==1.9.0",
+  "jubilant==1.10.0",
   "minio>=7.2.20",
   "pytest",
 ]
