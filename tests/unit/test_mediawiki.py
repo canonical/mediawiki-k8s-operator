@@ -6,6 +6,7 @@ import dataclasses
 import json
 
 import pytest
+from charms.smtp_integrator.v0.smtp import AuthType, SmtpRelationData, TransportSecurity
 from ops import testing
 from pytest_mock import MockerFixture, MockType
 
@@ -13,6 +14,7 @@ import auth
 import database
 import redis
 import s3
+import smtp
 from charm import Charm
 from exceptions import MediaWikiBlockedStatusException, MediaWikiInstallError
 from mediawiki import MediaWiki, MediaWikiSecrets
@@ -31,7 +33,10 @@ class WrapperCharm(StatefulCharmBase):
         self.saml = auth.Saml(self, "saml")
         self.redis = redis.Redis(self, "redis")
         self.s3 = s3.S3(self, "s3-parameters")
-        self.mediawiki = MediaWiki(self, self.database, self.oauth, self.saml, self.redis, self.s3)
+        self.smtp = smtp.Smtp(self, "smtp")
+        self.mediawiki = MediaWiki(
+            self, self.database, self.oauth, self.saml, self.redis, self.s3, self.smtp
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -110,6 +115,20 @@ def mock_redis(mocker: MockerFixture) -> MockType:
 
     mock_instance.is_relation_available.return_value = False
     mock_instance.get_endpoint.return_value = None
+
+    return mock_instance
+
+
+@pytest.fixture(autouse=True)
+def mock_smtp(mocker: MockerFixture) -> MockType:
+    """Base SMTP class mock.
+
+    By default, SMTP has no relation.
+    """
+    mock_smtp_cls = mocker.patch("smtp.Smtp", autospec=True)
+    mock_instance = mock_smtp_cls.return_value
+
+    mock_instance.has_relation.return_value = False
 
     return mock_instance
 
@@ -1034,3 +1053,218 @@ def validate_container(
     assert json.loads(composer_content) == expected_composer, (
         "composer.user.json content does not match config"
     )
+
+
+class TestSmtpSettings:
+    """Tests for SMTP settings rendering in LateSettings.php."""
+
+    @pytest.fixture(autouse=True)
+    def _smtp_relation_active(self, mock_smtp: MockType) -> None:
+        """Enable SMTP relation for tests in this class."""
+        mock_smtp.has_relation.return_value = True
+
+    @pytest.fixture()
+    def smtp_data_starttls(self, mock_smtp: MockType):
+        """Provide SMTP relation data with STARTTLS transport."""
+        data = SmtpRelationData(
+            host="mail.example.com",
+            port=587,
+            user="wiki@example.com",
+            password="smtp-pass",  # nosec: B106
+            auth_type=AuthType.PLAIN,
+            transport_security=TransportSecurity.STARTTLS,
+        )
+        mock_smtp.get_relation_data.return_value = data
+        return data
+
+    @pytest.fixture()
+    def smtp_data_tls(self, mock_smtp: MockType):
+        """Provide SMTP relation data with TLS transport."""
+        data = SmtpRelationData(
+            host="mail.example.com",
+            port=465,
+            auth_type=AuthType.PLAIN,
+            transport_security=TransportSecurity.TLS,
+            user="wiki@example.com",
+            password="smtp-pass",  # nosec: B106
+        )
+        mock_smtp.get_relation_data.return_value = data
+        return data
+
+    def test_no_smtp_relation_produces_no_settings(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_smtp: MockType,
+    ) -> None:
+        """Test that no SMTP settings are rendered when no relation exists."""
+        mock_smtp.has_relation.return_value = False
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "$wgSMTP" not in late_settings
+        assert "$wgEnableEmail = false" not in late_settings
+
+    @pytest.mark.usefixtures("smtp_data_starttls")
+    def test_smtp_starttls_renders_host_without_ssl_prefix(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+    ) -> None:
+        """Test that STARTTLS transport does not add ssl:// prefix to host."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "'host' => 'mail.example.com'" in late_settings
+        assert "'port' => 587" in late_settings
+        assert "'auth' => true" in late_settings
+        assert "'username' => 'wiki@example.com'" in late_settings
+        assert "'password' => 'smtp-pass'" in late_settings
+        assert (
+            "$wgSMTP = [\n"
+            "    'host' => 'mail.example.com',\n"
+            "    'port' => 587,\n"
+            "    'auth' => true,\n"
+            "    'username' => 'wiki@example.com',\n"
+            "    'password' => 'smtp-pass',\n"
+            "];\n"
+        ) in late_settings
+
+    @pytest.mark.usefixtures("smtp_data_tls")
+    def test_smtp_tls_renders_host_with_ssl_prefix(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+    ) -> None:
+        """Test that TLS transport adds ssl:// prefix to host."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "'host' => 'ssl://mail.example.com'" in late_settings
+        assert "'port' => 465" in late_settings
+
+    def test_smtp_no_auth(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_smtp: MockType,
+    ) -> None:
+        """Test that auth is false when auth_type is not PLAIN."""
+        mock_smtp.get_relation_data.return_value = SmtpRelationData(
+            host="mail.example.com",
+            port=25,
+            auth_type=AuthType.NONE,
+            transport_security=TransportSecurity.NONE,
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "'auth' => false" in late_settings
+        assert "'username'" not in late_settings.split("$wgSMTP")[1]
+        assert "'password'" not in late_settings.split("$wgSMTP")[1]
+
+    def test_smtp_skip_ssl_verify(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_smtp: MockType,
+    ) -> None:
+        """Test that socket_options are set when skip_ssl_verify is True."""
+        mock_smtp.get_relation_data.return_value = SmtpRelationData(
+            host="mail.example.com",
+            port=465,
+            auth_type=AuthType.PLAIN,
+            transport_security=TransportSecurity.TLS,
+            user="user",
+            password="pass",  # nosec: B106
+            skip_ssl_verify=True,
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "'verify_peer_name' => false" in late_settings
+
+    def test_smtp_sender_is_rendered(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_smtp: MockType,
+    ) -> None:
+        """Test that $wgPasswordSender is set when smtp_sender is provided."""
+        mock_smtp.get_relation_data.return_value = SmtpRelationData(
+            host="mail.example.com",
+            port=587,
+            auth_type=AuthType.PLAIN,
+            transport_security=TransportSecurity.STARTTLS,
+            smtp_sender="noreply@example.com",
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "$wgPasswordSender = 'noreply@example.com'" in late_settings
+
+    def test_smtp_error_disables_email(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_smtp: MockType,
+    ) -> None:
+        """Test that email is disabled when SMTP relation data is malformed."""
+        mock_smtp.get_relation_data.side_effect = MediaWikiBlockedStatusException(
+            "Error fetching smtp relation data."
+        )
+
+        with (
+            pytest.raises(MediaWikiBlockedStatusException),
+            ctx(ctx.on.update_status(), active_state) as mgr,
+        ):
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            mgr.run()
+
+        late_settings = (
+            active_state.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "$wgEnableEmail = false;" in late_settings
+        assert "$wgSMTP" not in late_settings

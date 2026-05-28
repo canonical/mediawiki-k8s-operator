@@ -23,6 +23,7 @@ output "requires" {
     redis         = "redis"
     s3_parameters = "s3-parameters"
     saml          = "saml"
+    smtp          = "smtp"
     traefik_route = "traefik-route"
   }
 }
