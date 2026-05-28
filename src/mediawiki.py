@@ -121,7 +121,11 @@ class MediaWiki(Object):
         self._webroot_owner_known_hosts = self._webroot_owner_ssh_dir / "known_hosts"
 
     def reconciliation(
-        self, secrets: "MediaWikiSecrets", ssh_key: Optional[str] = None, ro_database: bool = False
+        self,
+        secrets: "MediaWikiSecrets",
+        ssh_key: Optional[str] = None,
+        ro_database: bool = False,
+        force_composer_update: bool = False,
     ) -> None:
         """Reconcile the state of MediaWiki installation and configuration.
 
@@ -137,6 +141,7 @@ class MediaWiki(Object):
             secrets: An instance of MediaWikiSecrets containing secrets synced between units.
             ssh_key: Optional SSH private key content to write into the container for git access.
             ro_database: Whether to include settings that put the database into read-only mode for updates. Defaults to False.
+            force_composer_update: Whether to force a composer update regardless of config changes. Defaults to False.
 
         Raises:
             MediaWikiStatusException: If there is a potentially transient error stopping the reconciliation process.
@@ -155,7 +160,7 @@ class MediaWiki(Object):
         )
         self._ensure_static_assets_symlink()
         self._ssh_config_reconciliation(config, ssh_key)
-        self._composer_reconciliation(config)
+        self._composer_reconciliation(config, force=force_composer_update)
         self._robots_txt_reconciliation(config)
 
         if not self._is_database_initialized():
@@ -301,20 +306,22 @@ class MediaWiki(Object):
             owner=self._WEBROOT_OWNER_USER,
         )
 
-    def _composer_reconciliation(self, config: CharmConfig) -> None:
+    def _composer_reconciliation(self, config: CharmConfig, *, force: bool = False) -> None:
         """Reconcile the composer configuration, pushing the composer.user.json file if needed and running composer update.
 
         Args:
             config: The charm configuration.
+            force: If True, skip the config-diff check and always run composer update.
         """
-        current_composer = self._get_current_composer()
+        if not force:
+            current_composer = self._get_current_composer()
 
-        # Only run if composer.json has changed or is missing
-        if current_composer == config.composer:
-            logger.debug("Composer configuration unchanged, skipping update.")
-            return
+            # Only run if composer.json has changed or is missing
+            if current_composer == config.composer:
+                logger.debug("Composer configuration unchanged, skipping update.")
+                return
 
-        logger.info("Composer configuration changed or missing, running update.")
+        logger.info("Starting composer reconciliation.")
 
         self._user_composer_file.write_text(
             json.dumps(config.composer),

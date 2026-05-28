@@ -1,0 +1,19 @@
+version_schema: 2
+
+changes:
+  - title: Added force-reconciliation action
+    author: hk21702
+    type: major
+    description: >
+      Added a new `force-reconciliation` Juju action that triggers a forced
+      reconciliation including a composer update. The action can target the
+      current unit directly, or set an `all-units` flag (leader-only) to
+      request all units perform a forced reconciliation asynchronously via
+      peer relation coordination.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/130"
+      related_doc:
+      related_issue:
+    visibility: public
+    highlight: true

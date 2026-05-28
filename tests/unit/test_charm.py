@@ -576,6 +576,66 @@ class TestUpdateDatabaseAction:
         assert ctx.action_results is None
 
 
+class TestForceReconciliationAction:
+    """Tests for the force-reconciliation action."""
+
+    def test_runs_forced_reconciliation(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Test that the action runs reconciliation with forced composer update."""
+        ctx.run(ctx.on.action("force-reconciliation"), active_state)
+        mock_mediawiki.reconciliation.assert_called_once()
+        call_kwargs = mock_mediawiki.reconciliation.call_args.kwargs
+        assert call_kwargs.get("force_composer_update") is True
+
+    def test_non_leader_runs_forced_reconciliation(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Test that a non-leader can run a forced reconciliation on itself."""
+        state_in = dataclasses.replace(active_state, leader=False)
+        ctx.run(ctx.on.action("force-reconciliation"), state_in)
+        mock_mediawiki.reconciliation.assert_called_once()
+        call_kwargs = mock_mediawiki.reconciliation.call_args.kwargs
+        assert call_kwargs.get("force_composer_update") is True
+
+    def test_all_units_sets_app_flag(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Test that all-units=true sets the app-level flag without running reconciliation."""
+        state_out = ctx.run(
+            ctx.on.action("force-reconciliation", params={"all-units": True}), active_state
+        )
+        replica_relation = state_out.get_relation(mediawiki_replica_relation.id)
+        assert replica_relation.local_app_data[Charm._FORCE_RECONCILIATION_FLAG] == "true"
+        mock_mediawiki.reconciliation.assert_not_called()
+
+    def test_all_units_not_leader(self, ctx: testing.Context, active_state: testing.State) -> None:
+        """Test that all-units=true fails when not the leader."""
+        state_in = dataclasses.replace(active_state, leader=False)
+        with pytest.raises(
+            testing.ActionFailed,
+            match="The all-units flag requires the action to be run on the leader unit",
+        ):
+            ctx.run(ctx.on.action("force-reconciliation", params={"all-units": True}), state_in)
+
+    def test_all_units_peer_relation_not_ready(
+        self, ctx: testing.Context, base_state: testing.State
+    ) -> None:
+        """Test that all-units=true fails when peer relation is not ready."""
+        with pytest.raises(testing.ActionFailed, match="Peer relation not ready yet"):
+            ctx.run(ctx.on.action("force-reconciliation", params={"all-units": True}), base_state)
+
+
 class TestSshKey:
     """Tests for the _ssh_key() helper in charm.py."""
 
