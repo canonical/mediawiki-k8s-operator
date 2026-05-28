@@ -25,6 +25,7 @@ basic operations you can complete with the charm.
 
     Configure MediaWiki <configure-mediawiki>
     Install extensions and skins <install-extensions-and-skins>
+    Rotate secrets <rotate-secrets>
 
 .. toctree::
     :hidden:

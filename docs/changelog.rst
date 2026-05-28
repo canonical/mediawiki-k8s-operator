@@ -16,6 +16,7 @@ Each revision is versioned by the date of the revision.
 ----------
 
 - Add documentation on how to upgrade the MediaWiki charm.
+- Add documentation on how to rotate secrets managed by the MediaWiki charm.
 
 2026-05-07
 ----------
