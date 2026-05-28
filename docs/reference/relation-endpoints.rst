@@ -126,6 +126,34 @@ Example ``redis`` integrate command:
 
    Read more about how MediaWiki uses Redis as an object cache backend: `Redis <https://www.mediawiki.org/wiki/Redis>`__
 
+.. _reference_relation_endpoints_saml:
+
+SAML
+----
+
+* **Interface**: `saml <https://charmhub.io/integrations/saml>`_
+* **Supported charms**: `saml-integrator <https://charmhub.io/saml-integrator>`_
+
+The ``saml`` relation connects MediaWiki to a SAML Identity Provider (IdP) through the saml-integrator charm, enabling :abbr:`SAML (Security Assertion Markup Language)` based :abbr:`SSO (Single Sign-On)`.
+
+This is accomplished using the `SimpleSAMLphp MediaWiki extension <https://www.mediawiki.org/wiki/Extension:SimpleSAMLphp>`_, which is included with the MediaWiki charm. The SimpleSAMLphp extension uses the PluggableAuth framework for authentication.
+
+.. warning::
+   While the ``saml`` relation will function while configuring MediaWiki to use a HTTP or protocol-relative URL, it is **highly** recommended to explicitly allow only HTTPS in a production environment.
+
+.. important::
+   The :ref:`Redis <reference_relation_endpoints_redis>` relation is **required** when using SAML, as SimpleSAMLphp uses Redis as its session store.
+
+Example ``saml`` integrate command:
+
+.. code-block:: bash
+
+   juju integrate mediawiki-k8s saml-integrator:saml
+
+.. seealso::
+
+   Read more about `SimpleSAMLphp <https://simplesamlphp.org/>`_ and the `Canonical Identity Platform <https://canonical-identity.readthedocs-hosted.com>`_.
+
 .. _reference_relation_endpoints_s3_parameters:
 
 S3 parameters

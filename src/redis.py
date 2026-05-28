@@ -55,6 +55,12 @@ class Redis(Object):
             logger.warning("Redis port is not available.")
             return None
 
+        try:
+            int(port)
+        except ValueError:
+            logger.warning("Redis port is not a valid integer: %r", port)
+            return None
+
         return f"{hostname}:{port}"
 
     def is_relation_available(self) -> bool:

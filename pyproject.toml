@@ -46,6 +46,8 @@ integration = [
   "jubilant==1.10.0",
   "minio>=7.2.20",
   "pytest",
+  "requests",
+  "saml-test-helper @ git+https://github.com/canonical/saml-test-idp.git",
 ]
 
 [tool.uv]
@@ -171,5 +173,6 @@ ignore = [
   "lib/charms/loki_k8s/",
   "lib/charms/prometheus_k8s/",
   "lib/charms/redis_k8s/",
+  "lib/charms/saml_integrator",
   "lib/charms/traefik_k8s/",
 ]

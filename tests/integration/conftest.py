@@ -91,11 +91,11 @@ def ingress_address(traefik_lb_ip: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def app_config(local_settings, traefik_lb_ip) -> Generator[dict[str, Any], None, None]:
+def app_config(local_settings, ingress_address) -> Generator[dict[str, Any], None, None]:
     """The base configuration to deploy with for the mediawiki application."""
     yield {
         "local-settings": local_settings,
-        "url-origin": f"//{traefik_lb_ip}",
+        "url-origin": ingress_address,
     }
 
 

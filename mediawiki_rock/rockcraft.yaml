@@ -86,6 +86,19 @@ parts:
       a2enmod ssl
       EOF
 
+  simplesamlphp:
+    plugin: nil
+    source: files/patches
+    build-packages:
+      - git
+    overlay-packages:
+      - php-predis
+      - simplesamlphp
+    overlay-script: |
+      craftctl default
+      # Register php-predis with SimpleSAMLphp's autoloader.
+      git -C "$CRAFT_OVERLAY" apply "$CRAFT_PART_SRC/simplesamlphp-predis-autoload.patch"
+
   apache-exporter:
     plugin: go
     build-snaps:

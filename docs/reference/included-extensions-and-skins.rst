@@ -26,6 +26,9 @@ Extensions and skins marked as "managed" are enabled and minimally configured by
    * - `OpenID Connect <https://www.mediawiki.org/wiki/Extension:OpenID_Connect>`__
      - .. centered:: :bdg-success:`Yes`
      - Extends the PluggableAuth extension to provide authentication using `OpenID Connect <https://openid.net/connect/>`__.
+   * - `SimpleSAMLphp <https://www.mediawiki.org/wiki/Extension:SimpleSAMLphp>`_
+     - .. centered:: :bdg-success:`Yes`
+     - Extends the PluggableAuth extension to provide authentication using `SAML <https://en.wikipedia.org/wiki/Security_Assertion_Markup_Language>`__.
 
 .. seealso::
 

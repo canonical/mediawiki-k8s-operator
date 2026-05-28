@@ -22,6 +22,7 @@ output "requires" {
     oauth         = "oauth"
     redis         = "redis"
     s3_parameters = "s3-parameters"
+    saml          = "saml"
     traefik_route = "traefik-route"
   }
 }

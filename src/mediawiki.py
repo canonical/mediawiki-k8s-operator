@@ -11,20 +11,22 @@ import secrets
 import textwrap
 import time
 from typing import Any, Callable, List, Optional, TypeVar, Union, cast
+from urllib.parse import urlparse
 
 import mysql.connector
 import ops
 from charmlibs.pathops import ContainerPath, LocalPath
+from charms.saml_integrator.v0.saml import SamlRelationData
 from ops import Object
 
 import utils
+from auth import OAuth, Saml
 from database import Database
 from exceptions import (
     MediaWikiBlockedStatusException,
     MediaWikiInstallError,
     MediaWikiWaitingStatusException,
 )
-from oauth import OAuth
 from redis import Redis
 from s3 import S3
 from state import CharmConfig, StatefulCharmBase
@@ -52,7 +54,7 @@ class MediaWiki(Object):
 
     # Extensions bundled in the rock image that should always be loaded
     # during schema updates, regardless of whether they are configured.
-    _BUNDLED_EXTENSIONS = ("PluggableAuth", "OpenIDConnect")
+    _BUNDLED_EXTENSIONS = ("PluggableAuth", "OpenIDConnect", "SimpleSAMLphp")
 
     _SECURE_SETTINGS_BASE_PATH = "/etc/mediawiki"
 
@@ -74,6 +76,7 @@ class MediaWiki(Object):
         charm: StatefulCharmBase,
         database: Database,
         oauth: OAuth,
+        saml: Saml,
         redis: Redis,
         s3: S3,
     ):
@@ -81,6 +84,7 @@ class MediaWiki(Object):
         self._container = self._charm.unit.get_container("mediawiki")
         self._database = database
         self._oauth = oauth
+        self._saml = saml
         self._redis = redis
         self._s3 = s3
 
@@ -423,15 +427,22 @@ class MediaWiki(Object):
         content = self._late_settings_template_file.read_text()
         content += self._get_proxy_settings()
         content += self._get_database_settings()
-        content += self._get_oauth_settings()
+
+        deferred_error: Optional[MediaWikiBlockedStatusException] = None
+
+        try:
+            content += self._get_auth_settings(secrets)
+        except MediaWikiBlockedStatusException as e:
+            logger.warning("Auth configuration incomplete: %s", e)
+            deferred_error = e
+
         content += self._get_cache_settings()
 
-        s3_config_error: Optional[MediaWikiBlockedStatusException] = None
         try:
             content += self._get_s3_settings()
         except MediaWikiBlockedStatusException as e:
             logger.warning("S3 relation data is incomplete or malformed; disabling uploads")
-            s3_config_error = e
+            deferred_error = deferred_error or e
             content += "$wgEnableUploads = false;\n"
 
         if ro_database:
@@ -450,10 +461,10 @@ class MediaWiki(Object):
             content, mode=0o640, user=self._ROOT_USER_NAME, group=self._DAEMON_GROUP
         )
 
-        # Raise any S3 configuration error after settings have been written to ensure
-        # uploads are reliably disabled whenever S3 is not valid
-        if s3_config_error:
-            raise s3_config_error
+        # Raise any deferred configuration error after settings have been written to ensure
+        # the config file is always in a consistent state
+        if deferred_error:
+            raise deferred_error
 
     def _push_local_settings(self, config: CharmConfig) -> None:
         """Push the base LocalSettings.php file to the container."""
@@ -587,11 +598,67 @@ class MediaWiki(Object):
         )
         return content + "\n"
 
-    def _get_oauth_settings(self) -> str:
-        """Get the current OAuth settings as a string, to be inserted into a PHP file.
+    def _get_auth_settings(self, secrets: "MediaWikiSecrets") -> str:
+        """Get authentication extension settings (OAuth and/or SAML) as a PHP string.
+
+        Orchestrates the shared PluggableAuth loading and delegates to helpers
+        for provider-specific configuration.
 
         Returns:
-            str: The OAuth settings formatted as a PHP string.
+            str: The combined auth settings formatted as a PHP string.
+        """
+        extensions: list[str] = []
+        pluggable_auth_entries: list[str] = []
+
+        oauth_entry = self._get_oauth_pluggable_auth_entry()
+        if oauth_entry:
+            extensions.append("OpenIDConnect")
+            pluggable_auth_entries.append(oauth_entry)
+
+        saml_entry = self._get_saml_pluggable_auth_entry(secrets)
+        if saml_entry:
+            extensions.append("SimpleSAMLphp")
+            pluggable_auth_entries.append(saml_entry)
+
+        if not pluggable_auth_entries:
+            return ""
+
+        load_lines = "\n                ".join(
+            f"wfLoadExtension( '{ext}' );" for ext in ["PluggableAuth", *extensions]
+        )
+        _entry_indent = "                    "
+        entries_str = (",\n" + _entry_indent).join(
+            e.replace("\n", "\n" + _entry_indent) for e in pluggable_auth_entries
+        )
+
+        # The auth extensions should not be loaded when running createAndPromote.php.
+        # See https://www.mediawiki.org/wiki/Extension:OpenID_Connect#Known_issues
+        content = textwrap.dedent(
+            f"""
+            $_skipAuth = PHP_SAPI === 'cli'
+                && in_array( 'createAndPromote', $_SERVER['argv'] ?? [], true );
+
+            if ( !$_skipAuth ) {{
+                {load_lines}
+            }}
+            unset( $_skipAuth );
+
+            $wgPluggableAuth_Config = array_replace_recursive(
+                $wgPluggableAuth_Config ?? [],
+                [
+                    {entries_str}
+                ]
+            );
+            """
+        )
+
+        return content + "\n"
+
+    def _get_oauth_pluggable_auth_entry(self) -> str | None:
+        """Build the PluggableAuth config entry for OpenID Connect.
+
+        Returns:
+            The PHP array literal for the entry, or None if OAuth is not configured.
         """
         provider_info = self._oauth.get_provider_info()
         if (
@@ -600,7 +667,7 @@ class MediaWiki(Object):
             or provider_info.client_secret is None
         ):
             logger.debug("OAuth relation data is incomplete or missing, skipping OAuth settings.")
-            return ""
+            return None
 
         # https://www.mediawiki.org/wiki/Extension:OpenID_Connect
         data_str = textwrap.dedent(f"""\
@@ -623,38 +690,173 @@ class MediaWiki(Object):
                 logger.info("No HTTPS proxy; falling back to HTTP proxy for OIDC.")
                 data_str += f",\n'proxy' => '{utils.escape_php_string(url)}'"
 
-        _data_idt = str.maketrans({"\n": "\n" + " " * 28})
+        _data_idt = str.maketrans({"\n": "\n" + " " * 8})
         data_str = data_str.translate(_data_idt)
 
-        # To facilitate custom user settings, we use array_replace_recursive here to merge if needed
-        # The auth extensions should not be loaded when running createAndPromote.php.
-        # See https://www.mediawiki.org/wiki/Extension:OpenID_Connect#Known_issues for more details.
-        content = textwrap.dedent(
-            f"""
-            $_skipAuth = PHP_SAPI === 'cli'
-                && in_array( 'createAndPromote', $_SERVER['argv'] ?? [], true );
-
-            if ( !$_skipAuth ) {{
-                wfLoadExtension( 'PluggableAuth' );
-                wfLoadExtension( 'OpenIDConnect' );
-            }}
-            unset( $_skipAuth );
-
-            $wgPluggableAuth_Config = array_replace_recursive(
-                $wgPluggableAuth_Config ?? [],
-                [
-                    [
-                        'plugin' => 'OpenIDConnect',
-                        'data' => [
-                            {data_str}
-                        ]
-                    ]
+        return textwrap.dedent(
+            f"""\
+            'OpenIDConnect' => [
+                'plugin' => 'OpenIDConnect',
+                'data' => [
+                    {data_str}
                 ]
-            );
-            """
+            ]"""
         )
 
-        return content + "\n"
+    def _get_saml_pluggable_auth_entry(self, secrets: "MediaWikiSecrets") -> str | None:
+        """Build the PluggableAuth config entry for SimpleSAMLphp.
+
+        Also pushes the SimpleSAMLphp SP configuration files when SAML is active.
+
+        Returns:
+            The PHP array literal for the entry, or None if SAML is not configured.
+
+        Raises:
+            MediaWikiBlockedStatusException: If SAML is configured but Redis is not available.
+        """
+        saml_data = self._saml.get_relation_data()
+        if not saml_data:
+            logger.debug("SAML relation data is not available, skipping SAML settings.")
+            return None
+
+        if not saml_data.endpoints:
+            logger.warning("SAML relation data has no endpoints, skipping SAML settings.")
+            return None
+
+        # Write SimpleSAMLphp SP configuration
+        self._push_simplesamlphp_config(saml_data, secrets)
+
+        return textwrap.dedent(
+            """\
+            'SimpleSAMLphp' => [
+                'plugin' => 'SimpleSAMLphp',
+                'data' => [
+                    'authSourceId' => 'default-sp',
+                ]
+            ]"""
+        )
+
+    def _push_simplesamlphp_config(
+        self,
+        saml_data: SamlRelationData,
+        secrets: "MediaWikiSecrets",
+    ) -> None:
+        """Push SimpleSAMLphp SP configuration files to the container.
+
+        Writes authsources.php, config.php (Redis session store), and
+        saml20-idp-remote.php (IdP metadata). If Redis is not available,
+        removes config.php and raises a blocked status exception.
+
+        Args:
+            saml_data: The SAML relation data containing IdP information.
+            secrets: The charm secrets, used to get the persistent SimpleSAMLphp secret salt.
+
+        Raises:
+            MediaWikiBlockedStatusException: If Redis is not available for session storage.
+        """
+        simplesamlphp_base = ContainerPath("/usr/share/simplesamlphp", container=self._container)
+        config_dir = ContainerPath("/etc/simplesamlphp", container=self._container)
+        metadata_dir = simplesamlphp_base / "metadata"
+
+        config_dir.mkdir(exist_ok=True, parents=True)
+        metadata_dir.mkdir(exist_ok=True, parents=True)
+
+        entity_id = utils.escape_php_string(saml_data.entity_id)
+
+        # authsources.php
+        authsources_content = textwrap.dedent(f"""\
+            <?php
+            $config = [
+                'default-sp' => [
+                    'saml:SP',
+                    'idp' => '{entity_id}',
+                ],
+            ];
+            """)
+        (config_dir / "authsources.php").write_text(
+            authsources_content, mode=0o640, user=self._ROOT_USER_NAME, group=self._DAEMON_GROUP
+        )
+
+        # config.php — session store config; depends on Redis
+        config_file = config_dir / "config.php"
+        redis_endpoint = self._redis.get_endpoint()
+        if not redis_endpoint:
+            config_file.unlink(missing_ok=True)
+            raise MediaWikiBlockedStatusException(
+                "SAML requires a Redis relation for SimpleSAMLphp session storage"
+            )
+
+        secret_salt = utils.escape_php_string(secrets.saml_secret_salt)
+        redis_host, redis_port = redis_endpoint.rsplit(":", 1)
+        charm_config = self._charm.load_charm_config()
+        url_origin = charm_config.url_origin or f"https://{self._charm.app.name}"
+        baseurlpath = utils.escape_php_string(
+            urlparse(f"{url_origin}/w/simplesaml/", scheme="https").geturl()
+        )
+
+        config_entries: dict[str, str] = {
+            "baseurlpath": f"'{baseurlpath}'",
+            "secretsalt": f"'{secret_salt}'",
+            "store.type": "'redis'",
+            "store.redis.host": f"'{utils.escape_php_string(redis_host)}'",
+            "store.redis.port": redis_port,
+            "store.redis.prefix": "'SimpleSAMLphp'",
+        }
+
+        proxy_config = self._charm.state.proxy_config
+        if proxy_config and proxy_config.https_proxy_string:
+            config_entries["proxy"] = (
+                f"'{utils.escape_php_string(proxy_config.https_proxy_string)}'"
+            )
+
+        entries_php = "\n".join(f"    '{k}' => {v}," for k, v in config_entries.items())
+        config_content = f"<?php\n$config = [\n{entries_php}\n];\n"
+        config_file.write_text(
+            config_content, mode=0o640, user=self._ROOT_USER_NAME, group=self._DAEMON_GROUP
+        )
+
+        # saml20-idp-remote.php — IdP metadata from the relation
+        # Group endpoints by name (SingleSignOnService, SingleLogoutService)
+        endpoints_by_name: dict[str, list] = {}
+        for endpoint in saml_data.endpoints:
+            endpoints_by_name.setdefault(endpoint.name, []).append(endpoint)
+
+        idp_entries: list[str] = []
+
+        for name, endpoints in endpoints_by_name.items():
+            php_endpoints = []
+            for ep in endpoints:
+                parts = []
+                if ep.url:
+                    parts.append(f"'Location' => '{utils.escape_php_string(str(ep.url))}'")
+                parts.append(f"'Binding' => '{utils.escape_php_string(ep.binding)}'")
+                if ep.response_url:
+                    parts.append(
+                        f"'ResponseLocation' => '{utils.escape_php_string(str(ep.response_url))}'"
+                    )
+                php_endpoints.append("[" + ", ".join(parts) + "]")
+            endpoints_str = ", ".join(php_endpoints)
+            idp_entries.append(f"    '{name}' => [{endpoints_str}]")
+
+        if saml_data.certificates:
+            keys_php = ", ".join(
+                f"['type' => 'X509Certificate', 'signing' => true,"
+                f" 'encryption' => true,"
+                f" 'X509Certificate' => '{utils.escape_php_string(c)}']"
+                for c in saml_data.certificates
+            )
+            idp_entries.append(f"    'keys' => [{keys_php}]")
+
+        entries_str = ",\n".join(idp_entries)
+        idp_metadata_content = textwrap.dedent(f"""\
+            <?php
+            $metadata['{entity_id}'] = [
+            {entries_str},
+            ];
+            """)
+        (metadata_dir / "saml20-idp-remote.php").write_text(
+            idp_metadata_content, mode=0o640, user=self._ROOT_USER_NAME, group=self._DAEMON_GROUP
+        )
 
     def _get_cache_settings(self) -> str:
         """Get the current cache settings as a string, to be inserted into a PHP file.
@@ -943,6 +1145,7 @@ class MediaWikiSecrets:
 
     secret_key: str
     session_secret: str
+    saml_secret_salt: str
 
     @classmethod
     def generate(cls) -> "MediaWikiSecrets":
@@ -950,6 +1153,7 @@ class MediaWikiSecrets:
         return cls(
             secret_key=secrets.token_urlsafe(64),
             session_secret=secrets.token_urlsafe(64),
+            saml_secret_salt=secrets.token_hex(64),
         )
 
     def to_local_settings(self) -> dict[str, str]:
@@ -965,6 +1169,7 @@ class MediaWikiSecrets:
         return {
             "key": self.secret_key,
             "session": self.session_secret,
+            "saml-salt": self.saml_secret_salt,
         }
 
     @classmethod
@@ -973,4 +1178,5 @@ class MediaWikiSecrets:
         return cls(
             secret_key=data["key"],
             session_secret=data["session"],
+            saml_secret_salt=data["saml-salt"],
         )

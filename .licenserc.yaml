@@ -29,6 +29,7 @@ header:
   - 'trivy.yaml'
   - 'pyproject.toml'
   - 'zap_rules.tsv'
+  - 'mediawiki_rock/files/patches/**'
   - 'lib/**'
   - '**/*.md.j2'
   - '**/*.rst.j2'
