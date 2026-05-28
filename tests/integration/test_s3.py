@@ -215,6 +215,7 @@ def test_upload(
     )
 
 
+@pytest.mark.abort_on_fail
 def test_clamav(
     juju: jubilant.Juju,
     requests_timeout: int,
