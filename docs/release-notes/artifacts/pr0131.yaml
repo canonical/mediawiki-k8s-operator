@@ -1,0 +1,15 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+  - title: Added upgrade instructions
+    author: hk21702
+    type: minor
+    description: Added documentation explaining how to upgrade the MediaWiki charm to a new revision using `juju refresh`, including instructions for updating the database schema when upgrading to a new major release.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/131"
+      related_doc: "https://canonical-mediawiki-k8s-operator.readthedocs-hosted.com/en/latest/how-to/upgrade/"
+    visibility: hidden
+    highlight: false
