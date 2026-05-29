@@ -6,7 +6,7 @@
 High-level overview of MediaWiki deployment
 =================================================
 
-The following diagram shows a typical, fully featured deployment of the MediaWiki charm on a Kubernetes cloud. The MediaWiki |K8s| model contains the core application and supporting charms, while external services such as MySQL, the :doc:`Canonical Observability Stack <observability:index>`, ingress, S3-compatible object storage, and an identity provider reside in separate Juju models or external infrastructure.
+The following diagram shows a typical, fully featured deployment of the MediaWiki charm on a Kubernetes cloud. The MediaWiki |K8s| model contains the core application and supporting charms, while external services such as MySQL, the :doc:`Canonical Observability Stack <observability:index>`, ingress, S3-compatible object storage, an identity provider, and SMTP relay infrastructure reside in separate Juju models or external infrastructure.
 
 .. vale Canonical.000-US-spellcheck = NO
 .. vale Canonical.005-Industry-product-names = NO
@@ -36,6 +36,10 @@ The following diagram shows a typical, fully featured deployment of the MediaWik
          Identity["Identity provider"]
       end
 
+      subgraph ExternalSMTP["Mail infrastructure"]
+        SMTPRelay["SMTP relay"]
+      end
+
       subgraph K8sModel["MediaWiki K8s model"]
          Traefik["traefik-k8s"]
          IngressConfig["ingress-configurator"]
@@ -43,12 +47,14 @@ The following diagram shows a typical, fully featured deployment of the MediaWik
          MySQLRouter["mysql-router-k8s"]
          Redis["redis-k8s"]
          S3Int["s3-integrator"]
+         SMTPInt["smtp-integrator"]
          OtelCol["opentelemetry-<br/>collector-k8s"]
 
          IngressConfig ---|"upstream-ingress<br/>(ingress)"| Traefik ---|"traefik-route<br/>(traefik_route)"| MediaWiki
          Redis ---|"redis"| MediaWiki
          MediaWiki ---|"database<br/>(mysql_client)"| MySQLRouter
          MediaWiki ---|"s3-parameters<br/>(s3)"| S3Int
+         MediaWiki ---|"smtp<br/>(smtp)"| SMTPInt
          MediaWiki ----|"logging<br/>(loki_push_api)"| OtelCol
          MediaWiki ----|"grafana-dashboard<br/>(grafana_dashboard)"| OtelCol
          MediaWiki ----|"metrics-endpoint<br/>(prometheus_scrape)"| OtelCol
@@ -60,6 +66,7 @@ The following diagram shows a typical, fully featured deployment of the MediaWik
       OtelCol --- ExternalCOS
       MediaWiki -----|"oauth"| ExternalIdentity
       S3Int -...-|"S3 API"| S3
+      SMTPInt -...-|"SMTP"| ExternalSMTP
 
 .. vale Canonical.000-US-spellcheck = YES
 .. vale Canonical.005-Industry-product-names = YES
@@ -86,5 +93,7 @@ Components
      - Provides caching and asynchronous job execution
    * - **s3-integrator**
      - Supplies S3 credentials for user file uploads
+   * - **smtp-integrator**
+     - Supplies SMTP relay configuration for outgoing emails
    * - **opentelemetry-collector-k8s**
      - Forwards metrics, logs, and Grafana dashboards to |COS|

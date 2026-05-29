@@ -183,6 +183,26 @@ Example ``s3-parameters`` integrate command:
 
    juju integrate mediawiki-k8s s3-integrator:s3-credentials
 
+.. _reference_relation_endpoints_smtp:
+
+SMTP
+----
+
+* **Interface**: `smtp <https://charmhub.io/integrations/smtp>`_
+* **Supported charms**: `smtp-integrator <https://charmhub.io/smtp-integrator>`_
+
+The ``smtp`` relation connects MediaWiki to SMTP relay configuration through the smtp-integrator charm, enabling outgoing emails for features such as account recovery and notifications.
+
+When available, the charm configures MediaWiki's SMTP settings including relay host, port, authentication, and optional sender address. If relation data is incomplete or malformed, outgoing email is disabled until valid data is provided.
+
+Example ``smtp`` integrate command:
+
+.. code-block:: bash
+
+   juju integrate mediawiki-k8s smtp-integrator:smtp
+
+.. _reference_relation_endpoints_traefik_route:
+
 Traefik route
 -------------
 
