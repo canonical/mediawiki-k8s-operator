@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+  - title: Added SMTP support for outgoing email
+    author: hk21702
+    type: minor
+    description: Added SMTP support so operators can configure MediaWiki to send outgoing email through an SMTP provider.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/136"
+    visibility: public
+    highlight: true

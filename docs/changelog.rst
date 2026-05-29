@@ -17,6 +17,12 @@ Each revision is versioned by the date of the revision.
 
 - Add reference documentation page on metrics provided by the MediaWiki charm.
 
+2026-05-29
+----------
+
+- Added SMTP support.
+- Added documentation on SMTP support and the ``smtp`` relation.
+
 2026-05-27
 ----------
 
