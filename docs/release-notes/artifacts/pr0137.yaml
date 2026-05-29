@@ -1,0 +1,18 @@
+version_schema: 2
+
+changes:
+  - title: Relaxed Juju provider version constraint
+    author: hk21702
+    type: bugfix
+    description: >-
+      Relaxed the Terraform Juju provider version constraint to allow versions
+      from 1.0 up to (but not including) 3.0. This reduced unnecessary provider
+      pinning and improved compatibility for deployments using supported 1.x and
+      2.x provider versions.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/137"
+      related_doc:
+      related_issue:
+    visibility: public
+    highlight: false
