@@ -10,7 +10,7 @@ import logging
 import os
 import re
 import typing
-from typing import Any, Literal, Optional, TypeVar
+from typing import Any, Literal, Optional, TypeVar, overload
 from urllib.parse import urlparse
 
 import ops
@@ -217,6 +217,17 @@ class State:
         return cls(
             proxy_config=proxy_config,
         )
+
+    @overload
+    def get_proxy_env(self) -> dict[str, str] | None: ...
+    @overload
+    def get_proxy_env(self, default: dict[str, str]) -> dict[str, str]: ...
+
+    def get_proxy_env(self, default: dict[str, str] | None = None) -> dict[str, str] | None:
+        """Return proxy environment variables, or default if no proxy is configured."""
+        if self.proxy_config is None:
+            return default
+        return self.proxy_config.as_dict
 
 
 _T = TypeVar("_T")

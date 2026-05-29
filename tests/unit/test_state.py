@@ -7,7 +7,41 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from state import CharmConfig
+from state import CharmConfig, ProxyConfig, State
+
+
+class TestState:
+    """Tests for the State dataclass."""
+
+    _PROXY = ProxyConfig(
+        http_proxy="http://proxy.example:3128",  # type: ignore[arg-type]
+        https_proxy="http://proxy.example:3129",  # type: ignore[arg-type]
+        no_proxy="localhost,127.0.0.1",
+    )
+
+    @pytest.mark.parametrize(
+        "proxy_config, default, expected",
+        [
+            pytest.param(None, None, None, id="no_proxy_no_default"),
+            pytest.param(None, {}, {}, id="no_proxy_empty_default"),
+            pytest.param(None, {"X": "y"}, {"X": "y"}, id="no_proxy_returns_default"),
+            pytest.param(_PROXY, None, _PROXY.as_dict, id="proxy_no_default"),
+            pytest.param(_PROXY, {}, _PROXY.as_dict, id="proxy_empty_default"),
+            pytest.param(_PROXY, {"X": "y"}, _PROXY.as_dict, id="proxy_ignores_default"),
+        ],
+    )
+    def test_get_proxy_env(
+        self,
+        proxy_config: ProxyConfig | None,
+        default: dict[str, str] | None,
+        expected: dict[str, str] | None,
+    ) -> None:
+        state = State(proxy_config=proxy_config)
+
+        if default is None:
+            assert state.get_proxy_env() == expected
+        else:
+            assert state.get_proxy_env(default) == expected
 
 
 class TestCharmConfig:
