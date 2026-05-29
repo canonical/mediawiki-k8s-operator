@@ -81,6 +81,11 @@ def test_add_extensions(
 
     composer = Path(__file__).parent / "test_data" / "composer.json"
     app_config["composer"] = composer.read_text()
+    app_config["local-settings"] += "wfLoadExtension( 'CheckUser' );\n"
+    app_config["local-settings"] += "wfLoadExtension( 'Linter' );\n"
+    app_config["local-settings"] += "wfLoadExtension( 'DiscussionTools' );\n"
+    app_config["local-settings"] += "wfLoadExtension( 'Echo' );\n"
+    app_config["local-settings"] += "wfLoadExtension( 'Thanks' );\n"
     app_config["local-settings"] += "wfLoadExtension( 'UserMerge' );\n"
     app_config["local-settings"] += "wfLoadExtension( 'PageTriage' );\n"
     app_config["local-settings"] += "wfLoadExtension( 'Mermaid' );\n"

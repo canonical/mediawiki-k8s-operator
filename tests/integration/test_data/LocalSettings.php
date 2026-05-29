@@ -17,12 +17,7 @@ wfLoadSkin( 'Vector' );
 
 $wgEnableUploads = true;
 
-# Extensions
-wfLoadExtension( 'CheckUser' );
-wfLoadExtension( 'Linter' );
+# Bundled extensions that don't require DB updates
 wfLoadExtension( 'VisualEditor' );
-wfLoadExtension( 'DiscussionTools' );
-wfLoadExtension( 'Echo' );
 wfLoadExtension( 'Nuke' );
-wfLoadExtension( 'Thanks' );
 wfLoadExtension( 'WikiEditor' );
