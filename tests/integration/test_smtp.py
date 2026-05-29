@@ -13,7 +13,7 @@ import jubilant
 import pytest
 
 from .types_ import App
-from .utils import kubectl
+from .utils import juju_exec, kubectl
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +38,6 @@ def _kubectl_run(namespace: str | None, *args: str) -> subprocess.CompletedProce
     return result
 
 
-def _exec_in_mediawiki(juju: jubilant.Juju, app: App, cmd: str) -> str:
-    """Execute a command in the mediawiki container of the leader unit."""
-    return juju.ssh(f"{app.name}/0", cmd, container="mediawiki")
-
-
 def _query_mailpit(namespace: str, endpoint: str) -> dict:
     """Query the mailpit HTTP API via kubectl exec."""
     result = _kubectl_run(
@@ -59,21 +54,17 @@ def _query_mailpit(namespace: str, endpoint: str) -> dict:
     return json.loads(result.stdout)
 
 
-@pytest.fixture(scope="module", name="namespace")
-def namespace_fixture(juju: jubilant.Juju) -> str:
-    """Return the Juju model namespace (needed for kubectl commands)."""
-    assert juju.model is not None, "Juju model must be set"
-    return juju.model
-
-
 @pytest.fixture(scope="module", name="mailpit")
-def mailpit_fixture(namespace: str) -> Generator[str, None, None]:
+def mailpit_fixture(juju: jubilant.Juju) -> Generator[str, None, None]:
     """Deploy mailpit as a pod+service in the model namespace with STARTTLS and auth.
 
     Yields the in-cluster service hostname (e.g. mailpit.<ns>.svc.cluster.local).
     """
     # Create a pod with an init container that generates a self-signed TLS cert,
     # then runs mailpit with STARTTLS required and any-auth accepted.
+    assert juju.model is not None, "Juju model must be set"
+    namespace = juju.model
+
     pod_manifest = textwrap.dedent(f"""\
         apiVersion: v1
         kind: Pod
@@ -198,64 +189,6 @@ def smtp_integrator_fixture(
     yield App(name="smtp-integrator")
 
 
-@pytest.fixture(scope="module", name="root_credentials")
-def root_credentials_fixture(juju: jubilant.Juju, app: App) -> tuple[str, str]:
-    """Rotate and return the root bureaucrat credentials once per module."""
-    rotate_action = juju.run(f"{app.name}/leader", "rotate-root-credentials")
-    assert rotate_action.status == "completed"
-    return rotate_action.results["username"], rotate_action.results["password"]
-
-
-@pytest.fixture(scope="module", name="authenticated_session")
-def authenticated_session_fixture(
-    requests_timeout: int,
-    ingress_address: str,
-    root_credentials: tuple[str, str],
-) -> Generator[tuple, None, None]:
-    """Return an authenticated MediaWiki session with a CSRF token.
-
-    Yields (session, csrf_token, api_url).
-    """
-    import requests
-
-    username, password = root_credentials
-    url = f"{ingress_address}/w/api.php"
-    session = requests.Session()
-
-    # Get login token
-    resp = session.get(
-        url=url,
-        params={"action": "query", "meta": "tokens", "type": "login", "format": "json"},
-        timeout=requests_timeout,
-    )
-    login_token = resp.json()["query"]["tokens"]["logintoken"]
-
-    # Log in
-    resp = session.post(
-        url=url,
-        data={
-            "action": "login",
-            "lgname": username,
-            "lgpassword": password,
-            "lgtoken": login_token,
-            "format": "json",
-        },
-        timeout=requests_timeout,
-    )
-    assert resp.status_code == 200
-
-    # Get CSRF token
-    resp = session.get(
-        url=url,
-        params={"action": "query", "meta": "tokens", "format": "json"},
-        timeout=requests_timeout,
-    )
-    csrf_token = resp.json()["query"]["tokens"]["csrftoken"]
-
-    yield session, csrf_token, url
-    session.close()
-
-
 @pytest.mark.abort_on_fail
 def test_integrate_smtp(
     juju: jubilant.Juju,
@@ -275,7 +208,6 @@ def test_integrate_smtp(
 def test_send_email_via_api(
     juju: jubilant.Juju,
     app: App,
-    namespace: str,
     authenticated_session: tuple,
     requests_timeout: int,
 ):
@@ -287,7 +219,7 @@ def test_send_email_via_api(
     target_email = "target@example.com"
 
     # Create the recipient via maintenance script
-    _exec_in_mediawiki(
+    juju_exec(
         juju,
         app,
         (
@@ -295,6 +227,9 @@ def test_send_email_via_api(
             f"{target_user} testpass123 --email {target_email}"
         ),
     )
+
+    assert juju.model is not None, "Juju model must be set"
+    namespace = juju.model
 
     resp = session.post(
         url=api_url,
@@ -350,7 +285,7 @@ def test_smtp_relation_removal(
     )
 
     # Verify SMTP config is removed
-    output = _exec_in_mediawiki(
+    output = juju_exec(
         juju,
         app,
         "cat /etc/mediawiki/LateSettings.php",
