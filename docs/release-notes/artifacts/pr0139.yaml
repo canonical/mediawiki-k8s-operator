@@ -1,0 +1,19 @@
+version_schema: 2
+
+changes:
+  - title: Fixed proxy support for S3 and external network calls
+    author: hk21702
+    type: bugfix
+    description: >
+      Fixed an issue where HTTP proxy environment variables were not passed to
+      PHP processes running maintenance scripts or the Apache service. This
+      caused third-party libraries like the AWS SDK (which read HTTP_PROXY and
+      HTTPS_PROXY from the process environment) to bypass the configured proxy,
+      breaking S3 operations in proxy-restricted environments.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/139"
+      related_doc:
+      related_issue:
+    visibility: public
+    highlight: false

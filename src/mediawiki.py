@@ -335,9 +335,6 @@ class MediaWiki(Object):
         )
 
         composer_timeout = self._LONG_TIMEOUT * 2  # Composer update can take time
-        proxy_env = (
-            self._charm.state.proxy_config.as_dict if self._charm.state.proxy_config else {}
-        )
         result = self._run_cli(
             [
                 str(self._composer_path),
@@ -348,7 +345,7 @@ class MediaWiki(Object):
             group=self._DAEMON_GROUP,
             working_dir=str(self._mediawiki_path),
             timeout=composer_timeout,
-            environment=proxy_env,
+            environment=self._charm.state.get_proxy_env(),
         )
 
         if result.return_code != 0:
@@ -1053,6 +1050,7 @@ class MediaWiki(Object):
         """
         result = self._run_cli(
             [str(self._php_cli_path), str(self._maintenance_scripts_base_path / "run.php"), *args],
+            environment=self._charm.state.get_proxy_env(),
             user=self._DAEMON_USER,
             group=self._DAEMON_GROUP,
             timeout=timeout,

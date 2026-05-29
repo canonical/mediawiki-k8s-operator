@@ -194,6 +194,7 @@ class Charm(StatefulCharmBase):
                     "startup": "disabled",
                     "requires": ["mediawikiLogs"],
                     "after": ["mediawikiLogs"],
+                    "environment": self.state.get_proxy_env({}),
                 },
                 **{
                     service: {
@@ -201,6 +202,7 @@ class Charm(StatefulCharmBase):
                         "summary": f"MediaWiki {service}",
                         "command": f"{php_path} {job_runner_service_dir}/{service} --config-file={self._mediawiki.JOB_RUNNER_CONFIG_PATH}",
                         "startup": "disabled",
+                        "environment": self.state.get_proxy_env({}),
                     }
                     for service in self._REDIS_JOB_SERVICES
                 },
@@ -229,9 +231,7 @@ class Charm(StatefulCharmBase):
                     "summary": "FreshClam service",
                     "command": "/usr/bin/freshclam --daemon --foreground",
                     "startup": "enabled",
-                    "environment": self.state.proxy_config.as_dict
-                    if self.state.proxy_config
-                    else {},
+                    "environment": self.state.get_proxy_env({}),
                 },
                 self._CLAMD_SERVICE_NAME: {
                     "override": "replace",

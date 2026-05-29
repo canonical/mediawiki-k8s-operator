@@ -165,9 +165,7 @@ class GitSync(Object):
                     "command": " ".join(cmd),
                     "startup": startup,
                     "on-check-failure": {"git-sync-alive": "restart"},
-                    "environment": self._charm.state.proxy_config.as_dict
-                    if self._charm.state.proxy_config
-                    else {},
+                    "environment": self._charm.state.get_proxy_env({}),
                 },
             },
             "checks": {
