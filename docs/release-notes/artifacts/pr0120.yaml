@@ -11,5 +11,6 @@ changes:
     pr: 
       - "https://github.com/canonical/mediawiki-k8s-operator/pull/120"
       - "https://github.com/canonical/mediawiki-k8s-operator/pull/126"
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/143"
   visibility: internal
   highlight: false
