@@ -244,6 +244,9 @@ linkcheck_ignore = [
     r"https://.*\.sourceforge\.(net|io)/.*",
     # Root page returns 404 but this is expected
     "https://repo.packagist.org/",
+    # Tends to 104, probably due to DDoS protection
+    "https://ubuntu.com/kubernetes",
+    "https://microk8s.io",
 ]
 
 
