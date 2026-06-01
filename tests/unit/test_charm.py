@@ -3,6 +3,7 @@
 
 import copy
 import dataclasses
+import json
 
 import ops
 import pytest
@@ -10,9 +11,14 @@ from ops import pebble, testing
 from pytest_mock import MockerFixture, MockType
 
 from charm import Charm
-from exceptions import MediaWikiBlockedStatusException, MediaWikiInstallError
+from exceptions import (
+    MediaWikiBlockedStatusException,
+    MediaWikiInstallError,
+    MediaWikiWaitingStatusException,
+)
 from mediawiki import MediaWikiSecrets
 from mediawiki_api import SiteInfo
+from tests.unit.conftest import MOCK_COMPOSER_LOCK
 
 
 @pytest.fixture(autouse=True)
@@ -299,7 +305,13 @@ class TestMediaWikiReplicaChanged:
             for unit_id, ro in peers_ro.items()
         }
         replace_kwargs: dict = {
-            "local_app_data": testing.RawDataBagContents({Charm._RO_DATABASE_FLAG: app_ro}),
+            "local_app_data": testing.RawDataBagContents(
+                {
+                    Charm._RO_DATABASE_FLAG: app_ro,
+                    Charm._COMPOSER_JSON_KEY: "{}",
+                    Charm._COMPOSER_LOCK_KEY: MOCK_COMPOSER_LOCK,
+                }
+            ),
             "peers_data": peers_data,
         }
         if unit_ro is not None:
@@ -596,10 +608,26 @@ class TestForceReconciliationAction:
         self,
         ctx: testing.Context,
         active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
         mock_mediawiki: MockType,
     ) -> None:
         """Test that a non-leader can run a forced reconciliation on itself."""
-        state_in = dataclasses.replace(active_state, leader=False)
+        # Non-leaders require lock data in peer relation to proceed past the composer gate.
+        lock_rel = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={
+                Charm._COMPOSER_JSON_KEY: "{}",
+                Charm._COMPOSER_LOCK_KEY: MOCK_COMPOSER_LOCK,
+            },
+        )
+        relations_without_peer = [
+            r for r in active_state.relations if r.endpoint != Charm._PEER_RELATION_NAME
+        ]
+        state_in = dataclasses.replace(
+            active_state,
+            leader=False,
+            relations=[*relations_without_peer, lock_rel],
+        )
         ctx.run(ctx.on.action("force-reconciliation"), state_in)
         mock_mediawiki.reconciliation.assert_called_once()
         call_kwargs = mock_mediawiki.reconciliation.call_args.kwargs
@@ -805,3 +833,89 @@ class TestPebbleLayer:
                 container.service_statuses.get(service, pebble.ServiceStatus.INACTIVE)
                 == pebble.ServiceStatus.INACTIVE
             )
+
+
+class TestComposerLockPeerSync:
+    """Tests for the charm-level composer lock coordination between leader and non-leader units."""
+
+    def test_leader_publishes_lock_to_peer_relation(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Leader: when reconciliation returns a lock, it is published to the peer relation."""
+        mock_mediawiki.reconciliation.return_value = MOCK_COMPOSER_LOCK
+
+        # configured_state already contains mediawiki_replica_relation; use it directly.
+        state_out = ctx.run(ctx.on.config_changed(), configured_state)
+
+        replica_rel = state_out.get_relation(mediawiki_replica_relation.id)
+        assert replica_rel.local_app_data.get(Charm._COMPOSER_LOCK_KEY) == MOCK_COMPOSER_LOCK
+        assert replica_rel.local_app_data.get(Charm._COMPOSER_JSON_KEY) is not None
+
+    def test_leader_does_not_publish_when_no_lock_returned(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Leader: when reconciliation returns None (skipped), peer data is unchanged."""
+        mock_mediawiki.reconciliation.return_value = None
+
+        # active_state already contains mediawiki_replica_relation; use it directly.
+        state_out = ctx.run(ctx.on.config_changed(), active_state)
+
+        replica_rel = state_out.get_relation(mediawiki_replica_relation.id)
+        assert Charm._COMPOSER_LOCK_KEY not in replica_rel.local_app_data
+        assert Charm._COMPOSER_JSON_KEY not in replica_rel.local_app_data
+
+    def test_non_leader_waits_when_lock_not_in_peer_data(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Non-leader: WaitingStatus when mediawiki signals the lock is not yet available."""
+        # mediawiki.reconciliation() raises WaitingStatus when non-leader has no lock.
+        mock_mediawiki.reconciliation.side_effect = MediaWikiWaitingStatusException(
+            "Waiting for leader to publish composer lock"
+        )
+        state_in = dataclasses.replace(active_state, leader=False)
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+        assert isinstance(state_out.unit_status, ops.WaitingStatus)
+        assert "composer lock" in state_out.unit_status.message.lower()
+
+    def test_non_leader_passes_lock_to_mediawiki_when_available(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Non-leader: passes lock content to mediawiki.reconciliation() from peer data."""
+        lock_rel = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={
+                Charm._COMPOSER_JSON_KEY: json.dumps({"require": {}}),
+                Charm._COMPOSER_LOCK_KEY: MOCK_COMPOSER_LOCK,
+            },
+        )
+        # Replace the existing peer relation in active_state with one containing lock data.
+        relations_without_peer = [
+            r for r in active_state.relations if r.endpoint != Charm._PEER_RELATION_NAME
+        ]
+        state_in = dataclasses.replace(
+            active_state,
+            leader=False,
+            relations=[*relations_without_peer, lock_rel],
+        )
+        ctx.run(ctx.on.config_changed(), state_in)
+
+        mock_mediawiki.reconciliation.assert_called_once()
+        _, kwargs = mock_mediawiki.reconciliation.call_args
+        assert kwargs.get("composer_lock") == MOCK_COMPOSER_LOCK
+        assert kwargs.get("peer_composer_json") == json.dumps({"require": {}})

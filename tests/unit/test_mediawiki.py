@@ -16,10 +16,14 @@ import redis
 import s3
 import smtp
 from charm import Charm
-from exceptions import MediaWikiBlockedStatusException, MediaWikiInstallError
+from exceptions import (
+    MediaWikiBlockedStatusException,
+    MediaWikiInstallError,
+    MediaWikiWaitingStatusException,
+)
 from mediawiki import MediaWiki, MediaWikiSecrets
 from state import CharmConfigInvalidError, StatefulCharmBase
-from tests.unit.conftest import ExecCmd
+from tests.unit.conftest import MOCK_COMPOSER_LOCK, ExecCmd
 from types_ import DatabaseConfig, DatabaseEndpoint, S3ConnectionInfo
 
 
@@ -219,7 +223,10 @@ class TestReconciliation:
 
         state_in = dataclasses.replace(active_state, leader=False)
         with ctx(ctx.on.update_status(), state_in) as mgr:
-            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki.reconciliation(
+                MediaWikiSecrets.generate(),
+                composer_lock=MOCK_COMPOSER_LOCK,
+            )
 
             state_out = mgr.run()
 
@@ -1053,6 +1060,222 @@ def validate_container(
     assert json.loads(composer_content) == expected_composer, (
         "composer.user.json content does not match config"
     )
+
+
+class TestComposerLockSync:
+    """Tests for composer lock file synchronisation between leader and non-leader units."""
+
+    @pytest.fixture(autouse=True)
+    def _database_initialized(self, mock_database_cursor: MockType) -> None:
+        """Pretend the database is already initialized so _install() is never entered."""
+        mock_database_cursor.fetchone.return_value = ("installed_flag",)
+
+    def test_leader_update_returns_lock_content(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+    ) -> None:
+        """Leader path: reconciliation returns the composer.lock content after a successful update."""
+        with ctx(ctx.on.update_status(), configured_state) as mgr:
+            lock = mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+
+        assert lock == MOCK_COMPOSER_LOCK, (
+            "reconciliation() should return lock content on the leader path"
+        )
+
+    def test_leader_returns_lock_when_no_composer_config(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+    ) -> None:
+        """Leader path: reconciliation returns the existing composer.lock even when no user
+        composer config is set, so that non-leaders can always sync from the peer relation.
+        """
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            lock = mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+
+        assert lock == MOCK_COMPOSER_LOCK, (
+            "reconciliation() should return lock content on the leader path even with no user composer config"
+        )
+
+    def test_non_leader_waits_when_no_lock_provided(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+    ) -> None:
+        """Non-leader path: raises MediaWikiWaitingStatusException when no peer data is provided."""
+        state_in = dataclasses.replace(configured_state, leader=False)
+        with (
+            ctx(ctx.on.update_status(), state_in) as mgr,
+            pytest.raises(MediaWikiWaitingStatusException, match="composer configuration"),
+        ):
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+
+    def test_non_leader_waits_when_peer_json_provided_but_no_lock(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        populated_config: dict,
+    ) -> None:
+        """Non-leader path: raises MediaWikiWaitingStatusException when peer json is present but lock is not."""
+        state_in = dataclasses.replace(configured_state, leader=False)
+        with (
+            ctx(ctx.on.update_status(), state_in) as mgr,
+            pytest.raises(MediaWikiWaitingStatusException, match="composer lock"),
+        ):
+            mgr.charm.mediawiki.reconciliation(
+                MediaWikiSecrets.generate(),
+                peer_composer_json=populated_config["composer"],
+            )
+
+    def test_non_leader_uses_composer_install(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        populated_config: dict,
+    ) -> None:
+        """Non-leader path: reconciliation runs composer install when lock is provided."""
+        # Use a different lock than pre-created to force the non-leader to run install.
+        new_lock = '{"packages": [], "_readme": ["Different lock"]}'
+        state_in = dataclasses.replace(configured_state, leader=False)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            result = mgr.charm.mediawiki.reconciliation(
+                MediaWikiSecrets.generate(),
+                composer_lock=new_lock,
+                peer_composer_json=populated_config["composer"],
+            )
+
+        assert result is None, "reconciliation() should return None on the non-leader path"
+
+        history = ctx.exec_history[Charm._CONTAINER_NAME]
+        assert ExecCmd.COMPOSER_INSTALL.ran_in(history), (
+            "Expected composer install to run on non-leader path"
+        )
+        assert not ExecCmd.COMPOSER_UPDATE.ran_in(history), (
+            "Did not expect composer update on non-leader path"
+        )
+
+    def test_non_leader_writes_lock_file_to_container(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        populated_config: dict,
+    ) -> None:
+        """Non-leader path: composer.lock is written to the container from peer data."""
+        new_lock = '{"packages": [], "_readme": ["Peer lock"]}'
+        state_in = dataclasses.replace(configured_state, leader=False)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mgr.charm.mediawiki.reconciliation(
+                MediaWikiSecrets.generate(),
+                composer_lock=new_lock,
+                peer_composer_json=populated_config["composer"],
+            )
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        lock_path = container_fs / "var/www/html/w/composer.lock"
+        assert lock_path.exists(), (
+            "composer.lock should be written to container on non-leader path"
+        )
+        assert lock_path.read_text() == new_lock
+
+    def test_non_leader_skips_install_when_unchanged(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        container_mounts: dict,
+        populated_config: dict,
+    ) -> None:
+        """Non-leader path: composer install is skipped when json and lock already match."""
+        import json as _json
+
+        # Pre-populate composer.user.json and composer.lock in the container mount source so
+        # that the reconcile sees no change and skips the install entirely.
+        install_src = container_mounts["install_location"].source
+        composer = _json.loads(populated_config["composer"])
+        (install_src / "composer.user.json").write_text(_json.dumps(composer))
+        # MOCK_COMPOSER_LOCK is already pre-created in install_src/composer.lock by conftest.
+
+        state_in = dataclasses.replace(configured_state, leader=False)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mgr.charm.mediawiki.reconciliation(
+                MediaWikiSecrets.generate(),
+                composer_lock=MOCK_COMPOSER_LOCK,
+                peer_composer_json=populated_config["composer"],
+            )
+
+        install_count = sum(
+            1
+            for cmd in ctx.exec_history.get(Charm._CONTAINER_NAME, [])
+            if set(ExecCmd.COMPOSER_INSTALL.value) <= set(cmd.command)
+        )
+        assert install_count == 0, (
+            f"Expected composer install to be skipped (unchanged), ran {install_count} times"
+        )
+
+    def test_non_leader_install_failure_raises_blocked(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        mediawiki_container: testing.Container,
+        populated_config: dict,
+    ) -> None:
+        """Non-leader path: a failed composer install raises MediaWikiBlockedStatusException."""
+        new_lock = '{"packages": [], "_readme": ["Different lock"]}'
+        failing_execs = {
+            testing.Exec(
+                ExecCmd.COMPOSER_INSTALL.value,
+                return_code=1,
+                stdout="",
+                stderr="Mocked composer install failure",
+            ),
+            testing.Exec(
+                ExecCmd.SYMLINK_STATIC_ASSETS.value,
+                return_code=0,
+            ),
+        }
+        mediawiki_container = dataclasses.replace(mediawiki_container, execs=failing_execs)
+        state_in = dataclasses.replace(
+            configured_state, leader=False, containers=[mediawiki_container]
+        )
+
+        with (
+            ctx(ctx.on.update_status(), state_in) as mgr,
+            pytest.raises(MediaWikiBlockedStatusException, match="Composer install failed"),
+        ):
+            mgr.charm.mediawiki.reconciliation(
+                MediaWikiSecrets.generate(),
+                composer_lock=new_lock,
+                peer_composer_json=populated_config["composer"],
+            )
+
+    def test_leader_update_failure_does_not_return_lock(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        mediawiki_container: testing.Container,
+    ) -> None:
+        """Leader path: a failed composer update raises MediaWikiBlockedStatusException."""
+        failing_execs = {
+            testing.Exec(
+                ExecCmd.COMPOSER_UPDATE.value,
+                return_code=1,
+                stdout="",
+                stderr="Mocked composer update failure",
+            ),
+            testing.Exec(
+                ExecCmd.SYMLINK_STATIC_ASSETS.value,
+                return_code=0,
+            ),
+        }
+        mediawiki_container = dataclasses.replace(mediawiki_container, execs=failing_execs)
+        state_in = dataclasses.replace(configured_state, containers=[mediawiki_container])
+
+        with (
+            ctx(ctx.on.update_status(), state_in) as mgr,
+            pytest.raises(MediaWikiBlockedStatusException, match="Composer update failed"),
+        ):
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
 
 
 class TestSmtpSettings:
