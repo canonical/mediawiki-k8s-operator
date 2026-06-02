@@ -1,0 +1,13 @@
+version_schema: 2
+
+changes:
+  - title: Added metrics reference page
+    author: hk21702
+    type: minor
+    description: >
+      Added a metrics reference page to the documentation.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/148"
+    visibility: public
+    highlight: false

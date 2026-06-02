@@ -24,13 +24,8 @@ including actions, configurations, and integrations.
     Actions <actions>
     Configurations <configurations>
     Included extensions and skins <included-extensions-and-skins>
-    Relation endpoints <relation-endpoints>
-
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-
     Metrics <metrics>
+    Relation endpoints <relation-endpoints>
 
 .. vale Canonical.004-Canonical-product-names = YES
 
