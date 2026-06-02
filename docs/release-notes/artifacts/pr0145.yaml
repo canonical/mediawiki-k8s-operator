@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Updated linkcheck ignore list
+    author: hk21702
+    type: minor
+    description: >-
+      Updated the documentation linkcheck ignore list for Canonical Kubernetes
+      and MicroK8s URLs that intermittently fail automated checks due to 104s.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/145"
+      related_doc:
+      related_issue:
+    visibility: hidden
+    highlight: false
