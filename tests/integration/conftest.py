@@ -170,8 +170,9 @@ def traefik_fixture(
 
     juju.deploy(
         "traefik-k8s",
-        channel="latest/stable",
+        channel="latest/candidate",
         base="ubuntu@20.04",
+        revision=298,  # 295 often errors on pebble start hook
         trust=True,
     )
     yield App(name="traefik-k8s")
