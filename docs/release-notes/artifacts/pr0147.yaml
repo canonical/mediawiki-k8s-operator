@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Pinned traefik-k8s integration tests
+    author: hk21702
+    type: bugfix
+    description: >
+      Improved integration test stability by pinning traefik-k8s to a known-good
+      revision (298) in the latest/candidate channel.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/147"
+      related_doc:
+      related_issue:
+        - "https://github.com/canonical/traefik-k8s-operator/issues/695"
+    visibility: internal
+    highlight: false
