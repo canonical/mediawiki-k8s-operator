@@ -12,6 +12,11 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
 Each revision is versioned by the date of the revision.
 
+2026-06-02
+----------
+
+- Add reference documentation page on metrics provided by the MediaWiki charm.
+
 2026-05-27
 ----------
 

@@ -80,6 +80,10 @@ Example ``metrics-endpoint`` integrate command:
 
    juju integrate mediawiki-k8s prometheus-k8s
 
+.. seealso::
+
+   Read more about the metrics provided by the MediaWiki charm on the :doc:`metrics reference documentation </reference/metrics>`.
+
 .. _reference_relation_endpoints_oauth:
 
 OAuth
