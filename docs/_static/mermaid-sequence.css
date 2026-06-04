@@ -1,3 +1,8 @@
+/* explanation/charm-design.rst */
+#composer-sync-diagram>svg {
+    height: auto;
+}
+
 #containers-architecture-diagram>svg {
     height: 800px;
 }

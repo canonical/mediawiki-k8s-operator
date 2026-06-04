@@ -300,6 +300,11 @@ extensions = [
     "sphinxcontrib.mermaid",
 ]
 
+# Use a newer than default mermaid version.
+# 11.13.0 fixes quoted participant names with entity type annotations
+# (https://github.com/mermaid-js/mermaid/pull/7136).
+mermaid_version = "11.15.0"
+
 # Excludes files or directories from processing
 
 exclude_patterns = [

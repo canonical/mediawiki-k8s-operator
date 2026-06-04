@@ -16,6 +16,7 @@ Each revision is versioned by the date of the revision.
 ----------
 
 - Sync Composer state across units using peer relations and leader-based reconciliation.
+- Add documentation describing the Composer reconciliation process.
 
 2026-06-02
 ----------
