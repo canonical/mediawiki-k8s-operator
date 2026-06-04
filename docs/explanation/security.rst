@@ -16,7 +16,7 @@ and best practices.
 Handling of sensitive configuration settings
 --------------------------------------------
 
-Sensitive configuration settings, such as generated secrets, database credentials, and arbitrary user-configured settings, are stored outside of the MediaWiki webroot to reduce the risk of exposure. These files are not world-readable and the web server process cannot write against them.
+Sensitive configuration settings, such as generated secrets, database credentials, SMTP relay credentials, and arbitrary user-configured settings, are stored outside of the MediaWiki webroot to reduce the risk of exposure. These files are not world-readable and the web server process cannot write against them.
 
 .. _explanation_security_secrets:
 

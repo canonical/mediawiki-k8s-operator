@@ -12,6 +12,7 @@ from typing import Any, Dict, Generator
 
 import jubilant
 import pytest
+import requests
 import yaml
 
 from .types_ import App
@@ -280,6 +281,59 @@ def app_fixture(
     )
 
     yield early_app
+
+
+@pytest.fixture(scope="module", name="root_credentials")
+def root_credentials_fixture(juju: jubilant.Juju, app: App) -> tuple[str, str]:
+    """Rotate and return the root bureaucrat credentials once per module."""
+    rotate_action = juju.run(f"{app.name}/leader", "rotate-root-credentials")
+    assert rotate_action.status == "completed"
+    return rotate_action.results["username"], rotate_action.results["password"]
+
+
+@pytest.fixture(scope="module", name="authenticated_session")
+def authenticated_session_fixture(
+    requests_timeout: int,
+    ingress_address: str,
+    root_credentials: tuple[str, str],
+) -> Generator[tuple[requests.Session, str, str], None, None]:
+    """Return an authenticated MediaWiki session with a CSRF token.
+
+    Yields (session, csrf_token, api_url). The session is closed after use.
+    """
+    username, password = root_credentials
+    url = f"{ingress_address}/w/api.php"
+    session = requests.Session()
+
+    req = session.get(
+        url=url,
+        params={"action": "query", "meta": "tokens", "type": "login", "format": "json"},
+        timeout=requests_timeout,
+    )
+    login_token = req.json()["query"]["tokens"]["logintoken"]
+
+    req = session.post(
+        url=url,
+        data={
+            "action": "login",
+            "lgname": username,
+            "lgpassword": password,
+            "lgtoken": login_token,
+            "format": "json",
+        },
+        timeout=requests_timeout,
+    )
+    assert req.status_code == 200, f"Expected status code 200, got {req.status_code}"
+
+    req = session.get(
+        url=url,
+        params={"action": "query", "meta": "tokens", "format": "json"},
+        timeout=requests_timeout,
+    )
+    csrf_token = req.json()["query"]["tokens"]["csrftoken"]
+
+    yield session, csrf_token, url
+    session.close()
 
 
 @pytest.fixture(scope="module", name="ssh_key_secret")

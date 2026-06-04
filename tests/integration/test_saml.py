@@ -80,11 +80,6 @@ def setup_saml_config(
     juju.integrate(app.name, saml_integrator)
     juju.wait(jubilant.all_agents_idle, timeout=5 * 60)
 
-    update_database_action = juju.run(f"{app.name}/leader", "update-database")
-    assert update_database_action.status == "completed"
-    # The DB update completes asynchronously to the action, so we need to be certain that no other actions are still running
-    juju.wait(jubilant.all_active, successes=5)
-
     yield saml_helper
 
 

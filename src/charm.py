@@ -42,6 +42,7 @@ from mediawiki import MediaWiki, MediaWikiSecrets
 from mediawiki_api import SiteInfo
 from redis import Redis
 from s3 import S3
+from smtp import Smtp
 from state import StatefulCharmBase
 from types_ import ForceReconciliationAction
 
@@ -75,6 +76,7 @@ class Charm(StatefulCharmBase):
     _SAML_RELATION_NAME = "saml"
     _REDIS_RELATION_NAME = "redis"
     _S3_RELATION_NAME = "s3-parameters"
+    _SMTP_RELATION_NAME = "smtp"
 
     _PEER_RELATION_NAME = "mediawiki-replica"
     _REPLICA_SECRET_LABEL = "replica-secret"  # nosec: B105
@@ -96,8 +98,9 @@ class Charm(StatefulCharmBase):
         self._saml = Saml(self, self._SAML_RELATION_NAME)
         self._redis = Redis(self, self._REDIS_RELATION_NAME)
         self._s3 = S3(self, self._S3_RELATION_NAME)
+        self._smtp = Smtp(self, self._SMTP_RELATION_NAME)
         self._mediawiki = MediaWiki(
-            self, self._database, self._oauth, self._saml, self._redis, self._s3
+            self, self._database, self._oauth, self._saml, self._redis, self._s3, self._smtp
         )
         self._git_sync = GitSync(self)
 
@@ -146,6 +149,8 @@ class Charm(StatefulCharmBase):
             self.on.redis_relation_updated,
             self._s3.s3.on.credentials_changed,
             self._s3.s3.on.credentials_gone,
+            self.on[self._SMTP_RELATION_NAME].relation_broken,
+            self._smtp.on.smtp_data_available,
             self.on.traefik_route_relation_joined,
             self.on.traefik_route_relation_changed,
             self.on.traefik_route_relation_broken,

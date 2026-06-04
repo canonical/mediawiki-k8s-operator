@@ -13,6 +13,7 @@ import time
 from typing import Any, Callable, List, Optional, TypeVar, Union, cast
 from urllib.parse import urlparse
 
+import charms.smtp_integrator.v0.smtp as smtp
 import mysql.connector
 import ops
 from charmlibs.pathops import ContainerPath, LocalPath
@@ -25,10 +26,12 @@ from database import Database
 from exceptions import (
     MediaWikiBlockedStatusException,
     MediaWikiInstallError,
+    MediaWikiStatusException,
     MediaWikiWaitingStatusException,
 )
 from redis import Redis
 from s3 import S3
+from smtp import Smtp
 from state import CharmConfig, StatefulCharmBase
 from types_ import CommandExecResult, PhpTemplate
 
@@ -79,6 +82,7 @@ class MediaWiki(Object):
         saml: Saml,
         redis: Redis,
         s3: S3,
+        smtp: Smtp,
     ):
         self._charm = charm
         self._container = self._charm.unit.get_container("mediawiki")
@@ -87,6 +91,7 @@ class MediaWiki(Object):
         self._saml = saml
         self._redis = redis
         self._s3 = s3
+        self._smtp = smtp
 
         self._webroot_path = ContainerPath("/var/www/html", container=self._container)
         self._mediawiki_path = self._webroot_path / "w"
@@ -424,8 +429,9 @@ class MediaWiki(Object):
         content = self._late_settings_template_file.read_text()
         content += self._get_proxy_settings()
         content += self._get_database_settings()
+        content += self._get_cache_settings()
 
-        deferred_error: Optional[MediaWikiBlockedStatusException] = None
+        deferred_error: Optional[MediaWikiStatusException] = None
 
         try:
             content += self._get_auth_settings(secrets)
@@ -433,7 +439,14 @@ class MediaWiki(Object):
             logger.warning("Auth configuration incomplete: %s", e)
             deferred_error = e
 
-        content += self._get_cache_settings()
+        try:
+            content += self._get_smtp_settings()
+        except MediaWikiStatusException as e:
+            logger.warning(
+                "SMTP relation data is incomplete or malformed; disabling email notifications"
+            )
+            deferred_error = deferred_error or e
+            content += "$wgEnableEmail = false;\n"
 
         try:
             content += self._get_s3_settings()
@@ -981,6 +994,63 @@ class MediaWiki(Object):
 
         if s3_data.s3_uri_style and s3_data.s3_uri_style.lower() == "path":
             content += "$wgFileBackends['s3']['use_path_style_endpoint'] = true;\n"
+
+        return content + "\n"
+
+    def _get_smtp_settings(self) -> str:
+        """Get the current SMTP settings as a string, to be inserted into a PHP file.
+
+        Returns:
+            str: The SMTP settings formatted as a PHP string.
+
+        Raises:
+            MediaWikiBlockedStatusException: If there is an error fetching the SMTP relation data.
+            MediaWikiWaitingStatusException: If the SMTP relation is not yet available.
+        """
+        if not self._smtp.has_relation():
+            return ""
+
+        smtp_data = self._smtp.get_relation_data()
+
+        host = (
+            f"ssl://{smtp_data.host}"
+            if smtp_data.transport_security == smtp.TransportSecurity.TLS
+            else smtp_data.host
+        )
+
+        wg_smtp_entries = [
+            f"'host' => '{utils.escape_php_string(host)}'",
+            f"'port' => {smtp_data.port}",
+            f"'auth' => {str(smtp_data.auth_type == smtp.AuthType.PLAIN).lower()}",
+        ]
+
+        if smtp_data.user is not None:
+            wg_smtp_entries.append(f"'username' => '{utils.escape_php_string(smtp_data.user)}'")
+
+        if smtp_data.password is not None:
+            wg_smtp_entries.append(
+                f"'password' => '{utils.escape_php_string(smtp_data.password)}'"
+            )
+
+        if smtp_data.skip_ssl_verify:
+            # https://github.com/pear/Net_SMTP/blob/68420118ac8f9dfe5c4b8cac1bdb955efcd4be21/docs/guide.txt#id3
+            wg_smtp_entries.append(
+                "'socket_options' => array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false))"
+            )
+
+        entries_str = textwrap.indent(
+            textwrap.dedent("\n".join(f"{e}," for e in wg_smtp_entries)), " " * 4
+        )
+        content = textwrap.dedent(
+            """\
+            $wgSMTP = [
+            {entries}
+            ];
+            """
+        ).format(entries=entries_str)
+
+        if smtp_data.smtp_sender is not None:
+            content += f"$wgPasswordSender = '{utils.escape_php_string(smtp_data.smtp_sender)}';\n"
 
         return content + "\n"
 
