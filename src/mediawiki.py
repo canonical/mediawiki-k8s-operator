@@ -1085,6 +1085,8 @@ class MediaWiki(Object):
                 'redisConfig'    => [],
                 'daemonized'     => true
             ];
+
+            $wgJobRunRate = 0;
             """
         )
         return content + "\n"

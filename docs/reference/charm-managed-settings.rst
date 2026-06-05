@@ -69,6 +69,9 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
    * - `$wgInternalServer <https://www.mediawiki.org/wiki/Manual:$wgInternalServer>`__
      - .. centered:: :bdg-danger:`No`
      - 
+   * - `$wgJobRunRate <https://www.mediawiki.org/wiki/Manual:$wgJobRunRate>`__
+     - .. centered:: :bdg-warning:`Partially`
+     - This is set to 0 when the :ref:`redis relation <reference_relation_endpoints_redis>` is in use, disabling web request triggered job runs. Instead, jobs are handled by an asynchronous job runner.
    * - `$wgJobTypeConf['default'] <https://www.mediawiki.org/wiki/Manual:$wgJobTypeConf>`__
      - .. centered:: :bdg-warning:`Partially`
      - This is only set when the :ref:`redis relation <reference_relation_endpoints_redis>` is in use.
