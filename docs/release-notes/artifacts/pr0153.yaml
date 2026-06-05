@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Remove duplicate toctree entry
+    author: hk21702
+    type: bugfix
+    description: >-
+      Removed the duplicate "Upgrade" entry from the toctree in the "How To"
+      documentation index, which was accidentally listed twice.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/153"
+      related_doc:
+      related_issue:
+    visibility: internal
+    highlight: false
