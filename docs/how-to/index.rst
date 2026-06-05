@@ -49,7 +49,6 @@ including backup and redeployment processes.
     :maxdepth: 1
 
     Redeploy <redeploy>
-    Upgrade <upgrade>
 
 Development
 -----------
