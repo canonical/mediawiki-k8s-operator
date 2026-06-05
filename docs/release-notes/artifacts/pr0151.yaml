@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Added retry logic for MediaWiki installation
+    author: hk21702
+    type: bugfix
+    description: >-
+      Added retry logic for MediaWiki installation so transient failures,
+      including "No atomic section is open", are retried up to three times
+      before the charm reports an install failure.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/151"
+      related_doc:
+      related_issue:
+    visibility: public
+    highlight: true
