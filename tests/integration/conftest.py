@@ -256,12 +256,17 @@ def early_app_fixture(
             )
         ),
         timeout=20 * 60,
+        error=jubilant.any_error,
     )
 
     juju.integrate(app_name, traefik.name)
     juju.integrate(app_name, db.name)
     juju.integrate(app_name, redis.name)
-    juju.wait(jubilant.all_active)
+    juju.wait(
+        jubilant.all_active,
+        timeout=10 * 60,
+        error=jubilant.any_error,
+    )
 
     yield App(name=app_name)
 
@@ -278,6 +283,8 @@ def app_fixture(
     juju.config(early_app.name, app_config)
     juju.wait(
         lambda status: jubilant.all_active(status) and req_okay(ingress_address, requests_timeout),
+        timeout=5 * 60,
+        error=jubilant.any_error,
     )
 
     yield early_app

@@ -104,6 +104,7 @@ class MediaWiki(Object):
 
         # Configuration paths
         self._user_composer_file = self._mediawiki_path / "composer.user.json"
+        self._composer_lock_file = self._mediawiki_path / "composer.lock"
         self._local_settings_file = self._mediawiki_path / "LocalSettings.php"
 
         ## Settings outside of Webroot
@@ -135,7 +136,9 @@ class MediaWiki(Object):
         ssh_key: Optional[str] = None,
         ro_database: bool = False,
         force_composer_update: bool = False,
-    ) -> None:
+        composer_lock: Optional[str] = None,
+        peer_composer_json: Optional[str] = None,
+    ) -> Optional[str]:
         """Reconcile the state of MediaWiki installation and configuration.
 
         The following actions are completed here:
@@ -146,15 +149,32 @@ class MediaWiki(Object):
         - Reconcile the robots.txt file.
         - Install MediaWiki if the database is not initialized.
 
+        Composer behaviour depends on the unit's leadership role:
+        - Leaders always run ``composer update`` against the current charm config and return
+          the generated lock content. ``composer_lock`` and ``peer_composer_json`` are ignored.
+        - Non-leaders use ``peer_composer_json`` (the serialised composer.json the leader
+          published) together with ``composer_lock`` to run ``composer install``.
+
         Args:
             secrets: An instance of MediaWikiSecrets containing secrets synced between units.
             ssh_key: Optional SSH private key content to write into the container for git access.
-            ro_database: Whether to include settings that put the database into read-only mode for updates. Defaults to False.
-            force_composer_update: Whether to force a composer update regardless of config changes. Defaults to False.
+            ro_database: Whether to include settings that put the database into read-only mode
+                for updates. Defaults to False.
+            force_composer_update: Whether to force a composer update regardless of config
+                changes. Defaults to False.
+            composer_lock: The composer.lock content published by the leader. Ignored on
+                leaders; required on non-leaders that have extensions configured.
+            peer_composer_json: Serialised composer.json published by the leader alongside the
+                lock. Ignored on leaders; used by non-leaders to ensure json+lock consistency.
+
+        Returns:
+            The current composer.lock content if this is the leader unit, None otherwise.
 
         Raises:
-            MediaWikiStatusException: If there is a potentially transient error stopping the reconciliation process.
-            MediaWikiInstallError: If there is an error during installation that should be investigated by an operator.
+            MediaWikiStatusException: If there is a potentially transient error stopping the
+                reconciliation process.
+            MediaWikiInstallError: If there is an error during installation that should be
+                investigated by an operator.
         """
         if not self._database.is_relation_ready():
             raise MediaWikiBlockedStatusException("Database relation is not ready")
@@ -169,7 +189,38 @@ class MediaWiki(Object):
         )
         self._ensure_static_assets_symlink()
         self._ssh_config_reconciliation(config, ssh_key)
-        self._composer_reconciliation(config, force=force_composer_update)
+
+        # Leaders compose against the current config; non-leaders must use the composer.json
+        # that the leader published alongside the lock so that the two files are always in
+        # sync.  If the config already requires extensions but the leader hasn't published a
+        # json+lock pair yet, the non-leader waits rather than installing a mismatched state.
+        if self._charm.unit.is_leader():
+            composer_json_for_reconciliation = config.composer
+            composer_lock_for_reconciliation = None
+        else:
+            composer_lock_for_reconciliation = composer_lock
+            if peer_composer_json is not None:
+                try:
+                    composer_json_for_reconciliation = json.loads(peer_composer_json)
+                except json.JSONDecodeError:
+                    logger.warning(
+                        "Peer-published composer.json is not valid JSON; waiting for leader to republish."
+                    )
+                    raise MediaWikiWaitingStatusException(
+                        "Waiting for leader to publish valid composer configuration"
+                    )
+            elif config.composer:
+                raise MediaWikiWaitingStatusException(
+                    "Waiting for leader to publish composer configuration"
+                )
+            else:
+                composer_json_for_reconciliation = {}
+
+        self._composer_reconciliation(
+            composer_json_for_reconciliation,
+            lock_content=composer_lock_for_reconciliation,
+            force=force_composer_update,
+        )
         self._robots_txt_reconciliation(config)
 
         if not self._is_database_initialized():
@@ -177,6 +228,13 @@ class MediaWiki(Object):
             self._install(config)
 
         self._settings_reconciliation(config, secrets, ro_database=ro_database)
+
+        if self._charm.unit.is_leader():
+            if not self._composer_lock_file.exists():
+                raise MediaWikiBlockedStatusException("Unable to fetch Composer lock file.")
+            return self._composer_lock_file.read_text()
+
+        return None
 
     def rotate_root_credentials(self) -> tuple[str, str]:
         """Rotate the root bureaucrat user's credentials and ensure that it is in the bureaucrat group.
@@ -315,79 +373,151 @@ class MediaWiki(Object):
             owner=self._WEBROOT_OWNER_USER,
         )
 
-    def _composer_reconciliation(self, config: CharmConfig, *, force: bool = False) -> None:
-        """Reconcile the composer configuration, pushing the composer.user.json file if needed and running composer update.
+    def _composer_reconciliation(
+        self,
+        composer_json: dict[str, Any],
+        *,
+        lock_content: Optional[str] = None,
+        force: bool = False,
+    ) -> None:
+        """Reconcile the composer configuration.
+
+        Routing is determined by the unit's leadership role:
+
+        **Leader path**: Writes ``composer.user.json`` and runs ``composer update``.
+        The ``lock_content`` parameter is ignored.
+
+        **Non-leader path**: If ``lock_content`` is None the unit cannot proceed and raises
+        :exc:`MediaWikiWaitingStatusException`. Otherwise writes both ``composer.user.json``
+        and ``composer.lock`` before running ``composer install``.
+
+        In both paths the operation is skipped when the relevant files already match their
+        expected content (unless ``force`` is True).
 
         Args:
-            config: The charm configuration.
-            force: If True, skip the config-diff check and always run composer update.
+            composer_json: Desired content for ``composer.user.json`` as a dict.
+            lock_content: Pre-generated lock file content from the peer leader. Ignored on
+                the leader; required (non-None) on non-leaders.
+            force: If True, skip the content-diff check and always run composer.
+
+        Raises:
+            MediaWikiWaitingStatusException: If this is a non-leader unit and no lock has
+                been published by the leader yet.
+            MediaWikiBlockedStatusException: If the composer command fails.
         """
-        if not force:
-            current_composer = self._get_current_composer()
+        is_leader = self._charm.unit.is_leader()
 
-            # Only run if composer.json has changed or is missing
-            if current_composer == config.composer:
-                logger.debug("Composer configuration unchanged, skipping update.")
-                return
+        if not is_leader and lock_content is None:
+            raise MediaWikiWaitingStatusException("Waiting for leader to publish composer lock")
 
-        logger.info("Starting composer reconciliation.")
+        # Determine whether we can skip this reconciliation.
+        if not force and self._should_skip_composer(
+            composer_json, is_leader=is_leader, lock_content=lock_content
+        ):
+            logger.debug(
+                "Composer configuration%s unchanged, skipping %s.",
+                "" if is_leader else " and lock",
+                "update" if is_leader else "install",
+            )
+            return
+
+        subcommand = "update" if is_leader else "install"
+        logger.info(
+            "Starting composer reconciliation (%s: %s).",
+            "leader" if is_leader else "non-leader",
+            subcommand,
+        )
 
         self._user_composer_file.write_text(
-            json.dumps(config.composer),
+            json.dumps(composer_json),
             mode=0o640,
             user=self._WEBROOT_OWNER_USER,
             group=self._DAEMON_GROUP,
         )
 
-        composer_timeout = self._LONG_TIMEOUT * 2  # Composer update can take time
+        # Non-leaders also write the lock file before install.
+        if not is_leader:
+            self._composer_lock_file.write_text(
+                lock_content,  # type: ignore[arg-type]  # guarded by None check above
+                mode=0o640,
+                user=self._WEBROOT_OWNER_USER,
+                group=self._DAEMON_GROUP,
+            )
+
         result = self._run_cli(
-            [
-                str(self._composer_path),
-                "update",
-                "--no-dev",
-            ],
+            [str(self._composer_path), subcommand, "--no-dev", "--optimize-autoloader"],
             user=self._WEBROOT_OWNER_USER,
             group=self._DAEMON_GROUP,
             working_dir=str(self._mediawiki_path),
-            timeout=composer_timeout,
             environment=self._charm.state.get_proxy_env(),
+            timeout=self._LONG_TIMEOUT * 2,
         )
 
         if result.return_code != 0:
             logger.error(
-                "Composer update failed with return code %s\nstdout: %s\nstderr: %s",
+                "Composer %s failed with return code %s\nstdout: %s\nstderr: %s",
+                subcommand,
                 result.return_code,
                 result.stdout,
                 result.stderr,
             )
+            self._handle_composer_failure(composer_json, is_leader=is_leader)
+            raise MediaWikiBlockedStatusException(
+                f"Composer {subcommand} failed; see logs for details."
+            )
 
-            # Write the config with a failure marker so that:
-            # (a) the file differs from config.composer, causing a retry next reconciliation, and
-            # (b) anyone inspecting the file can see that this configuration failed to apply.
-            failed = {
-                **config.composer,
-                "_charm_error": "Composer update failed",
-            }
+        logger.info("Composer %s completed successfully:\n%s", subcommand, result.stdout)
+
+    def _handle_composer_failure(self, composer_json: dict[str, Any], *, is_leader: bool) -> None:
+        """Write a marker after a failed composer command so that the next reconciliation retries.
+
+        For leaders, a ``_charm_error`` key is added to ``composer.user.json``.
+        For non-leaders, the lock file is cleared.
+        """
+        if is_leader:
+            failed = {**composer_json, "_charm_error": "Composer update failed"}
             self._user_composer_file.write_text(
                 json.dumps(failed),
                 mode=0o640,
                 user=self._WEBROOT_OWNER_USER,
                 group=self._DAEMON_GROUP,
             )
+        else:
+            self._composer_lock_file.write_text(
+                "",
+                mode=0o640,
+                user=self._WEBROOT_OWNER_USER,
+                group=self._DAEMON_GROUP,
+            )
 
-            raise MediaWikiBlockedStatusException("Composer update failed; see logs for details.")
+    def _should_skip_composer(
+        self,
+        composer_json: dict[str, Any],
+        *,
+        is_leader: bool,
+        lock_content: Optional[str],
+    ) -> bool:
+        """Return whether or not composer reconciliation can be skipped.
 
-        logger.info("Composer update completed successfully: \n%s", result.stdout)
-
-    def _get_current_composer(self) -> dict[str, Any]:
-        """Get the current content of composer.user.json as a dict."""
+        For leaders, this is true if the current ``composer.user.json`` matches the desired state. For non-leaders, this is true if both the current ``composer.user.json`` matches
+        the desired state and the current ``composer.lock`` matches the leader-published lock.
+        """
         if not self._user_composer_file.exists():
-            return {}
-
+            return not composer_json
         try:
-            return json.loads(self._user_composer_file.read_text())
+            current_json = json.loads(self._user_composer_file.read_text())
         except json.JSONDecodeError:
-            return {}
+            return False
+
+        if current_json != composer_json:
+            return False
+
+        if is_leader:
+            return True
+
+        if not self._composer_lock_file.exists():
+            return False
+        return self._composer_lock_file.read_text() == lock_content
 
     def _settings_reconciliation(
         self,

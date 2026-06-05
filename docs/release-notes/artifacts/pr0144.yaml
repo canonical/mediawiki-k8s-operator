@@ -1,0 +1,19 @@
+version_schema: 2
+
+changes:
+  - title: Added composer lock file sync between units
+    author: hk21702
+    type: minor
+    description: >
+      Ensured that the composer.lock file is kept in sync across all units in a
+      multi-unit deployment. The leader unit now publishes both the composer.json
+      and generated lock file to the peer relation; non-leader units consume these
+      to run composer install instead of composer update, preventing potential
+      configuration drift between units.
+    urls:
+      pr:
+        - https://github.com/canonical/mediawiki-k8s-operator/pull/144
+      related_doc:
+      related_issue:
+    visibility: public
+    highlight: false

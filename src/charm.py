@@ -5,6 +5,7 @@
 
 """Charm Operator for mediawiki-k8s."""
 
+import json
 import logging
 import typing
 from urllib.parse import urlparse
@@ -83,6 +84,8 @@ class Charm(StatefulCharmBase):
 
     _RO_DATABASE_FLAG = "ro_db"
     _FORCE_RECONCILIATION_FLAG = "force_reconciliation"
+    _COMPOSER_JSON_KEY = "composer_json"
+    _COMPOSER_LOCK_KEY = "composer_lock"
 
     _SSH_KEY_MEDIAWIKI_FIELD = "mediawiki"
     _SSH_KEY_GIT_SYNC_FIELD = "git-sync"
@@ -611,6 +614,7 @@ class Charm(StatefulCharmBase):
         - Trigger the git-sync reconciliation process
         - Trigger the MediaWiki workload reconciliation process.
         - Flag the unit as being in read-only mode if the database was set to read-only mode.
+        - Publish the composer state if needed (leader only).
         - Trigger the database reconciliation process.
         - Start the MediaWiki service if it is not running.
         - Configure OAuth if necessary.
@@ -647,12 +651,28 @@ class Charm(StatefulCharmBase):
                 force_composer_update
                 or self._check_and_clear_force_reconciliation_flag(replica_data)
             )
-            self._mediawiki.reconciliation(
+
+            # Extract composer data from the peer relation for non-leader units.
+            peer_app = replica_data[self.app]
+            new_lock = self._mediawiki.reconciliation(
                 secrets,
                 ssh_key=self._ssh_key(self._SSH_KEY_MEDIAWIKI_FIELD),
                 ro_database=set_ro_database,
                 force_composer_update=force_composer_update,
+                composer_lock=peer_app.get(self._COMPOSER_LOCK_KEY),
+                peer_composer_json=peer_app.get(self._COMPOSER_JSON_KEY),
             )
+
+            # Publish composer state
+            if new_lock is not None and self.unit.is_leader():
+                config = self.load_charm_config()
+                replica_data[self.app][self._COMPOSER_JSON_KEY] = json.dumps(config.composer)
+                replica_data[self.app][self._COMPOSER_LOCK_KEY] = new_lock
+            elif new_lock is not None and not self.unit.is_leader():
+                raise MediaWikiBlockedStatusException(
+                    "Non-leader unit attempted to publish composer state"
+                )
+
             replica_data[self.unit][self._RO_DATABASE_FLAG] = str(set_ro_database).lower()
             self._database_reconciliation()
 

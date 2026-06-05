@@ -25,6 +25,13 @@ class ExecCmd(enum.Enum):
         "/usr/bin/composer",
         "update",
         "--no-dev",
+        "--optimize-autoloader",
+    )
+    COMPOSER_INSTALL = (
+        "/usr/bin/composer",
+        "install",
+        "--no-dev",
+        "--optimize-autoloader",
     )
     MAINTENANCE_INSTALL_PRE_CONFIGURED = (
         "/usr/bin/php",
@@ -128,10 +135,15 @@ def configured_state(
     return dataclasses.replace(active_state, config=populated_config)
 
 
+MOCK_COMPOSER_LOCK = '{"packages": [], "_readme": ["Mocked lock file"]}'
+
+
 @pytest.fixture
 def container_mounts(tmp_path):
     install_location = tmp_path / "install_location"
     install_location.mkdir(parents=True)
+    # Pre-create composer.lock so the leader path can read it after a mocked composer update.
+    (install_location / "composer.lock").write_text(MOCK_COMPOSER_LOCK)
 
     ssh_dir = tmp_path / "ssh_dir"
     ssh_dir.mkdir(parents=True)
@@ -162,6 +174,12 @@ def execs() -> Generator[set[testing.Exec], None, None]:
             ExecCmd.COMPOSER_UPDATE.value,
             return_code=0,
             stdout="Mocked composer update",
+            stderr="",
+        ),
+        testing.Exec(
+            ExecCmd.COMPOSER_INSTALL.value,
+            return_code=0,
+            stdout="Mocked composer install",
             stderr="",
         ),
         testing.Exec(
