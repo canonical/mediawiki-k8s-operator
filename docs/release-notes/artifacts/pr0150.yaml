@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Added documentation for composer reconciliation flow
+    author: hk21702
+    type: minor
+    description: >-
+      Added documentation that explains how composer reconciliation works across
+      units, including how lock-file synchronization keeps extension versions
+      consistent in multi-unit deployments.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/150"
+      related_doc:
+      related_issue:
+    visibility: public
+    highlight: false
