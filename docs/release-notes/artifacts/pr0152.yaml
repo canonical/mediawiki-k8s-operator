@@ -1,0 +1,18 @@
+version_schema: 2
+
+changes:
+  - title: Disabled synchronous job runs when using Redis
+    author: hk21702
+    type: bugfix
+    description: >-
+      Overrode the $wgJobRunRate configuration setting to 0 when the Redis
+      relation is in use. This disables web request triggered job runs, ensuring
+      that jobs are instead handled entirely by the asynchronous job runner to
+      improve request latency.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/152"
+      related_doc:
+      related_issue:
+    visibility: public
+    highlight: false

@@ -709,6 +709,7 @@ class TestCacheSettings:
             state_out = mgr.run()
 
         late_settings = self._get_late_settings(ctx, state_out)
+        assert "$wgJobRunRate = 0;" in late_settings
         assert "$wgJobTypeConf['default']" in late_settings
         assert "'class'          => 'JobQueueRedis'" in late_settings
         assert "'redisServer'    => 'redis-host:6379'" in late_settings
