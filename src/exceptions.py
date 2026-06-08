@@ -52,6 +52,10 @@ class MediaWikiInstallError(Exception):
     """Exception for unrecoverable errors during MediaWiki installation."""
 
 
+class ContainerError(Exception):
+    """Exception for unrecoverable errors while executing a container command."""
+
+
 class CharmConfigInvalidError(Exception):
     """Exception raised when a charm configuration is found to be invalid.
 

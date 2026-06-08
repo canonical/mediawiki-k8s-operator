@@ -39,7 +39,7 @@ from exceptions import (
     MediaWikiWaitingStatusException,
 )
 from git_sync import GitSync
-from mediawiki import MediaWiki, MediaWikiSecrets
+from mediawiki import MediaWiki, MediaWikiSecrets, constants
 from mediawiki_api import SiteInfo
 from redis import Redis
 from s3 import S3
@@ -208,7 +208,7 @@ class Charm(StatefulCharmBase):
                     service: {
                         "override": "replace",
                         "summary": f"MediaWiki {service}",
-                        "command": f"{php_path} {job_runner_service_dir}/{service} --config-file={self._mediawiki.JOB_RUNNER_CONFIG_PATH}",
+                        "command": f"{php_path} {job_runner_service_dir}/{service} --config-file={constants.JOB_RUNNER_CONFIG_PATH}",
                         "startup": "disabled",
                         "environment": self.state.get_proxy_env({}),
                     }

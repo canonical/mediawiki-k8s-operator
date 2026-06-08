@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Refactored MediaWiki container logic into mixins
+    author: hk21702
+    type: minor
+    description: >
+      Split the monolithic MediaWiki module into a package of focused mixins
+      (_ComposerMixin, _SettingsMixin) with a shared base class, and extracted
+      a generic ContainerService base class. No external interface changes were
+      made; all existing code and tests continue to work without modification.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/158"
+    visibility: internal
+    highlight: false

@@ -4,10 +4,13 @@
 """Module for internal types for the MediaWiki charm."""
 
 import dataclasses
+import logging
 from string import Template
 from typing import List, NamedTuple, Optional, Union
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -30,6 +33,36 @@ class CommandExecResult(NamedTuple):
     return_code: int
     stdout: Union[str, bytes]
     stderr: Union[str, bytes, None]
+
+    def raise_for_status(self, action: str, exc: type[Exception]) -> "CommandExecResult":
+        """Raise an exception if the command failed (non-zero return code).
+
+        On failure, the return code, stdout and stderr are logged before the
+        exception is raised. On success the result is returned unchanged so the
+        call can be chained.
+
+        Args:
+            action: Human-readable description of the command's purpose (e.g.
+                "Creating root user"). Used in the log message and the exception text.
+            exc: The exception type to raise on failure.
+
+        Returns:
+            The result itself, to allow chaining.
+
+        Raises:
+            Exception: An instance of ``exc`` if the return code is non-zero.
+        """
+        if self.return_code == 0:
+            return self
+
+        logger.error(
+            "%s failed with return code %s\nstdout: %s\nstderr: %s",
+            action,
+            self.return_code,
+            self.stdout,
+            self.stderr,
+        )
+        raise exc(f"{action} failed; see logs for details.")
 
 
 class DatabaseEndpoint(NamedTuple):
