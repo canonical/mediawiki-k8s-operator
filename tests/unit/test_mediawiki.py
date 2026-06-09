@@ -24,7 +24,7 @@ from exceptions import (
 from mediawiki import MediaWiki, MediaWikiSecrets
 from state import CharmConfigInvalidError, StatefulCharmBase
 from tests.unit.conftest import MOCK_COMPOSER_LOCK, ExecCmd
-from types_ import DatabaseConfig, DatabaseEndpoint, S3ConnectionInfo
+from types_ import CommandExecResult, DatabaseConfig, DatabaseEndpoint, S3ConnectionInfo
 
 
 class WrapperCharm(StatefulCharmBase):
@@ -425,6 +425,81 @@ class TestUpdateDatabaseScheme:
             pytest.raises(MediaWikiInstallError, match="Database schema update failed"),
         ):
             mgr.charm.mediawiki.update_database_schema()
+
+
+class TestInstall:
+    def test_retries_then_raises_on_persistent_failure(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_container: testing.Container,
+        execs: set[testing.Exec],
+        mocker: MockerFixture,
+    ) -> None:
+        """Test that a persistently failing install is retried the expected number of times before raising."""
+        mock_sleep = mocker.patch("mediawiki.time.sleep")
+
+        failing_execs = {
+            e
+            for e in execs
+            if e.command_prefix != ExecCmd.MAINTENANCE_INSTALL_PRE_CONFIGURED.value
+        }
+        failing_execs.add(
+            testing.Exec(
+                ExecCmd.MAINTENANCE_INSTALL_PRE_CONFIGURED.value,
+                return_code=1,
+                stdout="",
+                stderr="Mocked transient install failure",
+            )
+        )
+        mediawiki_container = dataclasses.replace(mediawiki_container, execs=failing_execs)
+        state_in = dataclasses.replace(active_state, containers=[mediawiki_container])
+        with (
+            ctx(ctx.on.update_status(), state_in) as mgr,
+            pytest.raises(MediaWikiInstallError, match="MediaWiki installation failed"),
+        ):
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+
+        install_prefix = set(ExecCmd.MAINTENANCE_INSTALL_PRE_CONFIGURED.value)
+        attempts = sum(
+            1
+            for cmd in ctx.exec_history[Charm._CONTAINER_NAME]
+            if install_prefix <= set(cmd.command)
+        )
+        assert attempts == MediaWiki._INSTALL_MAX_ATTEMPTS
+        # A short delay is taken between each attempt, but not after the final one.
+        assert mock_sleep.call_count == MediaWiki._INSTALL_MAX_ATTEMPTS - 1
+
+    def test_retries_then_succeeds(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test that an install which fails before succeeding completes without raising."""
+        mock_sleep = mocker.patch("mediawiki.time.sleep")
+
+        install_attempts = 0
+
+        def fake_run(self_, args, *_args, **_kwargs):
+            nonlocal install_attempts
+            if args and args[0] == "installPreConfigured":
+                install_attempts += 1
+                if install_attempts < MediaWiki._INSTALL_MAX_ATTEMPTS:
+                    return CommandExecResult(
+                        return_code=1, stdout="", stderr="Mocked transient install failure"
+                    )
+            return CommandExecResult(return_code=0, stdout="ok", stderr="")
+
+        mocker.patch.object(
+            MediaWiki, "_run_maintenance_script", autospec=True, side_effect=fake_run
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+
+        assert install_attempts == MediaWiki._INSTALL_MAX_ATTEMPTS
+        assert mock_sleep.call_count == MediaWiki._INSTALL_MAX_ATTEMPTS - 1
 
 
 class TestMediaWikiSecrets:

@@ -55,6 +55,12 @@ class MediaWiki(Object):
     _DB_CHECK_TIMEOUT = _BASE_TIMEOUT * 3
     _DB_CHECK_INTERVAL = 5
 
+    # Number of times to attempt the MediaWiki installation script before giving up.
+    # The install can occasionally fail due to transient atomic operation issues.
+    _INSTALL_MAX_ATTEMPTS = 3
+    # Short delay between installation attempts to let transient issues settle.
+    _INSTALL_RETRY_INTERVAL = 2
+
     # Extensions bundled in the rock image that should always be loaded
     # during schema updates, regardless of whether they are configured.
     _BUNDLED_EXTENSIONS = ("PluggableAuth", "OpenIDConnect", "SimpleSAMLphp")
@@ -664,17 +670,24 @@ class MediaWiki(Object):
         )
         logger.debug("User settings cleared for installation.")
 
-        result = self._run_maintenance_script(["installPreConfigured"])
-        if result.return_code != 0:
+        for attempt in range(1, self._INSTALL_MAX_ATTEMPTS + 1):
+            result = self._run_maintenance_script(["installPreConfigured"])
+            if result.return_code == 0:
+                logger.info("MediaWiki installation script output:\n%s", result.stdout)
+                break
             logger.error(
-                "MediaWiki installation failed with return code %s\nstdout: %s\nstderr: %s",
+                "MediaWiki installation attempt %s of %s failed with return code %s\n"
+                "stdout: %s\nstderr: %s",
+                attempt,
+                self._INSTALL_MAX_ATTEMPTS,
                 result.return_code,
                 result.stdout,
                 result.stderr,
             )
-            raise MediaWikiInstallError("MediaWiki installation failed; see logs for details.")
+            if attempt < self._INSTALL_MAX_ATTEMPTS:
+                time.sleep(self._INSTALL_RETRY_INTERVAL)
         else:
-            logger.info("MediaWiki installation script output:\n%s", result.stdout)
+            raise MediaWikiInstallError("MediaWiki installation failed; see logs for details.")
         logger.info("Completed MediaWiki install script")
 
         # Restore user settings and run the database upgrade to finish setting up user enabled extensions.
