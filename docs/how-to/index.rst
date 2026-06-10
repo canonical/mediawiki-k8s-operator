@@ -25,13 +25,8 @@ basic operations you can complete with the charm.
 
     Configure MediaWiki <configure-mediawiki>
     Install extensions and skins <install-extensions-and-skins>
-    Rotate secrets <rotate-secrets>
-
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-
     Integrate with COS <integrate-with-cos>
+    Rotate secrets <rotate-secrets>
 
 Update and refresh
 ------------------
