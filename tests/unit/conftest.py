@@ -15,7 +15,7 @@ from pytest_mock import MockerFixture, MockType
 
 from charm import Charm
 from git_sync import GitSync
-from mediawiki import MediaWiki, MediaWikiSecrets
+from mediawiki import MediaWikiSecrets, constants
 
 
 class ExecCmd(enum.Enum):
@@ -53,8 +53,8 @@ class ExecCmd(enum.Enum):
     SYMLINK_STATIC_ASSETS = (
         "ln",
         "-sfn",
-        MediaWiki.STATIC_ASSETS_REPO_PATH,
-        MediaWiki.WEBROOT_STATIC_PATH,
+        constants.STATIC_ASSETS_REPO_PATH,
+        constants.WEBROOT_STATIC_PATH,
     )
 
     def ran_in(self, exec_history: list) -> bool:

@@ -21,7 +21,7 @@ from exceptions import (
     MediaWikiInstallError,
     MediaWikiWaitingStatusException,
 )
-from mediawiki import MediaWiki, MediaWikiSecrets
+from mediawiki import MediaWiki, MediaWikiSecrets, constants
 from state import CharmConfigInvalidError, StatefulCharmBase
 from tests.unit.conftest import MOCK_COMPOSER_LOCK, ExecCmd
 from types_ import CommandExecResult, DatabaseConfig, DatabaseEndpoint, S3ConnectionInfo
@@ -368,7 +368,7 @@ class TestRotateRootCredentials:
         with ctx(ctx.on.update_status(), active_state) as mgr:
             user, password = mgr.charm.mediawiki.rotate_root_credentials()
 
-            assert user == MediaWiki._ROOT_USER_NAME
+            assert user == constants.ROOT_USER_NAME
             assert isinstance(password, str) and len(password) >= 64
 
     def test_failure(
@@ -437,7 +437,7 @@ class TestInstall:
         mocker: MockerFixture,
     ) -> None:
         """Test that a persistently failing install is retried the expected number of times before raising."""
-        mock_sleep = mocker.patch("mediawiki.time.sleep")
+        mock_sleep = mocker.patch("mediawiki._core.time.sleep")
 
         failing_execs = {
             e
@@ -466,9 +466,9 @@ class TestInstall:
             for cmd in ctx.exec_history[Charm._CONTAINER_NAME]
             if install_prefix <= set(cmd.command)
         )
-        assert attempts == MediaWiki._INSTALL_MAX_ATTEMPTS
+        assert attempts == constants.INSTALL_MAX_ATTEMPTS
         # A short delay is taken between each attempt, but not after the final one.
-        assert mock_sleep.call_count == MediaWiki._INSTALL_MAX_ATTEMPTS - 1
+        assert mock_sleep.call_count == constants.INSTALL_MAX_ATTEMPTS - 1
 
     def test_retries_then_succeeds(
         self,
@@ -477,7 +477,7 @@ class TestInstall:
         mocker: MockerFixture,
     ) -> None:
         """Test that an install which fails before succeeding completes without raising."""
-        mock_sleep = mocker.patch("mediawiki.time.sleep")
+        mock_sleep = mocker.patch("mediawiki._core.time.sleep")
 
         install_attempts = 0
 
@@ -485,7 +485,7 @@ class TestInstall:
             nonlocal install_attempts
             if args and args[0] == "installPreConfigured":
                 install_attempts += 1
-                if install_attempts < MediaWiki._INSTALL_MAX_ATTEMPTS:
+                if install_attempts < constants.INSTALL_MAX_ATTEMPTS:
                     return CommandExecResult(
                         return_code=1, stdout="", stderr="Mocked transient install failure"
                     )
@@ -498,8 +498,8 @@ class TestInstall:
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
 
-        assert install_attempts == MediaWiki._INSTALL_MAX_ATTEMPTS
-        assert mock_sleep.call_count == MediaWiki._INSTALL_MAX_ATTEMPTS - 1
+        assert install_attempts == constants.INSTALL_MAX_ATTEMPTS
+        assert mock_sleep.call_count == constants.INSTALL_MAX_ATTEMPTS - 1
 
 
 class TestMediaWikiSecrets:
@@ -804,7 +804,7 @@ class TestCacheSettings:
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
-        config_path = container_fs / MediaWiki.JOB_RUNNER_CONFIG_PATH.lstrip("/")
+        config_path = container_fs / constants.JOB_RUNNER_CONFIG_PATH.lstrip("/")
         assert config_path.exists(), (
             "JobRunnerConfig.json should be written when Redis is available"
         )
@@ -824,7 +824,7 @@ class TestCacheSettings:
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
-        config_path = container_fs / MediaWiki.JOB_RUNNER_CONFIG_PATH.lstrip("/")
+        config_path = container_fs / constants.JOB_RUNNER_CONFIG_PATH.lstrip("/")
         assert not config_path.exists(), (
             "JobRunnerConfig.json should not exist when Redis is unavailable"
         )
