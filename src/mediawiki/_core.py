@@ -371,6 +371,10 @@ class MediaWiki(_ComposerMixin, _SettingsMixin, _MediaWikiBase):
                 result.stderr,
             )
             if attempt < constants.INSTALL_MAX_ATTEMPTS:
+                try:
+                    self.update_database_schema()
+                except MediaWikiInstallError as e:
+                    logger.warning("Database schema update before retry failed: %s", e)
                 time.sleep(constants.INSTALL_RETRY_INTERVAL)
         else:
             raise MediaWikiInstallError("MediaWiki installation failed; see logs for details.")

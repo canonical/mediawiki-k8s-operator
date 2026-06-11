@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Added database schema update before installation retry
+    author: hk21702
+    type: bugfix
+    description: >
+      When the MediaWiki installation script (installPreConfigured) fails, it
+      may leave the database in a partially initialised state. On subsequent
+      retries the script would skip database setup steps and fail at a later
+      point. A database schema update is now attempted between retries so that
+      any partial state is resolved before the next installation attempt.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/161"
+    visibility: internal
+    highlight: false
