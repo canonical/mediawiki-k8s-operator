@@ -122,18 +122,15 @@ class Charm(StatefulCharmBase):
                 {
                     "job_name": "apache_exporter",
                     "static_configs": [{"targets": [f"*:{self._APACHE_EXPORTER_PORT}"]}],
-                },
-                {
-                    "job_name": "git_sync",
-                    "static_configs": [{"targets": [f"*:{self._git_sync.GIT_SYNC_PORT}"]}],
-                },
+                }
             ],
+            lookaside_jobs_callable=self._git_sync.metrics_scrape_jobs,
             refresh_event=[
                 self.on.mediawiki_pebble_ready,
                 self.on.git_sync_pebble_ready,
+                self.on.config_changed,
             ],
         )
-
         self.framework.observe(self.on.leader_elected, self._setup_replica_data)
 
         # Reconciliation events
