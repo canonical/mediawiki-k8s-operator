@@ -17,6 +17,11 @@ Each revision is versioned by the date of the revision.
 
 - Don't attempt to scrape metrics from ``git-sync`` when it is not enabled.
 
+2026-06-10
+----------
+
+- Add documentation on how to integrate the MediaWiki charm with the Canonical Observability Stack (COS).
+
 2026-06-04
 ----------
 

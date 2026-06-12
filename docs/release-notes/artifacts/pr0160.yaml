@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Added how-to guide for integrating MediaWiki with COS
+    author: hk21702
+    type: minor
+    description: >-
+      Added a how-to guide describing how to integrate the MediaWiki charm with
+      the Canonical Observability Stack (COS), covering both COS and COS Lite
+      deployments on track 2.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/160"
+      related_doc: https://documentation.ubuntu.com/mediawiki-k8s-charm/how-to/integrate-with-cos/
+      related_issue:
+    visibility: public
+    highlight: false
