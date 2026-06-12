@@ -43,7 +43,7 @@ def mock_git_sync(mocker: MockerFixture) -> MockType:
     mock_instance = mock_git_sync_cls.return_value
 
     mock_instance.is_ready.return_value = True
-    mock_instance.reconciliation.return_value = None
+    mock_instance.metrics_scrape_jobs.return_value = []
 
     return mock_instance
 
@@ -919,3 +919,109 @@ class TestComposerLockPeerSync:
         _, kwargs = mock_mediawiki.reconciliation.call_args
         assert kwargs.get("composer_lock") == MOCK_COMPOSER_LOCK
         assert kwargs.get("peer_composer_json") == json.dumps({"require": {}})
+
+
+class TestMetricsEndpoint:
+    """Tests that scrape jobs reflect the desired workload state."""
+
+    @pytest.fixture
+    def metrics_relation(self) -> testing.Relation:
+        """Return a metrics-endpoint relation."""
+        return testing.Relation(endpoint="metrics-endpoint", interface="prometheus_scrape")
+
+    @staticmethod
+    def _published_job_names(state_out: testing.State, relation_id: int) -> list[str]:
+        """Return the job names published in the metrics-endpoint relation data."""
+        data = state_out.get_relation(relation_id).local_app_data.get("scrape_jobs")
+        if not data:
+            return []
+        return [job.get("job_name", "") for job in json.loads(data)]
+
+    def test_apache_job_always_published_when_active(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        metrics_relation: testing.Relation,
+        mock_git_sync: MockType,
+    ) -> None:
+        """Apache exporter job is advertised (always-on service) and git-sync is not when unconfigured."""
+        mock_git_sync.metrics_scrape_jobs.return_value = []
+        state_in = dataclasses.replace(
+            active_state, relations=[*active_state.relations, metrics_relation]
+        )
+
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+        job_names = self._published_job_names(state_out, metrics_relation.id)
+        assert any("apache_exporter" in name for name in job_names)
+        assert not any("git_sync" in name for name in job_names)
+
+    def test_git_sync_job_published_when_metrics_enabled(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        metrics_relation: testing.Relation,
+        mock_git_sync: MockType,
+    ) -> None:
+        """Git-sync job is advertised when git-sync's lookaside callable contributes it."""
+        mock_git_sync.metrics_scrape_jobs.return_value = [
+            {"job_name": "git_sync", "static_configs": [{"targets": ["*:8081"]}]}
+        ]
+        state_in = dataclasses.replace(
+            active_state, relations=[*active_state.relations, metrics_relation]
+        )
+
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+        job_names = self._published_job_names(state_out, metrics_relation.id)
+        assert any("apache_exporter" in name for name in job_names)
+        assert any("git_sync" in name for name in job_names)
+
+    def test_git_sync_job_retained_when_blocked(
+        self,
+        ctx: testing.Context,
+        base_state: testing.State,
+        metrics_relation: testing.Relation,
+        mediawiki_container: testing.Container,
+        mock_git_sync: MockType,
+    ) -> None:
+        """Git-sync job is published when the charm blocks before reconciliation completes.
+
+        The provider re-publishes its jobs on refresh events (including pebble-ready)
+        and the git-sync job is contributed by the lookaside callable, so it does not
+        depend on reconciliation running to completion.
+        """
+        mock_git_sync.metrics_scrape_jobs.return_value = [
+            {"job_name": "git_sync", "static_configs": [{"targets": ["*:8081"]}]}
+        ]
+        state_in = dataclasses.replace(base_state, relations=[metrics_relation])
+
+        state_out = ctx.run(ctx.on.pebble_ready(container=mediawiki_container), state_in)
+
+        assert isinstance(state_out.unit_status, ops.BlockedStatus)
+        job_names = self._published_job_names(state_out, metrics_relation.id)
+        # apache-exporter is always-on so its job is still advertised once pebble is ready.
+        assert any("apache_exporter" in name for name in job_names)
+        # git-sync's lookaside contributes its job regardless of the charm status.
+        assert any("git_sync" in name for name in job_names)
+
+    def test_git_sync_job_omitted_when_lookaside_empty(
+        self,
+        ctx: testing.Context,
+        base_state: testing.State,
+        metrics_relation: testing.Relation,
+        mediawiki_container: testing.Container,
+    ) -> None:
+        """Git-sync job is omitted when its lookaside callable contributes nothing."""
+        disconnected = dataclasses.replace(mediawiki_container, can_connect=False)
+        other = [c for c in base_state.containers if c.name != Charm._CONTAINER_NAME]
+        state_in = dataclasses.replace(
+            base_state, containers=[*other, disconnected], relations=[metrics_relation]
+        )
+
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+        assert isinstance(state_out.unit_status, ops.WaitingStatus)
+        # The lookaside (default mock) returns no jobs, so git-sync is not advertised.
+        job_names = self._published_job_names(state_out, metrics_relation.id)
+        assert not any("git_sync" in name for name in job_names)

@@ -157,6 +157,34 @@ class TestReconciliation:
             mgr.charm.git_sync.reconciliation(ssh_key=None)
 
 
+class TestMetricsScrapeJobs:
+    """Tests for GitSync.metrics_scrape_jobs()."""
+
+    def test_job_published_when_repo_configured(
+        self,
+        ctx: testing.Context,
+        configured_git_sync_state: testing.State,
+    ) -> None:
+        """The git-sync scrape job is returned when a repository is configured."""
+        with ctx(ctx.on.update_status(), configured_git_sync_state) as mgr:
+            jobs = mgr.charm.git_sync.metrics_scrape_jobs()
+
+        assert [job["job_name"] for job in jobs] == ["git_sync"]
+        assert jobs[0]["static_configs"][0]["targets"] == [f"*:{GitSync.GIT_SYNC_PORT}"]
+
+    def test_no_job_when_repo_not_configured(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+    ) -> None:
+        """No scrape job is returned when no repository is configured."""
+        state_in = dataclasses.replace(
+            active_state, config={**active_state.config, "static-assets-git-repo": ""}
+        )
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            assert mgr.charm.git_sync.metrics_scrape_jobs() == []
+
+
 class TestSshConfigReconciliation:
     """Tests for GitSync._ssh_config_reconciliation()."""
 

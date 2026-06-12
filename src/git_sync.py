@@ -10,7 +10,7 @@ from charmlibs.pathops import ContainerPath
 from ops import ModelError, Object, pebble
 
 import utils
-from exceptions import MediaWikiBlockedStatusException
+from exceptions import CharmConfigInvalidError, MediaWikiBlockedStatusException
 from state import CharmConfig, StatefulCharmBase
 
 logger = logging.getLogger(__name__)
@@ -83,8 +83,33 @@ class GitSync(Object):
         self._sparse_checkout_reconciliation(config)
         self._reconcile_services(config)
 
-        if not self._git_sync_command(config):
+        command = self._git_sync_command(config)
+        if not command:
             self._clear_repo_contents()
+
+    def metrics_scrape_jobs(self) -> list[dict]:
+        """Return the Prometheus scrape jobs git-sync should advertise.
+
+        When the charm config is valid but static_assets_git_repo is not set, an empty list is returned.
+
+        Returns:
+            A list of scrape job definitions to be advertised to Prometheus.
+        """
+        try:
+            config = self._charm.load_charm_config()
+        except CharmConfigInvalidError:
+            repo_configured = True
+        else:
+            repo_configured = bool(config.static_assets_git_repo)
+
+        if not repo_configured:
+            return []
+        return [
+            {
+                "job_name": "git_sync",
+                "static_configs": [{"targets": [f"*:{self.GIT_SYNC_PORT}"]}],
+            }
+        ]
 
     def _clear_repo_contents(self) -> None:
         """Remove the link target."""

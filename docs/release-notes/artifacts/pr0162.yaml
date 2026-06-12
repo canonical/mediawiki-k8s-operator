@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Fixed spurious git-sync metrics down alerts when git-sync is not in use
+    author: hk21702
+    type: bugfix
+    description: >
+      When git-sync was not configured, its metrics endpoint was unavailable,
+      causing Prometheus scrapers to emit errors and trigger false "down" alerts
+      in COS. The git-sync scrape job is now only advertised to Prometheus when
+      git-sync is intentionally enabled, eliminating false positives while
+      preserving alerting when the service is expected to be running.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/162"
+    visibility: public
+    highlight: false
