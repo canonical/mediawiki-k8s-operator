@@ -4,7 +4,7 @@
 name: mediawiki
 summary: MediaWiki rock
 description: MediaWiki OCI image for the MediaWiki charm
-base: ubuntu@24.04
+base: ubuntu@26.04
 run-user: _daemon_
 license: GPL-3.0
 version: "1.0"
@@ -223,4 +223,5 @@ parts:
       CLAMAV_GID=$(awk -F: -v group="clamav" '$1 == group {print $3}' ${CRAFT_PRIME}/etc/group)
 
       chown "${CLAMAV_UID}":"${CLAMAV_GID}" "${CRAFT_PRIME}/var/lib/clamav"
-      install -d -o "${CLAMAV_UID}" -g "${CLAMAV_GID}" "${CRAFT_PRIME}/run/clamav"
+      mkdir -p "${CRAFT_PRIME}/run/clamav"
+      chown "${CLAMAV_UID}":"${CLAMAV_GID}" "${CRAFT_PRIME}/run/clamav"

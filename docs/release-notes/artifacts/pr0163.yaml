@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Updated MediaWiki rock and test containers to Ubuntu 26.04
+    author: hk21702
+    type: minor
+    description: >
+      The MediaWiki rock base and integration test pod images were updated from
+      Ubuntu 24.04 to Ubuntu 26.04. The deployed container will now run on a
+      26.04 base.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/163"
+    visibility: public
+    highlight: false
