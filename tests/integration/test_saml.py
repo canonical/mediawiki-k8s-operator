@@ -135,6 +135,7 @@ def test_saml_login(
     redirect_url = response.headers.get("Location", "")
     max_redirects = 20
     redirects_followed = 0
+    redirect_history: list[tuple[str, requests.Response]] = [(redirect_url, response)]
     while redirect_url and "saml.canonical.test" not in redirect_url:
         redirects_followed += 1
         assert redirects_followed <= max_redirects, (
@@ -146,11 +147,18 @@ def test_saml_login(
             redirect_url = f"{ingress_address}{redirect_url}"
         response = session.get(redirect_url, timeout=requests_timeout, allow_redirects=False)
         redirect_url = response.headers.get("Location", "")
+        redirect_history.append((redirect_url, response))
 
-    assert "saml.canonical.test" in redirect_url, (
-        f"Expected redirect to IdP (saml.canonical.test), but got: {redirect_url}. "
-        f"Final response status: {response.status_code}."
-    )
+    if "saml.canonical.test" not in redirect_url:
+        history_dump = "\n".join(
+            f"  [{i}] {url} ({resp.status_code}):\n{resp.text}"
+            for i, (url, resp) in enumerate(redirect_history)
+        )
+        raise AssertionError(
+            f"Expected redirect to IdP (saml.canonical.test), but got: {redirect_url}. "
+            f"Final response status: {response.status_code}\n"
+            f"Redirect history:\n{history_dump}"
+        )
 
     # Complete the SSO login on the IdP side
     saml_response = saml_helper.redirect_sso_login(
