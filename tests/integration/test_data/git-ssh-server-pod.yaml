@@ -28,7 +28,7 @@ metadata:
 spec:
   containers:
     - name: git-ssh
-      image: ubuntu:24.04
+      image: ubuntu:26.04
       command:
         - /bin/bash
         - -c
