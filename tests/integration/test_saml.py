@@ -3,7 +3,9 @@
 # See LICENSE file for licensing details.
 """MediaWiki SAML integration tests."""
 
+import html
 import logging
+import re
 import textwrap
 from typing import Generator
 
@@ -30,6 +32,38 @@ SAML_PLUGGABLE_AUTH_LOCAL_SETTINGS = textwrap.dedent("""\
         ],
     ];
     """)
+
+
+def _next_redirect_url(response: requests.Response) -> str:
+    """Determine the next URL to follow from a response.
+
+    Prefers the Location header. If absent, SimpleSAMLphp's HTTP-Redirect
+    binding returns a 200 HTML page that auto-redirects to the IdP. Rather
+    than scanning the whole body (which could match an unrelated URL in an
+    error message or template), extract the URL from the page's actual
+    redirect mechanism: the ``id="redirlink"`` anchor SimpleSAMLphp emits,
+    falling back to a ``<meta http-equiv="refresh">`` tag or a
+    ``window.location`` assignment.
+    """
+    location = response.headers.get("Location", "")
+    if location:
+        return location
+
+    body = response.text
+    patterns = (
+        # SimpleSAMLphp redirect page: <a href="..." id="redirlink">
+        r'href=["\']([^"\']+)["\'][^>]*\bid=["\']redirlink["\']',
+        r'\bid=["\']redirlink["\'][^>]*href=["\']([^"\']+)["\']',
+        # <meta http-equiv="refresh" content="0; URL=...">
+        r'http-equiv=["\']refresh["\'][^>]*content=["\'][^"\']*?url=([^"\';\s]+)',
+        # window.location = "..." / window.location.href = '...'
+        r'window\.location(?:\.href)?\s*=\s*["\']([^"\']+)["\']',
+    )
+    for pattern in patterns:
+        match = re.search(pattern, body, re.IGNORECASE)
+        if match:
+            return html.unescape(match.group(1))
+    return ""
 
 
 @pytest.fixture(scope="module")
@@ -132,7 +166,7 @@ def test_saml_login(
     # saml.canonical.test (which isn't in the test runner's DNS).
     redirect_url: str = f"{ingress_address}/w/index.php?title=Special:UserLogin&returnto=Main+Page"
     response = session.get(redirect_url, timeout=requests_timeout, allow_redirects=False)
-    redirect_url = response.headers.get("Location", "")
+    redirect_url = _next_redirect_url(response)
     max_redirects = 20
     redirects_followed = 0
     redirect_history: list[tuple[str, requests.Response]] = [(redirect_url, response)]
@@ -146,7 +180,7 @@ def test_saml_login(
         if redirect_url.startswith("/"):
             redirect_url = f"{ingress_address}{redirect_url}"
         response = session.get(redirect_url, timeout=requests_timeout, allow_redirects=False)
-        redirect_url = response.headers.get("Location", "")
+        redirect_url = _next_redirect_url(response)
         redirect_history.append((redirect_url, response))
 
     if "saml.canonical.test" not in redirect_url:
