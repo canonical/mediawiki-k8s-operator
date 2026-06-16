@@ -98,6 +98,9 @@ parts:
       craftctl default
       # Register php-predis with SimpleSAMLphp's autoloader.
       git -C "$CRAFT_OVERLAY" apply "$CRAFT_PART_SRC/simplesamlphp-predis-autoload.patch"
+      # Add charm-config include to config.php so the charm can override specific
+      # keys without replacing the entire default configuration.
+      git -C "$CRAFT_OVERLAY" apply "$CRAFT_PART_SRC/simplesamlphp-charm-config-include.patch"
 
   apache-exporter:
     plugin: go

@@ -551,9 +551,10 @@ class _SettingsMixin(_MediaWikiBase):
     ) -> None:
         """Push SimpleSAMLphp SP configuration files to the container.
 
-        Writes authsources.php, config.php (Redis session store), and
-        saml20-idp-remote.php (IdP metadata). If Redis is not available,
-        removes config.php and raises a blocked status exception.
+        Writes authsources.php, charm-config.php (charm-managed overrides merged into
+        the package's default config.php at runtime), and saml20-idp-remote.php (IdP
+        metadata). If Redis is not available, removes charm-config.php and raises a
+        blocked status exception.
 
         Args:
             saml_data: The SAML relation data containing IdP information.
@@ -562,11 +563,8 @@ class _SettingsMixin(_MediaWikiBase):
         Raises:
             MediaWikiBlockedStatusException: If Redis is not available for session storage.
         """
-        simplesamlphp_base = ContainerPath(
-            constants.SIMPLESAMLPHP_BASE_PATH, container=self._container
-        )
         config_dir = ContainerPath(constants.SIMPLESAMLPHP_CONFIG_DIR, container=self._container)
-        metadata_dir = simplesamlphp_base / "metadata"
+        metadata_dir = config_dir / "metadata"
 
         config_dir.mkdir(exist_ok=True, parents=True)
         metadata_dir.mkdir(exist_ok=True, parents=True)
@@ -590,11 +588,12 @@ class _SettingsMixin(_MediaWikiBase):
             group=constants.DAEMON_GROUP,
         )
 
-        # config.php — session store config; depends on Redis
-        config_file = config_dir / "config.php"
+        # charm-config.php — charm-managed overrides merged into the package's config.php at
+        # runtime via the include appended during the rock build. Depends on Redis.
+        ssp_config_file = config_dir / "charm-config.php"
         redis_endpoint = self._redis.get_endpoint()
         if not redis_endpoint:
-            config_file.unlink(missing_ok=True)
+            ssp_config_file.unlink(missing_ok=True)
             raise MediaWikiBlockedStatusException(
                 "SAML requires a Redis relation for SimpleSAMLphp session storage"
             )
@@ -603,13 +602,13 @@ class _SettingsMixin(_MediaWikiBase):
         redis_host, redis_port = redis_endpoint.rsplit(":", 1)
         charm_config = self._charm.load_charm_config()
         url_origin = charm_config.url_origin or f"https://{self._charm.app.name}"
-        baseurlpath = utils.escape_php_string(
-            urlparse(f"{url_origin}/w/simplesaml/", scheme="https").geturl()
-        )
+        url_origin = urlparse(url_origin, scheme="https").geturl()
+        baseurlpath = f"{url_origin}/w/simplesaml/"
 
         config_entries: dict[str, str] = {
-            "baseurlpath": f"'{baseurlpath}'",
+            "baseurlpath": f"'{utils.escape_php_string(baseurlpath)}'",
             "secretsalt": f"'{secret_salt}'",
+            "application": f"[ 'baseURL' => '{utils.escape_php_string(url_origin)}' ]",
             "store.type": "'redis'",
             "store.redis.host": f"'{utils.escape_php_string(redis_host)}'",
             "store.redis.port": redis_port,
@@ -622,9 +621,9 @@ class _SettingsMixin(_MediaWikiBase):
                 f"'{utils.escape_php_string(proxy_config.https_proxy_string)}'"
             )
 
-        entries_php = "\n".join(f"    '{k}' => {v}," for k, v in config_entries.items())
-        config_content = f"<?php\n$config = [\n{entries_php}\n];\n"
-        config_file.write_text(
+        entries_php = "\n".join(f"$config['{k}'] = {v};" for k, v in config_entries.items())
+        config_content = f"<?php\n{entries_php}\n"
+        ssp_config_file.write_text(
             config_content, mode=0o640, user=constants.ROOT_USER_NAME, group=constants.DAEMON_GROUP
         )
 

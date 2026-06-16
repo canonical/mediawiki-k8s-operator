@@ -73,5 +73,4 @@ WEBROOT_OWNER_SSH_CONFIG = WEBROOT_OWNER_SSH_DIR + "/config"
 WEBROOT_OWNER_KNOWN_HOSTS = WEBROOT_OWNER_SSH_DIR + "/known_hosts"
 
 # SimpleSAMLphp (SAML authentication)
-SIMPLESAMLPHP_BASE_PATH = "/usr/share/simplesamlphp"
 SIMPLESAMLPHP_CONFIG_DIR = "/etc/simplesamlphp"

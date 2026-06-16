@@ -1,0 +1,13 @@
+--- a/etc/simplesamlphp/config.php
++++ b/etc/simplesamlphp/config.php
+@@ -1220,4 +1220,9 @@
+     'store.redis.prefix' => 'SimpleSAMLphp',
+ ];
+ 
+-require_once('/var/lib/simplesamlphp/secrets.inc.php');
++// Load charm-managed configuration overrides (connection details, secrets, etc.)
++// Written by the Juju charm when SAML is configured; absent otherwise.
++$charm_config_file = '/etc/simplesamlphp/charm-config.php';
++if (file_exists($charm_config_file)) {
++    require $charm_config_file;
++}

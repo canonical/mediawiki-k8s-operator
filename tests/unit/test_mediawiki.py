@@ -949,15 +949,16 @@ class TestSamlRequiresRedis:
         assert authsources.exists(), "authsources.php should be written when SAML is configured"
         assert "'default-sp'" in authsources.read_text()
 
-        config_php = container_fs / "etc/simplesamlphp/config.php"
-        assert config_php.exists(), "config.php should be written when Redis is available"
+        config_php = container_fs / "etc/simplesamlphp/charm-config.php"
+        assert config_php.exists(), "charm-config.php should be written when Redis is available"
         config_content = config_php.read_text()
-        assert "'store.type' => 'redis'" in config_content
-        assert "'store.redis.host' => 'redis-host'" in config_content
-        assert "'store.redis.port' => 6379" in config_content
-        assert "'store.redis.prefix' => 'SimpleSAMLphp'" in config_content
+        assert "$config['store.type'] = 'redis';" in config_content
+        assert "$config['store.redis.host'] = 'redis-host';" in config_content
+        assert "$config['store.redis.port'] = 6379;" in config_content
+        assert "$config['store.redis.prefix'] = 'SimpleSAMLphp';" in config_content
+        assert "$config['application'] = [ 'baseURL' =>" in config_content
 
-        metadata = container_fs / "usr/share/simplesamlphp/metadata/saml20-idp-remote.php"
+        metadata = container_fs / "etc/simplesamlphp/metadata/saml20-idp-remote.php"
         assert metadata.exists(), "saml20-idp-remote.php should be written"
 
     def test_saml_with_redis_available_loads_extension(
@@ -993,20 +994,22 @@ class TestSamlRequiresRedis:
         ):
             mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
 
-    def test_saml_without_redis_removes_config_php(
+    def test_saml_without_redis_removes_charm_config_php(
         self,
         ctx: testing.Context,
         active_state: testing.State,
     ) -> None:
-        """Test that config.php is removed when SAML is configured but Redis is unavailable."""
+        """Test that charm-config.php is removed when SAML is configured but Redis is unavailable."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             with pytest.raises(MediaWikiBlockedStatusException):
                 mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
-        config_php = container_fs / "etc/simplesamlphp/config.php"
-        assert not config_php.exists(), "config.php should be removed when Redis is not available"
+        config_php = container_fs / "etc/simplesamlphp/charm-config.php"
+        assert not config_php.exists(), (
+            "charm-config.php should be removed when Redis is not available"
+        )
 
     def test_saml_without_redis_still_writes_late_settings(
         self,
