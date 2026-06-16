@@ -551,17 +551,27 @@ class _SettingsMixin(_MediaWikiBase):
     ) -> None:
         """Push SimpleSAMLphp SP configuration files to the container.
 
-        Writes authsources.php, charm-config.php (charm-managed overrides merged into
-        the package's default config.php at runtime), and saml20-idp-remote.php (IdP
-        metadata). If Redis is not available, removes charm-config.php and raises a
-        blocked status exception.
+        Writes three files to the container:
+
+        - ``authsources.php``: SP auth source pointing at the IdP entity ID.
+        - ``charm-config.php``: charm-managed key overrides that are merged into the
+          package's default ``config.php`` at runtime via a patch applied during the
+          rock build. Contains the Redis session store, secret salt, base URL, and
+          proxy settings.
+        - ``metadata/saml20-idp-remote.php``: IdP metadata derived from the SAML
+          relation (endpoints and certificates).
+
+        If Redis is not available, or if the configured URL origin does not use HTTPS,
+        ``charm-config.php`` is removed and a blocked status exception is raised before
+        the file is written.
 
         Args:
             saml_data: The SAML relation data containing IdP information.
             secrets: The charm secrets, used to get the persistent SimpleSAMLphp secret salt.
 
         Raises:
-            MediaWikiBlockedStatusException: If Redis is not available for session storage.
+            MediaWikiBlockedStatusException: If Redis is not available for session storage,
+                or if the URL origin does not use HTTPS (required for secure session cookies).
         """
         config_dir = ContainerPath(constants.SIMPLESAMLPHP_CONFIG_DIR, container=self._container)
         metadata_dir = config_dir / "metadata"
@@ -604,6 +614,10 @@ class _SettingsMixin(_MediaWikiBase):
         url_origin = charm_config.url_origin or f"https://{self._charm.app.name}"
         url_origin = urlparse(url_origin, scheme="https").geturl()
         baseurlpath = f"{url_origin}/w/simplesaml/"
+
+        if urlparse(url_origin).scheme != "https":
+            ssp_config_file.unlink(missing_ok=True)
+            raise MediaWikiBlockedStatusException("HTTPS is required for SAML")
 
         config_entries: dict[str, str] = {
             "baseurlpath": f"'{utils.escape_php_string(baseurlpath)}'",

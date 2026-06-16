@@ -18,8 +18,8 @@ def kubectl(namespace: str | None, *args: str) -> list[str]:
     return cmd
 
 
-def req_okay(address: str, timeout: int) -> bool:
-    response = requests.get(address, timeout=timeout, allow_redirects=True)
+def req_okay(address: str, timeout: int, verify: bool = False) -> bool:
+    response = requests.get(address, timeout=timeout, allow_redirects=True, verify=verify)
     return response.status_code == 200
 
 
