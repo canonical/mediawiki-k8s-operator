@@ -27,6 +27,7 @@ basic operations you can complete with the charm.
     Install extensions and skins <install-extensions-and-skins>
     Integrate with COS <integrate-with-cos>
     Rotate secrets <rotate-secrets>
+    Use static assets <use-static-assets>
 
 Update and refresh
 ------------------

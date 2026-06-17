@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Added how-to guide for using static assets
+    author: hk21702
+    type: minor
+    description: >
+      Added a how-to guide documenting how to serve static assets from a Git
+      repository using the MediaWiki charm. The guide covers configuring the
+      repository URL and ref, limiting checkouts with sparse-checkout, syncing
+      from private repositories over SSH, referencing assets in MediaWiki
+      settings, and clearing synced assets.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/169"
+    visibility: public
+    highlight: false
