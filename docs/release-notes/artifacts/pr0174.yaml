@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Removed client IP from Apache access log format
+    author: hk21702
+    type: minor
+    description: >
+      The Apache `logfmt` access log format no longer includes `client_ip`.
+      MediaWiki has its own per-user moderation tools, and upstream networking
+      layers such as HAProxy or Traefik can capture client IPs if needed.
+      Removing it from the application's own logs reduces privacy exposure
+      while preserving all other observability fields used by dashboards.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/174"
+    visibility: public
+    highlight: false
