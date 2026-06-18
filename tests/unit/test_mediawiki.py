@@ -949,15 +949,16 @@ class TestSamlRequiresRedis:
         assert authsources.exists(), "authsources.php should be written when SAML is configured"
         assert "'default-sp'" in authsources.read_text()
 
-        config_php = container_fs / "etc/simplesamlphp/config.php"
-        assert config_php.exists(), "config.php should be written when Redis is available"
+        config_php = container_fs / "etc/simplesamlphp/charm-config.php"
+        assert config_php.exists(), "charm-config.php should be written when Redis is available"
         config_content = config_php.read_text()
-        assert "'store.type' => 'redis'" in config_content
-        assert "'store.redis.host' => 'redis-host'" in config_content
-        assert "'store.redis.port' => 6379" in config_content
-        assert "'store.redis.prefix' => 'SimpleSAMLphp'" in config_content
+        assert "$config['store.type'] = 'redis';" in config_content
+        assert "$config['store.redis.host'] = 'redis-host';" in config_content
+        assert "$config['store.redis.port'] = 6379;" in config_content
+        assert "$config['store.redis.prefix'] = 'SimpleSAMLphp';" in config_content
+        assert "$config['application'] = [ 'baseURL' =>" in config_content
 
-        metadata = container_fs / "usr/share/simplesamlphp/metadata/saml20-idp-remote.php"
+        metadata = container_fs / "etc/simplesamlphp/metadata/saml20-idp-remote.php"
         assert metadata.exists(), "saml20-idp-remote.php should be written"
 
     def test_saml_with_redis_available_loads_extension(
@@ -978,6 +979,76 @@ class TestSamlRequiresRedis:
         assert "wfLoadExtension( 'SimpleSAMLphp' );" in late_settings
         assert "wfLoadExtension( 'PluggableAuth' );" in late_settings
 
+    @pytest.mark.parametrize(
+        "url_origin, expected_base_url",
+        [
+            # Protocol-neutral origins are interpreted as HTTPS.
+            ("//wiki.example.com", "https://wiki.example.com"),
+            ("//wiki.example.com:8443", "https://wiki.example.com:8443"),
+            # Explicit HTTPS origins are used as-is.
+            ("https://wiki.example.com", "https://wiki.example.com"),
+        ],
+    )
+    def test_saml_with_https_url_origin_writes_config(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_redis: MockType,
+        url_origin: str,
+        expected_base_url: str,
+    ) -> None:
+        """Test that an HTTPS (or protocol-neutral) url-origin yields an HTTPS SimpleSAMLphp config."""
+        mock_redis.is_relation_available.return_value = True
+        mock_redis.get_endpoint.return_value = "redis-host:6379"
+        state_in = dataclasses.replace(
+            active_state, config={**active_state.config, "url-origin": url_origin}
+        )
+
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        config_php = container_fs / "etc/simplesamlphp/charm-config.php"
+        assert config_php.exists(), "charm-config.php should be written for an HTTPS url-origin"
+        config_content = config_php.read_text()
+        assert (
+            f"$config['application'] = [ 'baseURL' => '{expected_base_url}' ];" in config_content
+        )
+        assert f"$config['baseurlpath'] = '{expected_base_url}/w/simplesaml/';" in config_content
+
+    @pytest.mark.parametrize(
+        "url_origin",
+        [
+            "http://wiki.example.com",
+            "http://wiki.example.com:8080",
+        ],
+    )
+    def test_saml_with_non_https_url_origin_raises_blocked(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_redis: MockType,
+        url_origin: str,
+    ) -> None:
+        """Test that a non-HTTPS url-origin blocks SAML and does not write charm-config.php."""
+        mock_redis.is_relation_available.return_value = True
+        mock_redis.get_endpoint.return_value = "redis-host:6379"
+        state_in = dataclasses.replace(
+            active_state, config={**active_state.config, "url-origin": url_origin}
+        )
+
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            with pytest.raises(MediaWikiBlockedStatusException, match="HTTPS"):
+                mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        config_php = container_fs / "etc/simplesamlphp/charm-config.php"
+        assert not config_php.exists(), (
+            "charm-config.php should not be written for a non-HTTPS url-origin"
+        )
+
     def test_saml_without_redis_raises_blocked(
         self,
         ctx: testing.Context,
@@ -993,20 +1064,22 @@ class TestSamlRequiresRedis:
         ):
             mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
 
-    def test_saml_without_redis_removes_config_php(
+    def test_saml_without_redis_removes_charm_config_php(
         self,
         ctx: testing.Context,
         active_state: testing.State,
     ) -> None:
-        """Test that config.php is removed when SAML is configured but Redis is unavailable."""
+        """Test that charm-config.php is removed when SAML is configured but Redis is unavailable."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             with pytest.raises(MediaWikiBlockedStatusException):
                 mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
-        config_php = container_fs / "etc/simplesamlphp/config.php"
-        assert not config_php.exists(), "config.php should be removed when Redis is not available"
+        config_php = container_fs / "etc/simplesamlphp/charm-config.php"
+        assert not config_php.exists(), (
+            "charm-config.php should be removed when Redis is not available"
+        )
 
     def test_saml_without_redis_still_writes_late_settings(
         self,

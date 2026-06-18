@@ -1,0 +1,19 @@
+version_schema: 2
+
+changes:
+  - title: Fixed SimpleSAMLphp session and cookie stability for SAML authentication
+    author: hk21702
+    type: bugfix
+    description: >
+      The charm previously replaced the entire SimpleSAMLphp default configuration
+      file, which lost important package defaults including secure session cookie
+      settings. The charm now patches the package's default configuration to only
+      override the keys it needs (Redis session store, secret salt, base URL, and
+      error visibility), inheriting all other defaults. As a side effect, SAML now
+      requires HTTPS: if the configured URL origin uses HTTP, the charm will enter
+      a blocked state rather than silently serve SAML over an unencrypted connection.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/172"
+    visibility: public
+    highlight: false

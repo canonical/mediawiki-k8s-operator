@@ -13,6 +13,7 @@ from typing import Any, Dict, Generator
 import jubilant
 import pytest
 import requests
+import urllib3
 import yaml
 
 from .types_ import App
@@ -88,7 +89,7 @@ def local_settings() -> str:
 @pytest.fixture(scope="module")
 def ingress_address(traefik_lb_ip: str) -> str:
     """The address to use for accessing the application, based on the traefik load balancer IP."""
-    return f"http://{traefik_lb_ip}"
+    return f"https://{traefik_lb_ip}"
 
 
 @pytest.fixture(scope="module")
@@ -136,15 +137,47 @@ def juju_fixture(request: pytest.FixtureRequest) -> Generator[jubilant.Juju, Non
         return
 
 
+@pytest.fixture(scope="session", autouse=True)
+def disable_ssl_verification() -> Generator[None, None, None]:
+    """Globally disable SSL certificate verification for all requests in integration tests.
+
+    Self-signed certificates (SSC) are used throughout the test suite, so verification
+    would always fail. Warnings are also suppressed to keep test output clean.
+    """
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    original_request = requests.Session.request
+
+    def _request_no_verify(self, *args, **kwargs):
+        kwargs["verify"] = False
+        return original_request(self, *args, **kwargs)
+
+    requests.Session.request = _request_no_verify  # type: ignore[method-assign]
+    yield
+    requests.Session.request = original_request  # type: ignore[method-assign]
+
+
+@pytest.fixture(scope="module", name="ssc")
+def ssc_fixture(juju: jubilant.Juju, pytestconfig: pytest.Config) -> Generator[App, None, None]:
+    """Deploy self-signed certificates charm and return its app information."""
+    use_existing = pytestconfig.getoption("--use-existing", default=False)
+    if use_existing:
+        yield App(name="self-signed-certificates")
+        return
+
+    juju.deploy("self-signed-certificates", channel="1/stable")
+
+    yield App(name="self-signed-certificates")
+
+
 @pytest.fixture(scope="module", name="db")
-def db_fixture(juju: jubilant.Juju, pytestconfig: pytest.Config) -> Generator[App, None, None]:
+def db_fixture(
+    juju: jubilant.Juju, pytestconfig: pytest.Config, ssc: App
+) -> Generator[App, None, None]:
     """Deploy the database charm and return its app information."""
     use_existing = pytestconfig.getoption("--use-existing", default=False)
     if use_existing:
         yield App(name="mysql-k8s")
         return
-
-    juju.deploy("self-signed-certificates", channel="1/stable")
 
     juju.deploy(
         "mysql-k8s",
@@ -154,14 +187,14 @@ def db_fixture(juju: jubilant.Juju, pytestconfig: pytest.Config) -> Generator[Ap
         config={"profile": "testing"},
     )
 
-    juju.integrate("mysql-k8s:certificates", "self-signed-certificates:certificates")
+    juju.integrate("mysql-k8s:certificates", f"{ssc.name}:certificates")
 
     yield App(name="mysql-k8s")
 
 
 @pytest.fixture(scope="module", name="traefik")
 def traefik_fixture(
-    juju: jubilant.Juju, pytestconfig: pytest.Config
+    juju: jubilant.Juju, pytestconfig: pytest.Config, ssc: App
 ) -> Generator[App, None, None]:
     """Deploy traefik-k8s and return its app information."""
     use_existing = pytestconfig.getoption("--use-existing", default=False)
@@ -176,6 +209,9 @@ def traefik_fixture(
         revision=298,  # 295 often errors on pebble start hook
         trust=True,
     )
+
+    juju.integrate("traefik-k8s:certificates", f"{ssc.name}:certificates")
+
     yield App(name="traefik-k8s")
 
 
