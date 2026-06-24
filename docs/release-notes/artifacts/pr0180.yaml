@@ -1,0 +1,19 @@
+version_schema: 2
+
+changes:
+  - title: Set the SAML SP entityID to the public URL origin
+    author: hk21702
+    type: bugfix
+    description: >
+      The SimpleSAMLphp Service Provider now declares an explicit `entityID` in
+      its auth source, set to the charm's normalized public URL origin (always
+      HTTPS) instead of relying on an auto-generated, implementation-specific
+      identifier. This gives SAML Identity Provider operators a stable,
+      predictable SP identifier to register, and ensures protocol-relative
+      `url-origin` values are normalized so they cannot produce an invalid
+      entityID.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/180"
+    visibility: public
+    highlight: false

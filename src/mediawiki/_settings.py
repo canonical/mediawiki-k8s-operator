@@ -553,7 +553,8 @@ class _SettingsMixin(_MediaWikiBase):
 
         Writes three files to the container:
 
-        - ``authsources.php``: SP auth source pointing at the IdP entity ID.
+        - ``authsources.php``: SP auth source declaring our SP entityID (the charm's
+          public URL origin) and pointing at the IdP entity ID.
         - ``charm-config.php``: charm-managed key overrides that are merged into the
           package's default ``config.php`` at runtime via a patch applied during the
           rock build. Contains the Redis session store, secret salt, base URL, and
@@ -581,12 +582,25 @@ class _SettingsMixin(_MediaWikiBase):
 
         entity_id = utils.escape_php_string(saml_data.entity_id)
 
+        # Compute the public origin once and normalize through urlparse (defaulting to the https scheme)
+        charm_config = self._charm.load_charm_config()
+        url_origin = charm_config.url_origin or f"https://{self._charm.app.name}"
+        url_origin = urlparse(url_origin, scheme="https").geturl()
+
+        ssp_config_file = config_dir / "charm-config.php"
+        if urlparse(url_origin).scheme != "https":
+            ssp_config_file.unlink(missing_ok=True)
+            raise MediaWikiBlockedStatusException("HTTPS is required for SAML")
+
+        escaped_url_origin = utils.escape_php_string(url_origin)
+
         # authsources.php
         authsources_content = textwrap.dedent(f"""\
             <?php
             $config = [
                 'default-sp' => [
                     'saml:SP',
+                    'entityID' => '{escaped_url_origin}',
                     'idp' => '{entity_id}',
                 ],
             ];
@@ -600,7 +614,6 @@ class _SettingsMixin(_MediaWikiBase):
 
         # charm-config.php — charm-managed overrides merged into the package's config.php at
         # runtime via the include appended during the rock build. Depends on Redis.
-        ssp_config_file = config_dir / "charm-config.php"
         redis_endpoint = self._redis.get_endpoint()
         if not redis_endpoint:
             ssp_config_file.unlink(missing_ok=True)
@@ -610,19 +623,12 @@ class _SettingsMixin(_MediaWikiBase):
 
         secret_salt = utils.escape_php_string(secrets.saml_secret_salt)
         redis_host, redis_port = redis_endpoint.rsplit(":", 1)
-        charm_config = self._charm.load_charm_config()
-        url_origin = charm_config.url_origin or f"https://{self._charm.app.name}"
-        url_origin = urlparse(url_origin, scheme="https").geturl()
-        baseurlpath = f"{url_origin}/w/simplesaml/"
-
-        if urlparse(url_origin).scheme != "https":
-            ssp_config_file.unlink(missing_ok=True)
-            raise MediaWikiBlockedStatusException("HTTPS is required for SAML")
+        baseurlpath = f"{escaped_url_origin}/w/simplesaml/"
 
         config_entries: dict[str, str] = {
-            "baseurlpath": f"'{utils.escape_php_string(baseurlpath)}'",
+            "baseurlpath": f"'{baseurlpath}'",
             "secretsalt": f"'{secret_salt}'",
-            "application": f"[ 'baseURL' => '{utils.escape_php_string(url_origin)}' ]",
+            "application": f"[ 'baseURL' => '{escaped_url_origin}' ]",
             "store.type": "'redis'",
             "store.redis.host": f"'{utils.escape_php_string(redis_host)}'",
             "store.redis.port": redis_port,

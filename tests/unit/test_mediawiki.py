@@ -1017,6 +1017,11 @@ class TestSamlRequiresRedis:
         )
         assert f"$config['baseurlpath'] = '{expected_base_url}/w/simplesaml/';" in config_content
 
+        # The SP entityID must use the normalized origin, never the raw (possibly
+        # protocol-relative) url-origin value.
+        authsources = container_fs / "etc/simplesamlphp/authsources.php"
+        assert f"'entityID' => '{expected_base_url}'," in authsources.read_text()
+
     @pytest.mark.parametrize(
         "url_origin",
         [
