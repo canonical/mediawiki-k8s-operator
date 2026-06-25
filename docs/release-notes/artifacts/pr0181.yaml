@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Fixed missing logrotate config in the rock
+    author: hk21702
+    type: bugfix
+    description: >
+      The MediaWiki logrotate configuration file was placed in the wrong
+      directory and was not included in the rock image. It has been moved to the
+      correct location so that MediaWiki log rotation now functions as expected.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/181"
+    visibility: public
+    highlight: false
