@@ -4,7 +4,9 @@
 
 import dataclasses
 import json
+import logging
 
+import mysql.connector
 import pytest
 from charms.smtp_integrator.v0.smtp import AuthType, SmtpRelationData, TransportSecurity
 from ops import testing
@@ -425,6 +427,315 @@ class TestUpdateDatabaseScheme:
             pytest.raises(MediaWikiInstallError, match="Database schema update failed"),
         ):
             mgr.charm.mediawiki.update_database_schema()
+
+
+class TestPrimaryKeyCompatibility:
+    """Tests for MediaWiki._reconcile_primary_key_compatibility."""
+
+    @staticmethod
+    def _executed_sql(mock_database_cursor: MockType) -> list[str]:
+        """Return the SQL strings passed to cursor.execute."""
+        return [call.args[0] for call in mock_database_cursor.execute.call_args_list]
+
+    def test_adds_surrogate_key_when_missing(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+    ) -> None:
+        """A surrogate unique key is added to an empty PK-less table that lacks one."""
+        mocker.patch.object(constants, "PRIMARY_KEY_LESS_TABLES", ("querycachetwo",))
+        # table exists, no surrogate column, table is empty.
+        mock_database_cursor.fetchone.side_effect = [(1,), None, None]
+        # no existing Group-Replication-compliant keys.
+        mock_database_cursor.fetchall.return_value = []
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_primary_key_compatibility()
+
+        executed = self._executed_sql(mock_database_cursor)
+        assert any(
+            "ADD COLUMN `mw_charm_gr_key`" in sql and "querycachetwo" in sql for sql in executed
+        ), executed
+        # The surrogate column itself is never dropped while it is the table's only compliant key.
+        assert not any("DROP COLUMN `mw_charm_gr_key`" in sql for sql in executed)
+
+    def test_adds_surrogate_in_three_metadata_steps_when_table_empty(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+    ) -> None:
+        """The surrogate is added as three separate DDL statements on an empty table.
+
+        The UUID default must not be part of the ADD COLUMN DDL (MySQL rejects it as
+        replication-unsafe, error 1674), so the column, its unique key and the default are applied
+        as three statements: add the bare NOT NULL column, add the unique key, then ALTER COLUMN
+        SET DEFAULT.
+        """
+        mocker.patch.object(constants, "PRIMARY_KEY_LESS_TABLES", ("querycachetwo",))
+        # table exists, no surrogate column, table is empty.
+        mock_database_cursor.fetchone.side_effect = [(1,), None, None]
+        # no existing Group-Replication-compliant keys.
+        mock_database_cursor.fetchall.return_value = []
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_primary_key_compatibility()
+
+        executed = self._executed_sql(mock_database_cursor)
+        add_idx = next(
+            i for i, sql in enumerate(executed) if "ADD COLUMN `mw_charm_gr_key`" in sql
+        )
+        unique_idx = next(
+            i for i, sql in enumerate(executed) if "ADD UNIQUE KEY `mw_charm_gr_key_uniq`" in sql
+        )
+        default_idx = next(
+            i
+            for i, sql in enumerate(executed)
+            if "ALTER COLUMN `mw_charm_gr_key` SET DEFAULT" in sql
+        )
+        # The three steps run in order as distinct statements.
+        assert add_idx < unique_idx < default_idx, executed
+        # The ADD COLUMN statement carries neither the default nor the unique key.
+        assert "DEFAULT" not in executed[add_idx], executed
+        assert "ADD UNIQUE KEY" not in executed[add_idx], executed
+        # The default is the UUID expression, set as a standalone metadata change.
+        assert "UUID_TO_BIN(UUID(), 1)" in executed[default_idx], executed
+        # No AUTO_INCREMENT bootstrap column and no backfill UPDATE are used.
+        assert not any("mw_charm_gr_bootstrap" in sql for sql in executed), executed
+        assert not any("AUTO_INCREMENT" in sql for sql in executed), executed
+        assert not any(sql.startswith("UPDATE") for sql in executed), executed
+
+    def test_rejects_table_with_existing_rows(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+    ) -> None:
+        """A PK-less table that already has rows is rejected.
+
+        The surrogate's NOT NULL column is added without a default, which only succeeds on an
+        empty table. Under Group Replication a PK-less table cannot accumulate rows, so a non-empty
+        one indicates an unexpected state and the charm fails loudly rather than corrupting it with
+        duplicate keys.
+        """
+        mocker.patch.object(constants, "PRIMARY_KEY_LESS_TABLES", ("querycachetwo",))
+        # table exists, no surrogate column, table has rows.
+        mock_database_cursor.fetchone.side_effect = [(1,), None, (1,)]
+        # no existing Group-Replication-compliant keys.
+        mock_database_cursor.fetchall.return_value = []
+
+        with (
+            ctx(ctx.on.update_status(), active_state) as mgr,
+            pytest.raises(MediaWikiInstallError, match="rows"),
+        ):
+            mgr.charm.mediawiki._reconcile_primary_key_compatibility()
+
+        executed = self._executed_sql(mock_database_cursor)
+        # No surrogate column is added because the table is rejected first.
+        assert not any("ADD COLUMN `mw_charm_gr_key`" in sql for sql in executed), executed
+
+    def test_drops_surrogate_key_when_real_pk_added(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+    ) -> None:
+        """The surrogate column is dropped once the table has its own primary key."""
+        mocker.patch.object(constants, "PRIMARY_KEY_LESS_TABLES", ("querycachetwo",))
+        # table exists, surrogate column still present.
+        mock_database_cursor.fetchone.side_effect = [(1,), (1,)]
+        # the table's own primary key plus the surrogate's unique key.
+        mock_database_cursor.fetchall.return_value = [
+            ("PRIMARY", "qc_id", "NO"),
+            ("mw_charm_gr_key_uniq", "mw_charm_gr_key", "NO"),
+        ]
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_primary_key_compatibility()
+
+        executed = self._executed_sql(mock_database_cursor)
+        drop_index_idx = next(
+            i for i, sql in enumerate(executed) if "DROP INDEX `mw_charm_gr_key_uniq`" in sql
+        )
+        drop_column_idx = next(
+            i for i, sql in enumerate(executed) if "DROP COLUMN `mw_charm_gr_key`" in sql
+        )
+        # The unique index is dropped in place before the column is dropped instantly.
+        assert drop_index_idx < drop_column_idx, executed
+        assert "querycachetwo" in executed[drop_column_idx]
+        assert not any("ADD COLUMN" in sql for sql in executed)
+
+    def test_drops_surrogate_key_when_real_unique_key_added(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+    ) -> None:
+        """The surrogate is dropped once the table has its own non-null unique key."""
+        mocker.patch.object(constants, "PRIMARY_KEY_LESS_TABLES", ("querycachetwo",))
+        # table exists, surrogate column present.
+        mock_database_cursor.fetchone.side_effect = [(1,), (1,)]
+        # the surrogate's own key plus a MediaWiki-added non-null unique key on a real column.
+        mock_database_cursor.fetchall.return_value = [
+            ("mw_charm_gr_key_uniq", "mw_charm_gr_key", "NO"),
+            ("qcc_type", "qcc_type", "NO"),
+        ]
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_primary_key_compatibility()
+
+        executed = self._executed_sql(mock_database_cursor)
+        assert any(
+            "DROP COLUMN `mw_charm_gr_key`" in sql and "querycachetwo" in sql for sql in executed
+        ), executed
+        assert any("DROP INDEX `mw_charm_gr_key_uniq`" in sql for sql in executed), executed
+        assert not any("ADD COLUMN" in sql for sql in executed)
+
+    def test_keeps_surrogate_when_instant_drop_unsupported(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A redundant surrogate that cannot be cheaply dropped is left in place.
+
+        The drop is optional cleanup, so if MySQL cannot drop the surrogate without an
+        expensive rebuild (here the in-place index drop is rejected) it must be skipped.
+        """
+        mocker.patch.object(constants, "PRIMARY_KEY_LESS_TABLES", ("querycachetwo",))
+        # table exists, surrogate column still present.
+        mock_database_cursor.fetchone.side_effect = [(1,), (1,)]
+        # the table's own primary key plus the surrogate's unique key make the surrogate redundant.
+        mock_database_cursor.fetchall.return_value = [
+            ("PRIMARY", "qc_id", "NO"),
+            ("mw_charm_gr_key_uniq", "mw_charm_gr_key", "NO"),
+        ]
+
+        def _raise_on_index_drop(sql: str, *args: object, **kwargs: object) -> None:
+            if "DROP INDEX" in sql:
+                raise mysql.connector.Error("LOCK=NONE is not supported")
+            return None
+
+        mock_database_cursor.execute.side_effect = _raise_on_index_drop
+
+        with (
+            caplog.at_level(logging.WARNING),
+            ctx(ctx.on.update_status(), active_state) as mgr,
+        ):
+            mgr.charm.mediawiki._reconcile_primary_key_compatibility()
+
+        executed = self._executed_sql(mock_database_cursor)
+        # The column is never dropped because the index drop failed first.
+        assert not any("DROP COLUMN" in sql for sql in executed), executed
+        assert any(
+            "could not cheaply drop" in record.message.lower()
+            and "querycachetwo" in record.message
+            for record in caplog.records
+        ), caplog.records
+
+    def test_keeps_surrogate_when_it_is_the_only_compliant_key(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+    ) -> None:
+        """The surrogate is kept when it is the only key keeping the table GR-compliant."""
+        mocker.patch.object(constants, "PRIMARY_KEY_LESS_TABLES", ("querycachetwo",))
+        # table exists, surrogate column present.
+        mock_database_cursor.fetchone.side_effect = [(1,), (1,)]
+        # only the surrogate's own unique key exists.
+        mock_database_cursor.fetchall.return_value = [
+            ("mw_charm_gr_key_uniq", "mw_charm_gr_key", "NO"),
+        ]
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_primary_key_compatibility()
+
+        executed = self._executed_sql(mock_database_cursor)
+        assert not any("ALTER TABLE" in sql for sql in executed), executed
+
+    def test_skips_table_with_existing_primary_key(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A table that already has a primary key and no surrogate column is left untouched."""
+        mocker.patch.object(constants, "PRIMARY_KEY_LESS_TABLES", ("querycachetwo",))
+        # table exists, no surrogate column.
+        mock_database_cursor.fetchone.side_effect = [(1,), None]
+        # the table's own primary key already satisfies Group Replication.
+        mock_database_cursor.fetchall.return_value = [("PRIMARY", "qc_id", "NO")]
+
+        with (
+            caplog.at_level(logging.WARNING),
+            ctx(ctx.on.update_status(), active_state) as mgr,
+        ):
+            mgr.charm.mediawiki._reconcile_primary_key_compatibility()
+
+        executed = self._executed_sql(mock_database_cursor)
+        assert not any("ALTER TABLE" in sql for sql in executed), executed
+        assert any(
+            "already satisfies" in record.message and "querycachetwo" in record.message
+            for record in caplog.records
+        ), caplog.records
+
+    def test_skips_table_with_nonnull_unique_key(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A table with a non-null unique key already satisfies Group Replication."""
+        mocker.patch.object(constants, "PRIMARY_KEY_LESS_TABLES", ("querycachetwo",))
+        # table exists, no surrogate column.
+        mock_database_cursor.fetchone.side_effect = [(1,), None]
+        # a MediaWiki-owned non-null unique key already exists.
+        mock_database_cursor.fetchall.return_value = [("qcc_type", "qcc_type", "NO")]
+
+        with (
+            caplog.at_level(logging.WARNING),
+            ctx(ctx.on.update_status(), active_state) as mgr,
+        ):
+            mgr.charm.mediawiki._reconcile_primary_key_compatibility()
+
+        executed = self._executed_sql(mock_database_cursor)
+        assert not any("ALTER TABLE" in sql for sql in executed), executed
+        assert any(
+            "already satisfies" in record.message and "querycachetwo" in record.message
+            for record in caplog.records
+        ), caplog.records
+
+    def test_skips_missing_table(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+    ) -> None:
+        """A table that does not exist is skipped without further queries."""
+        mocker.patch.object(constants, "PRIMARY_KEY_LESS_TABLES", ("querycachetwo",))
+        # table does not exist.
+        mock_database_cursor.fetchone.side_effect = [None]
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_primary_key_compatibility()
+
+        executed = self._executed_sql(mock_database_cursor)
+        assert not any("ALTER TABLE" in sql for sql in executed), executed
 
 
 class TestInstall:

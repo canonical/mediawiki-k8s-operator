@@ -31,6 +31,19 @@ INSTALL_RETRY_INTERVAL = 2
 # during schema updates, regardless of whether they are configured.
 BUNDLED_EXTENSIONS = ("PluggableAuth", "OpenIDConnect", "SimpleSAMLphp")
 
+# MediaWiki core tables that historically ship without a primary key. MySQL
+# Group Replication rejects writes to such tables (error 3098, "The table does
+# not comply with the requirements by an external plugin") because it requires
+# every table to have a primary key or a non-null unique key. See:
+# https://www.mediawiki.org/wiki/Category:MediaWiki_database_tables_that_lack_a_primary_key
+# ``hitcounter`` is intentionally excluded as it was removed from core in 1.45.
+PRIMARY_KEY_LESS_TABLES = (
+    "oldimage",
+    "querycache",
+    "querycachetwo",
+    "user_newtalk",
+)
+
 # Base directories
 WEBROOT_PATH = "/var/www/html"
 MEDIAWIKI_PATH = WEBROOT_PATH + "/w"
