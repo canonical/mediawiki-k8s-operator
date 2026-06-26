@@ -3,14 +3,12 @@
 
 """Functions for managing and interacting with the primary MediaWiki workload/container."""
 
-import functools
 import json
 import logging
 import secrets
 import time
-from typing import TYPE_CHECKING, Callable, List, Optional, TypeVar
+from typing import TYPE_CHECKING, Optional
 
-import mysql.connector
 import ops
 from charmlibs.pathops import ContainerPath
 
@@ -25,24 +23,20 @@ from exceptions import (
 from mediawiki import constants
 from mediawiki._base import _MediaWikiBase
 from mediawiki._composer import _ComposerMixin
+from mediawiki._database import _DatabaseMixin
 from mediawiki._settings import _SettingsMixin
 from redis import Redis
 from s3 import S3
 from smtp import Smtp
 from state import CharmConfig, StatefulCharmBase
-from types_ import CommandExecResult
 
 if TYPE_CHECKING:
     from mediawiki._secrets import MediaWikiSecrets
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
 
-INSTALLED_FLAG_TABLE = "mediawiki_charm_setup"
-
-
-class MediaWiki(_ComposerMixin, _SettingsMixin, _MediaWikiBase):
+class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
     """Class to manage MediaWiki."""
 
     def __init__(
@@ -73,11 +67,6 @@ class MediaWiki(_ComposerMixin, _SettingsMixin, _MediaWikiBase):
     def _robots_txt_path(self) -> ContainerPath:
         """The robots.txt file served from the webroot."""
         return ContainerPath(constants.ROBOTS_TXT_PATH, container=self._container)
-
-    @property
-    def _update_wrapper_file(self) -> ContainerPath:
-        """The UpdateWrapper.php file used when running update.php."""
-        return ContainerPath(constants.UPDATE_WRAPPER_FILE, container=self._container)
 
     @property
     def _webroot_owner_ssh_key(self) -> ContainerPath:
@@ -229,36 +218,6 @@ class MediaWiki(_ComposerMixin, _SettingsMixin, _MediaWikiBase):
 
         return constants.ROOT_USER_NAME, root_password
 
-    def update_database_schema(self) -> None:
-        """Runs the update maintenance script, updating the MediaWiki database schema if needed.
-
-        Should be ran after a MediaWiki upgrade, or after installing or updating an extension that requires a schema update.
-
-        If already in a ready state, the database should be set to read only mode before running this method, and set back to read/write after completion.
-
-        Bundled extensions listed in ``constants.BUNDLED_EXTENSIONS`` are always force-loaded so that ``update.php`` creates or migrates their tables even when they are not enabled in the normal settings.
-
-        This is potentially dangerous action!
-
-        Raises:
-            MediaWikiInstallError: If the database update process fails.
-        """
-        lines = [
-            "<?php",
-            f'require_once "{self._local_settings_file}";',
-            *(f"wfLoadExtension('{ext}');" for ext in constants.BUNDLED_EXTENSIONS),
-        ]
-        self._update_wrapper_file.parent.mkdir(exist_ok=True, parents=True)
-        self._update_wrapper_file.write_text(
-            "\n".join(lines) + "\n",
-            mode=0o640,
-            user=constants.ROOT_USER_NAME,
-            group=constants.DAEMON_GROUP,
-        )
-        result = self._run_maintenance_script(["update", "--conf", str(self._update_wrapper_file)])
-        result.raise_for_status("Database schema update", MediaWikiInstallError)
-        logger.info("Database schema update output:\n%s", result.stdout)
-
     def runner_queue_service_is_ready(self) -> bool:
         """Returns whether or not the runner queue services should be enabled."""
         if (not self._redis.is_relation_available()) or (not self._redis.get_endpoint()):
@@ -392,78 +351,3 @@ class MediaWiki(_ComposerMixin, _SettingsMixin, _MediaWikiBase):
         self._set_database_initialized()
 
         logger.info("Completed MediaWiki installation.")
-
-    @staticmethod
-    def _db_retry_deco(func: Callable[..., T]) -> Callable[..., T]:
-        """Decorator to retry a database operation with a timeout."""
-
-        @functools.wraps(func)
-        def wrapper(self: "MediaWiki") -> T:
-            deadline = time.time() + constants.DB_CHECK_TIMEOUT
-            while time.time() < deadline:
-                try:
-                    return func(self)
-                except (mysql.connector.Error, MediaWikiWaitingStatusException) as e:
-                    logger.warning("Database operation failed with error: %s", e)
-                    time.sleep(constants.DB_CHECK_INTERVAL)
-            else:
-                raise MediaWikiBlockedStatusException("MySQL database operation failed")
-
-        return wrapper
-
-    @_db_retry_deco
-    def _set_database_initialized(self) -> None:
-        """Mark the MediaWiki database as initialized by creating a flag table."""
-        with self._database.get_database_connection() as cnx:
-            try:
-                cursor = cnx.cursor()
-                # Should be safe since INSTALLED_FLAG_TABLE is a constant.
-                cursor.execute(
-                    f"""
-                    CREATE TABLE IF NOT EXISTS {INSTALLED_FLAG_TABLE} (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        installed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                    """
-                )
-                cnx.commit()
-                logger.debug("Marked database as initialized")
-            except Exception as e:
-                cnx.rollback()
-                raise e
-
-    @_db_retry_deco
-    def _is_database_initialized(self) -> bool:
-        """Check if the MediaWiki database has been initialized by a charm."""
-        with self._database.get_database_connection() as cnx:
-            cursor = cnx.cursor()
-            # Should be safe since INSTALLED_FLAG_TABLE is a constant.
-            cursor.execute(f"SHOW TABLES LIKE '{INSTALLED_FLAG_TABLE}'")
-            result = cursor.fetchone()
-            if result:
-                return True
-        return False
-
-    def _run_maintenance_script(
-        self,
-        args: List[str],
-        timeout: int = constants.LONG_TIMEOUT,
-        combine_stderr: bool = False,
-        sensitive: bool = False,
-    ) -> CommandExecResult:
-        """Execute a MediaWiki maintenance script with the given arguments.
-
-        This is a helper method for running maintenance scripts in the form of "php maintenance/run.php <args>".
-
-        If timeout is exceeded, a ContainerError will be raised.
-        """
-        result = self._run_cli(
-            [str(self._php_cli_path), str(self._maintenance_scripts_base_path / "run.php"), *args],
-            environment=self._charm.state.get_proxy_env(),
-            user=constants.DAEMON_USER,
-            group=constants.DAEMON_GROUP,
-            timeout=timeout,
-            combine_stderr=combine_stderr,
-            sensitive=sensitive,
-        )
-        return result

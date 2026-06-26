@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 from charmlibs.pathops import ContainerPath
 
@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from s3 import S3
     from smtp import Smtp
     from state import StatefulCharmBase
+    from types_ import CommandExecResult
 
 
 class _MediaWikiBase(ContainerService):
@@ -69,3 +70,27 @@ class _MediaWikiBase(ContainerService):
     def _maintenance_scripts_base_path(self) -> ContainerPath:
         """The MediaWiki maintenance scripts directory (shared by the settings mixin and core)."""
         return ContainerPath(constants.MAINTENANCE_SCRIPTS_PATH, container=self._container)
+
+    def _run_maintenance_script(
+        self,
+        args: List[str],
+        timeout: int = constants.LONG_TIMEOUT,
+        combine_stderr: bool = False,
+        sensitive: bool = False,
+    ) -> CommandExecResult:
+        """Execute a MediaWiki maintenance script with the given arguments.
+
+        This is a helper method for running maintenance scripts in the form of "php maintenance/run.php <args>".
+
+        If timeout is exceeded, a ContainerError will be raised.
+        """
+        result = self._run_cli(
+            [str(self._php_cli_path), str(self._maintenance_scripts_base_path / "run.php"), *args],
+            environment=self._charm.state.get_proxy_env(),
+            user=constants.DAEMON_USER,
+            group=constants.DAEMON_GROUP,
+            timeout=timeout,
+            combine_stderr=combine_stderr,
+            sensitive=sensitive,
+        )
+        return result
