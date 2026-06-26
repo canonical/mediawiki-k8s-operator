@@ -112,9 +112,9 @@ class _DatabaseMixin(_MediaWikiBase):
                 )
                 cnx.commit()
                 logger.debug("Marked database as initialized")
-            except Exception as e:
+            except Exception:
                 cnx.rollback()
-                raise e
+                raise
 
     @_db_retry_deco
     def _is_database_initialized(self) -> bool:
@@ -214,6 +214,8 @@ class _DatabaseMixin(_MediaWikiBase):
                                     column,
                                     exc,
                                 )
+                        else:
+                            self._complete_surrogate_key(cursor, table, column, compliant_keys)
                         continue
 
                     # The table already satisfies Group Replication on its own (its own primary
@@ -230,9 +232,30 @@ class _DatabaseMixin(_MediaWikiBase):
 
                     self._add_surrogate_key(cursor, table, column)
                 cnx.commit()
-            except Exception as e:
+            except Exception:
                 cnx.rollback()
-                raise e
+                raise
+
+    def _complete_surrogate_key(
+        self,
+        cursor: MySQLCursorAbstract,
+        table: str,
+        column: str,
+        compliant_keys: dict[str, set[str]],
+    ) -> None:
+        """Finish a partially-created charm-managed surrogate key."""
+        if compliant_keys.get(f"{column}_uniq") != {column}:
+            logger.info(
+                "Adding missing unique key for charm-managed surrogate %s.%s", table, column
+            )
+            cursor.execute(f"ALTER TABLE `{table}` ADD UNIQUE KEY `{column}_uniq` (`{column}`);")
+
+        if not self._column_has_default(cursor, table, column):
+            logger.info("Adding missing default for charm-managed surrogate %s.%s", table, column)
+            cursor.execute(
+                f"ALTER TABLE `{table}` ALTER COLUMN `{column}` SET DEFAULT "
+                "(UUID_TO_BIN(UUID(), 1));"
+            )
 
     def _add_surrogate_key(self, cursor: MySQLCursorAbstract, table: str, column: str) -> None:
         """Add the charm-managed surrogate key to a Group-Replication-incompatible table.
@@ -345,9 +368,9 @@ class _DatabaseMixin(_MediaWikiBase):
                             exc,
                         )
                 cnx.commit()
-            except Exception as e:
+            except Exception:
                 cnx.rollback()
-                raise e
+                raise
 
     @staticmethod
     def _table_exists(cursor: MySQLCursorAbstract, table: str) -> bool:
@@ -369,6 +392,22 @@ class _DatabaseMixin(_MediaWikiBase):
             (table, column),
         )
         return cursor.fetchone() is not None
+
+    @staticmethod
+    def _column_has_default(cursor: MySQLCursorAbstract, table: str, column: str) -> bool:
+        """Return whether the named column has a default value."""
+        cursor.execute(
+            "SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s "
+            "AND COLUMN_NAME = %s LIMIT 1;",
+            (table, column),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return False
+        if isinstance(row, dict):
+            return row.get("COLUMN_DEFAULT") is not None
+        return row[0] is not None
 
     @staticmethod
     def _table_has_rows(cursor: MySQLCursorAbstract, table: str) -> bool:

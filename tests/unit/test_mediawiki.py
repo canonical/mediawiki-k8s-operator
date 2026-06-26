@@ -651,7 +651,7 @@ class TestPrimaryKeyCompatibility:
         """The surrogate is kept when it is the only key keeping the table GR-compliant."""
         mocker.patch.object(constants, "PRIMARY_KEY_LESS_TABLES", ("querycachetwo",))
         # table exists, surrogate column present.
-        mock_database_cursor.fetchone.side_effect = [(1,), (1,)]
+        mock_database_cursor.fetchone.side_effect = [(1,), (1,), ("uuid_to_bin(uuid(),1)",)]
         # only the surrogate's own unique key exists.
         mock_database_cursor.fetchall.return_value = [
             ("mw_charm_gr_key_uniq", "mw_charm_gr_key", "NO"),
@@ -662,6 +662,58 @@ class TestPrimaryKeyCompatibility:
 
         executed = self._executed_sql(mock_database_cursor)
         assert not any("ALTER TABLE" in sql for sql in executed), executed
+
+    def test_completes_partially_added_surrogate_key(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+    ) -> None:
+        """A surrogate column left without its unique key or default is completed."""
+        mocker.patch.object(constants, "PRIMARY_KEY_LESS_TABLES", ("querycachetwo",))
+        # table exists, surrogate column present, surrogate default missing.
+        mock_database_cursor.fetchone.side_effect = [(1,), (1,), (None,)]
+        # no existing Group-Replication-compliant keys.
+        mock_database_cursor.fetchall.return_value = []
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_primary_key_compatibility()
+
+        executed = self._executed_sql(mock_database_cursor)
+        unique_idx = next(
+            i for i, sql in enumerate(executed) if "ADD UNIQUE KEY `mw_charm_gr_key_uniq`" in sql
+        )
+        default_idx = next(
+            i
+            for i, sql in enumerate(executed)
+            if "ALTER COLUMN `mw_charm_gr_key` SET DEFAULT" in sql
+        )
+        assert unique_idx < default_idx, executed
+        assert not any("ADD COLUMN `mw_charm_gr_key`" in sql for sql in executed), executed
+
+    def test_completes_surrogate_key_missing_default_only(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+    ) -> None:
+        """A surrogate column with its unique key but no default gets the default."""
+        mocker.patch.object(constants, "PRIMARY_KEY_LESS_TABLES", ("querycachetwo",))
+        # table exists, surrogate column present, surrogate default missing.
+        mock_database_cursor.fetchone.side_effect = [(1,), (1,), (None,)]
+        # only the surrogate's own unique key exists.
+        mock_database_cursor.fetchall.return_value = [
+            ("mw_charm_gr_key_uniq", "mw_charm_gr_key", "NO"),
+        ]
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_primary_key_compatibility()
+
+        executed = self._executed_sql(mock_database_cursor)
+        assert not any("ADD UNIQUE KEY `mw_charm_gr_key_uniq`" in sql for sql in executed)
+        assert any("ALTER COLUMN `mw_charm_gr_key` SET DEFAULT" in sql for sql in executed)
 
     def test_skips_table_with_existing_primary_key(
         self,
