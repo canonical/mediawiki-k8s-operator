@@ -989,6 +989,79 @@ class TestInstall:
         assert install_attempts == constants.INSTALL_MAX_ATTEMPTS
         assert mock_sleep.call_count == constants.INSTALL_MAX_ATTEMPTS - 1
 
+    def test_resets_partial_schema_before_retry(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test that a failed first-time install is cleaned up before retrying."""
+        mock_sleep = mocker.patch("mediawiki._core.time.sleep")
+        mock_reset = mocker.patch.object(
+            MediaWiki, "_reset_partially_initialized_database", autospec=True
+        )
+        install_attempts = 0
+
+        def fake_run(self_, args, *_args, **_kwargs):
+            nonlocal install_attempts
+            if args and args[0] == "installPreConfigured":
+                install_attempts += 1
+                if install_attempts == 1:
+                    return CommandExecResult(
+                        return_code=1,
+                        stdout="",
+                        stderr="Mocked transient install failure",
+                    )
+            return CommandExecResult(return_code=0, stdout="ok", stderr="")
+
+        mocker.patch.object(
+            MediaWiki, "_run_maintenance_script", autospec=True, side_effect=fake_run
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+
+        assert install_attempts == 2
+        mock_reset.assert_called_once()
+        mock_sleep.assert_called_once()
+
+    def test_does_not_reset_non_empty_database_before_retry(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mocker: MockerFixture,
+    ) -> None:
+        """Test that install retry does not reset a database that started non-empty."""
+        mocker.patch.object(MediaWiki, "_is_database_empty", autospec=True, return_value=False)
+        mock_reset = mocker.patch.object(
+            MediaWiki, "_reset_partially_initialized_database", autospec=True
+        )
+        mock_update = mocker.patch.object(MediaWiki, "update_database_schema", autospec=True)
+        install_attempts = 0
+
+        def fake_run(self_, args, *_args, **_kwargs):
+            nonlocal install_attempts
+            if args and args[0] == "installPreConfigured":
+                install_attempts += 1
+                if install_attempts == 1:
+                    return CommandExecResult(
+                        return_code=1,
+                        stdout="",
+                        stderr="Mocked transient install failure",
+                    )
+            return CommandExecResult(return_code=0, stdout="ok", stderr="")
+
+        mocker.patch.object(
+            MediaWiki, "_run_maintenance_script", autospec=True, side_effect=fake_run
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.reconciliation(MediaWikiSecrets.generate())
+
+        assert install_attempts == 2
+        mock_reset.assert_not_called()
+        assert mock_update.call_count == 2
+
 
 class TestMediaWikiSecrets:
     def test_generate_returns_instance(self) -> None:

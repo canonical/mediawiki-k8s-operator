@@ -1,0 +1,18 @@
+version_schema: 2
+
+changes:
+  - title: Reset database state on failed installation attempts
+    author: hk21702
+    type: bugfix
+    description: >
+      Fixed a flaky installation failure where a failed first install attempt
+      could leave partial MediaWiki database tables behind and cause later
+      retries to fail against the incomplete schema. Installation retries now
+      reset only databases that were empty when installation began. In the case
+      where data was already present in the database before installation, we skip
+      the reset.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/184"
+    visibility: public
+    highlight: false
