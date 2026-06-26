@@ -1,0 +1,21 @@
+version_schema: 2
+
+changes:
+  - title: Fixed MySQL Group Replication incompatibilities for multi-unit deployments
+    author: hk21702
+    type: bugfix
+    description: >
+      Patched two incompatibilities between MediaWiki 1.45 and MySQL Group
+      Replication, which is required for scaling the MySQL charm to multiple
+      units. MediaWiki core tables that lacked a primary key or non-null unique
+      key (rejected by Group Replication with error 3098) now receive an
+      invisible surrogate unique column added automatically during database
+      schema reconciliation. Additionally, the `searchindex` table, which
+      MediaWiki hardcodes to use the MyISAM storage engine, is now converted to
+      InnoDB, as Group Replication rejects writes to non-InnoDB tables and
+      MySQL 8 supports FULLTEXT indexes on InnoDB.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/182"
+    visibility: public
+    highlight: false
