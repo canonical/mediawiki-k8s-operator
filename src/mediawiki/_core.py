@@ -308,6 +308,8 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
                     "Timed out waiting for leader to perform installation"
                 )
 
+        database_empty_at_install_start = self._is_database_empty()
+
         # Blank the user settings file before installation so that extensions which behave
         # badly during install don't cause the installation script to fail.
         self._user_settings_file.write_text(
@@ -330,10 +332,13 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
                 result.stderr,
             )
             if attempt < constants.INSTALL_MAX_ATTEMPTS:
-                try:
-                    self.update_database_schema()
-                except MediaWikiInstallError as e:
-                    logger.warning("Database schema update before retry failed: %s", e)
+                if database_empty_at_install_start:
+                    self._reset_partially_initialized_database()
+                else:
+                    try:
+                        self.update_database_schema()
+                    except MediaWikiInstallError as e:
+                        logger.warning("Database schema update before retry failed: %s", e)
                 time.sleep(constants.INSTALL_RETRY_INTERVAL)
         else:
             raise MediaWikiInstallError("MediaWiki installation failed; see logs for details.")
