@@ -268,6 +268,7 @@ class MediaWiki(_ComposerMixin, _SettingsMixin, _MediaWikiBase):
         logger.info("Database schema update output:\n%s", result.stdout)
 
         self._reconcile_primary_key_compatibility()
+        self._reconcile_storage_engine()
 
     def runner_queue_service_is_ready(self) -> bool:
         """Returns whether or not the runner queue services should be enabled."""
@@ -612,6 +613,69 @@ class MediaWiki(_ComposerMixin, _SettingsMixin, _MediaWikiBase):
             f"ALTER TABLE `{table}` ALTER COLUMN `{column}` SET DEFAULT (UUID_TO_BIN(UUID(), 1));"
         )
 
+    @_db_retry_deco
+    def _reconcile_storage_engine(self) -> None:
+        """Convert known MyISAM core tables to InnoDB for Group Replication compatibility.
+
+        MediaWiki ships a few tables with a hardcoded ``ENGINE=MyISAM`` (see
+        ``constants.MYISAM_TABLES``). ``searchindex`` is the notable case, historically kept on
+        MyISAM because FULLTEXT indexes required it. MySQL 8 supports FULLTEXT on InnoDB, and
+        Group Replication rejects writes to non-InnoDB tables, so each listed table is converted
+        with ``ALTER TABLE ... ENGINE=InnoDB``.
+
+        The conversion is idempotent: a table is altered only while it still reports
+        ``ENGINE=MyISAM``, so it is a no-op once converted (by a prior run or a future MediaWiki),
+        and missing tables are skipped. The rebuild preserves the table's rows and rebuilds any
+        FULLTEXT indexes for InnoDB.
+
+        The rebuild takes a metadata lock, so each conversion is best-effort: ``lock_wait_timeout``
+        is bounded to fail fast under contention, and a conversion that fails is logged and left
+        for the next reconciliation run rather than blocking the unit.
+
+        Raises:
+            MediaWikiBlockedStatusException: If the database connection fails persistently.
+        """
+        with self._database.get_database_connection() as cnx:
+            try:
+                cursor = cnx.cursor()
+                # Bound the wait for each table's metadata lock so a contended rebuild fails fast
+                # (and is retried on the next run) instead of blocking queries queued behind it.
+                cursor.execute(f"SET SESSION lock_wait_timeout = {int(_DDL_LOCK_WAIT_TIMEOUT)};")
+                for table in constants.MYISAM_TABLES:
+                    if not self._table_exists(cursor, table):
+                        logger.warning(
+                            "Table %s is listed in MYISAM_TABLES but does not exist; skipping.",
+                            table,
+                        )
+                        continue
+
+                    engine = self._table_engine(cursor, table)
+                    if engine is None or engine.upper() != "MYISAM":
+                        logger.debug(
+                            "Table %s is on engine %s, not MyISAM; skipping conversion.",
+                            table,
+                            engine,
+                        )
+                        continue
+
+                    try:
+                        cursor.execute(f"ALTER TABLE `{table}` ENGINE=InnoDB;")
+                        logger.info("Converted table %s from MyISAM to InnoDB.", table)
+                    except mysql.connector.Error as exc:
+                        # Best-effort remediation: a contended or rejected rebuild is left for the
+                        # next reconciliation run rather than blocking the unit. searchindex on
+                        # MyISAM still functions; it is only Group-Replication-incompatible.
+                        logger.warning(
+                            "Could not convert table %s from MyISAM to InnoDB (%s); leaving it in "
+                            "place. It will be retried on the next reconciliation run.",
+                            table,
+                            exc,
+                        )
+                cnx.commit()
+            except Exception as e:
+                cnx.rollback()
+                raise e
+
     @staticmethod
     def _table_exists(cursor: MySQLCursorAbstract, table: str) -> bool:
         """Return whether a table exists in the connected database."""
@@ -644,6 +708,24 @@ class MediaWiki(_ComposerMixin, _SettingsMixin, _MediaWikiBase):
         """
         cursor.execute(f"SELECT 1 FROM `{table}` LIMIT 1;")  # noqa: S608  # nosec: B608
         return cursor.fetchone() is not None
+
+    @staticmethod
+    def _table_engine(cursor: MySQLCursorAbstract, table: str) -> Optional[str]:
+        """Return the storage engine of a table, or None if the table is missing or unknown.
+
+        Used to guard the MyISAM-to-InnoDB conversion so the ``ALTER`` only runs while the table
+        still reports ``ENGINE=MyISAM``, keeping the reconciliation idempotent.
+        """
+        cursor.execute(
+            "SELECT ENGINE FROM information_schema.TABLES "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1;",
+            (table,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        (engine,) = row
+        return str(engine) if engine is not None else None
 
     @staticmethod
     def _group_replication_keys(cursor: MySQLCursorAbstract, table: str) -> dict[str, set[str]]:

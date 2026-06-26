@@ -44,6 +44,9 @@ PRIMARY_KEY_LESS_TABLES = (
     "user_newtalk",
 )
 
+# MediaWiki core tables that ship with a hardcoded ``ENGINE=MyISAM`` that we want to convert to InnoDB.
+MYISAM_TABLES = ("searchindex",)
+
 # Base directories
 WEBROOT_PATH = "/var/www/html"
 MEDIAWIKI_PATH = WEBROOT_PATH + "/w"

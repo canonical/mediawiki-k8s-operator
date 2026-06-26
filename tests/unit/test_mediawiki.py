@@ -738,6 +738,131 @@ class TestPrimaryKeyCompatibility:
         assert not any("ALTER TABLE" in sql for sql in executed), executed
 
 
+class TestStorageEngineCompatibility:
+    """Tests for MediaWiki._reconcile_storage_engine."""
+
+    @staticmethod
+    def _executed_sql(mock_database_cursor: MockType) -> list[str]:
+        """Return the SQL strings passed to cursor.execute."""
+        return [call.args[0] for call in mock_database_cursor.execute.call_args_list]
+
+    def test_converts_myisam_table_to_innodb(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+    ) -> None:
+        """A table still reporting ENGINE=MyISAM is converted to InnoDB."""
+        mocker.patch.object(constants, "MYISAM_TABLES", ("searchindex",))
+        # table exists, engine is MyISAM.
+        mock_database_cursor.fetchone.side_effect = [(1,), ("MyISAM",)]
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_storage_engine()
+
+        executed = self._executed_sql(mock_database_cursor)
+        assert any("ALTER TABLE `searchindex` ENGINE=InnoDB" in sql for sql in executed), executed
+
+    def test_skips_table_already_innodb(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+    ) -> None:
+        """A table already on InnoDB is left untouched (no-op once MediaWiki or a prior run fixed it)."""
+        mocker.patch.object(constants, "MYISAM_TABLES", ("searchindex",))
+        # table exists, engine is already InnoDB.
+        mock_database_cursor.fetchone.side_effect = [(1,), ("InnoDB",)]
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_storage_engine()
+
+        executed = self._executed_sql(mock_database_cursor)
+        assert not any("ALTER TABLE" in sql for sql in executed), executed
+
+    def test_skips_missing_table(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A table that does not exist is skipped without attempting a conversion."""
+        mocker.patch.object(constants, "MYISAM_TABLES", ("searchindex",))
+        # table does not exist.
+        mock_database_cursor.fetchone.side_effect = [None]
+
+        with (
+            caplog.at_level(logging.WARNING),
+            ctx(ctx.on.update_status(), active_state) as mgr,
+        ):
+            mgr.charm.mediawiki._reconcile_storage_engine()
+
+        executed = self._executed_sql(mock_database_cursor)
+        assert not any("ALTER TABLE" in sql for sql in executed), executed
+        assert any(
+            "does not exist" in record.message and "searchindex" in record.message
+            for record in caplog.records
+        ), caplog.records
+
+    def test_skips_when_engine_unknown(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+    ) -> None:
+        """A table whose engine cannot be determined is left untouched rather than converted."""
+        mocker.patch.object(constants, "MYISAM_TABLES", ("searchindex",))
+        # table exists, but information_schema reports no engine row.
+        mock_database_cursor.fetchone.side_effect = [(1,), None]
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_storage_engine()
+
+        executed = self._executed_sql(mock_database_cursor)
+        assert not any("ALTER TABLE" in sql for sql in executed), executed
+
+    def test_conversion_failure_is_best_effort(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_database_cursor: MockType,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A conversion that the server rejects is logged and skipped rather than blocking the unit.
+
+        The engine conversion is best-effort remediation: a contended or rejected rebuild leaves
+        the table on MyISAM to be retried on the next reconciliation run, instead of raising.
+        """
+        mocker.patch.object(constants, "MYISAM_TABLES", ("searchindex",))
+        # table exists, engine is MyISAM.
+        mock_database_cursor.fetchone.side_effect = [(1,), ("MyISAM",)]
+
+        def _raise_on_alter(sql: str, *args: object, **kwargs: object) -> None:
+            if "ALTER TABLE" in sql:
+                raise mysql.connector.Error("Lock wait timeout exceeded")
+            return None
+
+        mock_database_cursor.execute.side_effect = _raise_on_alter
+
+        with (
+            caplog.at_level(logging.WARNING),
+            ctx(ctx.on.update_status(), active_state) as mgr,
+        ):
+            # Must not raise: the failed conversion is swallowed and retried later.
+            mgr.charm.mediawiki._reconcile_storage_engine()
+
+        assert any(
+            "could not convert" in record.message.lower() and "searchindex" in record.message
+            for record in caplog.records
+        ), caplog.records
+
+
 class TestInstall:
     def test_retries_then_raises_on_persistent_failure(
         self,
