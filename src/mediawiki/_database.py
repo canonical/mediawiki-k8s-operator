@@ -8,7 +8,7 @@ from __future__ import annotations
 import functools
 import logging
 import time
-from typing import Callable, Optional, TypeVar
+from typing import Callable, Optional, Sequence, TypeVar, cast
 
 import mysql.connector
 from charmlibs.pathops import ContainerPath
@@ -127,6 +127,38 @@ class _DatabaseMixin(_MediaWikiBase):
             if result:
                 return True
         return False
+
+    @_db_retry_deco
+    def _is_database_empty(self) -> bool:
+        """Return whether the connected database contains no tables or views."""
+        with self._database.get_database_connection() as cnx:
+            cursor = cnx.cursor()
+            cursor.execute(
+                "SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() LIMIT 1;"
+            )
+            return cursor.fetchone() is None
+
+    @_db_retry_deco
+    def _reset_partially_initialized_database(self) -> None:
+        """Drop tables created by a failed first-time MediaWiki installation attempt."""
+        with self._database.get_database_connection() as cnx:
+            try:
+                cursor = cnx.cursor()
+                cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
+                cursor.execute("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE';")
+                rows = cast(Sequence[Sequence[object]], cursor.fetchall())
+                tables = [str(row[0]) for row in rows]
+                for table in tables:
+                    escaped_table = table.replace("`", "``")
+                    cursor.execute(f"DROP TABLE IF EXISTS `{escaped_table}`;")
+                cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
+                cnx.commit()
+                logger.info(
+                    "Dropped %s tables from failed MediaWiki installation attempt", len(tables)
+                )
+            except Exception:
+                cnx.rollback()
+                raise
 
     @_db_retry_deco
     def _reconcile_primary_key_compatibility(self) -> None:
