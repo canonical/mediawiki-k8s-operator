@@ -1,0 +1,20 @@
+version_schema: 2
+
+changes:
+  - title: Replaced rotate-root-credentials with create-and-promote action
+    author: hk21702
+    type: breaking
+    description: >
+      The `rotate-root-credentials` action and the auto-created `root` MediaWiki
+      account have been removed. A `root` SSO user could previously log in with
+      elevated permissions due to the name clash with this auto-created account.
+      In their place, the new `create-and-promote` action exposes the full
+      `createAndPromote.php` maintenance script, allowing operators to create or
+      promote any user into any group. Existing deployments should create their
+      admin account explicitly using the new action:
+      `juju run mediawiki-k8s/0 create-and-promote username=<admin> bureaucrat=true sysop=true generate-password=true`.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/191"
+    visibility: public
+    highlight: true

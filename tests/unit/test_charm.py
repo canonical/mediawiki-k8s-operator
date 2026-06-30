@@ -30,7 +30,7 @@ def mock_mediawiki(mocker: MockerFixture) -> MockType:
 
     # Setup default return values or side effects
     mock_instance.reconciliation.return_value = None
-    mock_instance.rotate_root_credentials.return_value = ("mocked-root", "mocked-password")
+    mock_instance.create_and_promote_user.return_value = "mocked-password"  # nosec: B105
     mock_instance.update_database_schema.return_value = None
 
     return mock_instance
@@ -529,36 +529,139 @@ class TestRotateMediaWikiSecretsAction:
         assert ctx.action_results is None
 
 
-class TestRotateRootCredentialsAction:
-    def test_success(self, ctx: testing.Context, active_state: testing.State) -> None:
-        """Test that the action returns new credentials when rotation is successful."""
-        ctx.run(ctx.on.action("rotate-root-credentials"), active_state)
+class TestCreateAndPromoteUserAction:
+    def test_success_generated_password(
+        self, ctx: testing.Context, active_state: testing.State, mock_mediawiki
+    ) -> None:
+        """Test that a generated password is returned and forwarded when requested."""
+        ctx.run(
+            ctx.on.action(
+                "create-and-promote",
+                params={"username": "mocked-user", "bureaucrat": True, "generate-password": True},
+            ),
+            active_state,
+        )
 
         # no sec B105 is bugged for multi-line dicts https://github.com/PyCQA/bandit/issues/1352
         mocked_password = "mocked-password"  # nosec: B105
-        assert ctx.action_results == {"username": "mocked-root", "password": mocked_password}
+        assert ctx.action_results == {"username": "mocked-user", "password": mocked_password}
+        mock_mediawiki.create_and_promote_user.assert_called_once_with(
+            "mocked-user",
+            generate_password=True,
+            sysop=False,
+            bureaucrat=True,
+            interface_admin=False,
+            bot=False,
+            force=False,
+            custom_groups=None,
+            email=None,
+            reason=None,
+        )
+
+    def test_success_no_password(
+        self, ctx: testing.Context, active_state: testing.State, mock_mediawiki
+    ) -> None:
+        """Test that no password is returned when generate-password is disabled."""
+        mock_mediawiki.create_and_promote_user.return_value = None
+        ctx.run(
+            ctx.on.action(
+                "create-and-promote",
+                params={
+                    "username": "mocked-user",
+                    "generate-password": False,
+                    "force": True,
+                    "sysop": True,
+                    "email": "user@example.com",
+                    "reason": "bootstrap",
+                },
+            ),
+            active_state,
+        )
+
+        assert ctx.action_results == {"username": "mocked-user"}
+        mock_mediawiki.create_and_promote_user.assert_called_once_with(
+            "mocked-user",
+            generate_password=False,
+            sysop=True,
+            bureaucrat=False,
+            interface_admin=False,
+            bot=False,
+            force=True,
+            custom_groups=None,
+            email="user@example.com",
+            reason="bootstrap",
+        )
+
+    def test_no_password_without_force_fails(
+        self, ctx: testing.Context, active_state: testing.State, mock_mediawiki
+    ) -> None:
+        """Test that disabling password generation requires force."""
+        with pytest.raises(testing.ActionFailed, match="Refusing to create a user without"):
+            ctx.run(
+                ctx.on.action(
+                    "create-and-promote",
+                    params={"username": "mocked-user", "generate-password": False},
+                ),
+                active_state,
+            )
+
+        mock_mediawiki.create_and_promote_user.assert_not_called()
 
     def test_failure(
         self, ctx: testing.Context, active_state: testing.State, mock_mediawiki
     ) -> None:
-        """Test that the action fails when MediaWiki raises an exception during credential rotation."""
-        mock_mediawiki.rotate_root_credentials.side_effect = MediaWikiBlockedStatusException(
-            "Mocked blocked status during credential rotation"
+        """Test that the action fails when MediaWiki raises an exception during user creation."""
+        mock_mediawiki.create_and_promote_user.side_effect = MediaWikiBlockedStatusException(
+            "Mocked blocked status during user creation"
         )
 
         with pytest.raises(
-            testing.ActionFailed, match="Mocked blocked status during credential rotation"
+            testing.ActionFailed, match="Mocked blocked status during user creation"
         ):
-            ctx.run(ctx.on.action("rotate-root-credentials"), active_state)
+            ctx.run(
+                ctx.on.action(
+                    "create-and-promote",
+                    params={"username": "mocked-user", "generate-password": True},
+                ),
+                active_state,
+            )
 
         assert ctx.action_results is None
 
-        mock_mediawiki.rotate_root_credentials.side_effect = Exception(
-            "Mocked exception during credential rotation"
+        mock_mediawiki.create_and_promote_user.side_effect = Exception(
+            "Mocked exception during user creation"
         )
 
-        with pytest.raises(testing.ActionFailed, match="Credential rotation failed"):
-            ctx.run(ctx.on.action("rotate-root-credentials"), active_state)
+        with pytest.raises(testing.ActionFailed, match="User creation failed"):
+            ctx.run(
+                ctx.on.action(
+                    "create-and-promote",
+                    params={"username": "mocked-user", "generate-password": True},
+                ),
+                active_state,
+            )
+
+        assert ctx.action_results is None
+
+    def test_failure_surfaces_stderr(
+        self, ctx: testing.Context, active_state: testing.State, mock_mediawiki
+    ) -> None:
+        """Test that the script's stderr is surfaced in the action failure message."""
+        mock_mediawiki.create_and_promote_user.side_effect = MediaWikiInstallError(
+            "Creating user failed: Account exists already"
+        )
+
+        with pytest.raises(
+            testing.ActionFailed,
+            match="User creation failed: Creating user failed: Account exists already",
+        ):
+            ctx.run(
+                ctx.on.action(
+                    "create-and-promote",
+                    params={"username": "mocked-user", "generate-password": True},
+                ),
+                active_state,
+            )
 
         assert ctx.action_results is None
 

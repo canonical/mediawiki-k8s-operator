@@ -123,19 +123,48 @@ def test_rotate_mediawiki_secrets_action(juju: jubilant.Juju, app: App):
 
 
 @pytest.mark.abort_on_fail
-def test_rotate_root_credentials_action(juju: jubilant.Juju, app: App):
-    """Check that the rotate-root-credentials action works as expected."""
-    rotate_action = juju.run(f"{app.name}/leader", "rotate-root-credentials")
-    assert rotate_action.status == "completed"
-    assert rotate_action.results["username"] == "root"
-    assert len(rotate_action.results["password"]) >= 64, (
-        "Expected new password to be at least 64 characters long)"
-    )  # secrets.url_base(64) averages 1.3 characters per byte to 83
+def test_create_and_promote_action(juju: jubilant.Juju, app: App):
+    """Check that the create-and-promote action works as expected."""
+    create_action = juju.run(
+        f"{app.name}/leader",
+        "create-and-promote",
+        {"username": "alice", "bureaucrat": True, "generate-password": True},
+    )
+    assert create_action.status == "completed"
+    assert create_action.results["username"] == "alice"
+    assert len(create_action.results["password"]) >= 64, (
+        "Expected generated password to be at least 64 characters long"
+    )  # secrets.token_urlsafe(64) averages 1.3 characters per byte to 83
 
-    new_rotate_action = juju.run(f"{app.name}/leader", "rotate-root-credentials")
-    assert new_rotate_action.status == "completed"
-    assert rotate_action.results["password"] != new_rotate_action.results["password"], (
-        "Expected new password to be different from previous password"
+    # Re-running without force should fail because the user already exists, even
+    # when a password would be generated.
+    with pytest.raises(jubilant.TaskError):
+        juju.run(
+            f"{app.name}/leader",
+            "create-and-promote",
+            {"username": "alice", "bureaucrat": True, "generate-password": True},
+        )
+
+    # Creating a user without generating a password and without force should fail
+    # validation.
+    with pytest.raises(jubilant.TaskError):
+        juju.run(
+            f"{app.name}/leader",
+            "create-and-promote",
+            {"username": "alice", "generate-password": False},
+        )
+
+    # Promoting an existing user with force and no password generation should
+    # succeed and not return a password.
+    promote_action = juju.run(
+        f"{app.name}/leader",
+        "create-and-promote",
+        {"username": "alice", "generate-password": False, "force": True, "sysop": True},
+    )
+    assert promote_action.status == "completed"
+    assert promote_action.results["username"] == "alice"
+    assert "password" not in promote_action.results, (
+        "Did not expect a password to be returned when generation is disabled"
     )
 
     juju.wait(jubilant.all_active)

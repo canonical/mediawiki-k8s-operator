@@ -19,7 +19,7 @@ Refer to the [tutorial present in the documentation](https://canonical-mediawiki
 The following actions are available for the charm:
 
 - `rotate-mediawiki-secrets`
-- `rotate-root-credentials`
+- `create-and-promote`
 - `update-database`
 
 You can find more information about supported actions in [the Charmhub documentation](https://charmhub.io/mediawiki-k8s/actions).

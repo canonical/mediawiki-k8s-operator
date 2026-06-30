@@ -34,7 +34,9 @@ class CommandExecResult(NamedTuple):
     stdout: Union[str, bytes]
     stderr: Union[str, bytes, None]
 
-    def raise_for_status(self, action: str, exc: type[Exception]) -> "CommandExecResult":
+    def raise_for_status(
+        self, action: str, exc: type[Exception], *, include_stderr: bool = False
+    ) -> "CommandExecResult":
         """Raise an exception if the command failed (non-zero return code).
 
         On failure, the return code, stdout and stderr are logged before the
@@ -43,8 +45,11 @@ class CommandExecResult(NamedTuple):
 
         Args:
             action: Human-readable description of the command's purpose (e.g.
-                "Creating root user"). Used in the log message and the exception text.
+                "Creating user"). Used in the log message and the exception text.
             exc: The exception type to raise on failure.
+            include_stderr: If ``True``, append the command's stderr to the
+                exception message so it can be surfaced to the caller (e.g. in an
+                action result) rather than only logged.
 
         Returns:
             The result itself, to allow chaining.
@@ -62,7 +67,16 @@ class CommandExecResult(NamedTuple):
             self.stdout,
             self.stderr,
         )
-        raise exc(f"{action} failed; see logs for details.")
+        message = f"{action} failed; see logs for details."
+        if include_stderr and self.stderr:
+            stderr_text = (
+                self.stderr.decode(errors="replace")
+                if isinstance(self.stderr, bytes)
+                else self.stderr
+            ).strip()
+            if stderr_text:
+                message = f"{action} failed: {stderr_text}"
+        raise exc(message)
 
 
 class DatabaseEndpoint(NamedTuple):

@@ -187,13 +187,68 @@ actions:
       Rotate the MediaWiki secrets generated and managed by the charm. Must be
       run on the leader unit.
 
-  rotate-root-credentials:
+  create-and-promote:
     description: |
-      Rotate the MediaWiki root bureaucrat user credentials and return the new
-      credentials.
+      Create a new MediaWiki user, or promote an existing one, and add it to the
+      requested user groups. This exposes MediaWiki's `createAndPromote.php`
+      maintenance script.
 
-      This user is only in the bureaucrat group and should only be used to
-      assign permissions to real users, not for regular use.
+      Set `generate-password=true` to generate a secure password and return it
+      in the action results; this is required when creating a new user. When
+      `false` (the default), the user's password is left unchanged, which is
+      only valid together with `force=true` to promote an existing user.
+
+      This is typically used to bootstrap an initial administrator after
+      deployment, for example by promoting a user to the `bureaucrat` and
+      `sysop` groups.
+    params:
+      username:
+        type: string
+        description: The username of the user to create or promote.
+      generate-password:
+        type: boolean
+        default: false
+        description: |
+          Whether to generate a new secure password and return it in the action
+          results. This is required when creating a new user. When `false` (the
+          default), the user's password is left unchanged; this is only valid
+          together with `force=true` to promote an existing user.
+      sysop:
+        type: boolean
+        default: false
+        description: Add the account to the `sysop` group.
+      bureaucrat:
+        type: boolean
+        default: false
+        description: Add the account to the `bureaucrat` group.
+      interface-admin:
+        type: boolean
+        default: false
+        description: Add the account to the `interface-admin` group.
+      bot:
+        type: boolean
+        default: false
+        description: Add the account to the `bot` group.
+      force:
+        type: boolean
+        default: false
+        description: |
+          If the account exists already, just grant it rights or change the
+          password. Without this, the action fails if the user already exists.
+      custom-groups:
+        type: string
+        description: Comma-separated list of groups to add the user to.
+      email:
+        type: string
+        description: Sets the user's email address.
+      reason:
+        type: string
+        description: |
+          Reason for account creation and user rights assignment to log to the
+          wiki.
+    required:
+      - username
+    additionalProperties: false
 
   update-database:
     description: |
