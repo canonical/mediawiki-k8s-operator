@@ -244,7 +244,7 @@ def secrets() -> list[testing.Secret]:
     )  # nosec: B106
     return [
         testing.Secret(
-            testing.RawSecretRevisionContents(secrets.to_juju_secret()),
+            secrets.to_juju_secret(),
             label=Charm._REPLICA_SECRET_LABEL,
             owner="app",
         )
@@ -260,7 +260,7 @@ MOCK_SSH_KEY = "-----BEGIN OPENSSH PRIVATE KEY-----\nmock\n-----END OPENSSH PRIV
 def ssh_key_secret() -> testing.Secret:
     """Return a user-owned SSH key secret with both mediawiki and git-sync fields."""
     return testing.Secret(
-        testing.RawSecretRevisionContents({"mediawiki": MOCK_SSH_KEY, "git-sync": MOCK_SSH_KEY}),
+        {"mediawiki": MOCK_SSH_KEY, "git-sync": MOCK_SSH_KEY},
     )
 
 

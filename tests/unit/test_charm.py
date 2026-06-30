@@ -299,25 +299,19 @@ class TestMediaWikiReplicaChanged:
             The configured (replica_relation, state_in) tuple.
         """
         peers_data = {
-            unit_id: testing.RawDataBagContents(
-                {Charm._RO_DATABASE_FLAG: ro} if ro is not None else {}
-            )
+            unit_id: ({Charm._RO_DATABASE_FLAG: ro} if ro is not None else {})
             for unit_id, ro in peers_ro.items()
         }
         replace_kwargs: dict = {
-            "local_app_data": testing.RawDataBagContents(
-                {
-                    Charm._RO_DATABASE_FLAG: app_ro,
-                    Charm._COMPOSER_JSON_KEY: "{}",
-                    Charm._COMPOSER_LOCK_KEY: MOCK_COMPOSER_LOCK,
-                }
-            ),
+            "local_app_data": {
+                Charm._RO_DATABASE_FLAG: app_ro,
+                Charm._COMPOSER_JSON_KEY: "{}",
+                Charm._COMPOSER_LOCK_KEY: MOCK_COMPOSER_LOCK,
+            },
             "peers_data": peers_data,
         }
         if unit_ro is not None:
-            replace_kwargs["local_unit_data"] = testing.RawDataBagContents(
-                {Charm._RO_DATABASE_FLAG: unit_ro}
-            )
+            replace_kwargs["local_unit_data"] = {Charm._RO_DATABASE_FLAG: unit_ro}
         mediawiki_replica_relation = dataclasses.replace(
             mediawiki_replica_relation, **replace_kwargs
         )
@@ -783,7 +777,7 @@ class TestSshKey:
         User-owned secrets have no app/unit owner in the ops testing model (owner=None).
         """
         secret = testing.Secret(
-            testing.RawSecretRevisionContents(content),
+            content,
         )
         state = dataclasses.replace(
             active_state,

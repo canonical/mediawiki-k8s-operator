@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Updated ops dependency to v3.8.0
+    author: hk21702
+    type: minor
+    description: >
+      The ops library was updated from v3.7.1 to v3.8.0 and ops-scenario from
+      v8.7.1 to v8.8.0. Unit tests were adapted to breaking API changes in
+      ops-scenario 8.8.0, where RawSecretRevisionContents and
+      RawDataBagContents became plain type aliases (Mapping[str, str]) rather
+      than instantiable wrapper classes.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/192"
+    visibility: internal
+    highlight: false
