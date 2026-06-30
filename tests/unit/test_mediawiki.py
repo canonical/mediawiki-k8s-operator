@@ -173,9 +173,12 @@ class TestReconciliation:
         for cmd in [
             ExecCmd.MAINTENANCE_INSTALL_PRE_CONFIGURED,
             ExecCmd.MAINTENANCE_UPDATE,
-            ExecCmd.MAINTENANCE_CREATE_AND_PROMOTE,
         ]:
             assert cmd.ran_in(history), f"{cmd.name} not found in exec history"
+
+        assert not ExecCmd.MAINTENANCE_CREATE_AND_PROMOTE.ran_in(history), (
+            "Did not expect createAndPromote to run during installation"
+        )
 
         validate_container(ctx, state_out, meta=meta)
 
@@ -193,9 +196,12 @@ class TestReconciliation:
             ExecCmd.COMPOSER_UPDATE,
             ExecCmd.MAINTENANCE_INSTALL_PRE_CONFIGURED,
             ExecCmd.MAINTENANCE_UPDATE,
-            ExecCmd.MAINTENANCE_CREATE_AND_PROMOTE,
         ]:
             assert cmd.ran_in(history), f"{cmd.name} not found in exec history"
+
+        assert not ExecCmd.MAINTENANCE_CREATE_AND_PROMOTE.ran_in(history), (
+            "Did not expect createAndPromote to run during installation"
+        )
 
         validate_container(ctx, state_out, expect_composer=True)
 
@@ -364,14 +370,42 @@ class TestReconciliation:
         assert "IdentityFile" not in config_text, "Did not expect IdentityFile without an SSH key"
 
 
-class TestRotateRootCredentials:
-    def test_success(self, ctx: testing.Context, active_state: testing.State) -> None:
-        """Test that we get a correct return when createAndPromote is successful."""
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            user, password = mgr.charm.mediawiki.rotate_root_credentials()
+class TestCreateAndPromoteUser:
+    @staticmethod
+    def _create_and_promote_command(ctx: testing.Context) -> list[str]:
+        """Return the recorded createAndPromote maintenance command."""
+        for cmd in ctx.exec_history[Charm._CONTAINER_NAME]:
+            if "createAndPromote" in cmd.command:
+                return cmd.command
+        raise AssertionError("createAndPromote was not executed")
 
-            assert user == constants.ROOT_USER_NAME
+    def test_success(self, ctx: testing.Context, active_state: testing.State) -> None:
+        """A generated password is returned and set when generate_password is True."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            password = mgr.charm.mediawiki.create_and_promote_user(
+                "alice", generate_password=True, bureaucrat=True
+            )
+
             assert isinstance(password, str) and len(password) >= 64
+
+        command = self._create_and_promote_command(ctx)
+        separator = command.index("--")
+        # The generated password follows the username after the ``--`` separator.
+        assert command[separator + 1 :] == ["alice", password]
+
+    def test_no_password(self, ctx: testing.Context, active_state: testing.State) -> None:
+        """No password is returned or set when generate_password is False."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            password = mgr.charm.mediawiki.create_and_promote_user(
+                "bob", generate_password=False, force=True, sysop=True
+            )
+
+            assert password is None
+
+        command = self._create_and_promote_command(ctx)
+        separator = command.index("--")
+        # Only the username follows the ``--`` separator; no password is appended.
+        assert command[separator + 1 :] == ["bob"]
 
     def test_failure(
         self,
@@ -379,7 +413,7 @@ class TestRotateRootCredentials:
         active_state: testing.State,
         mediawiki_container: testing.Container,
     ) -> None:
-        """Test that we get a correct exception when createAndPromote fails."""
+        """Test that the exception surfaces the script's stderr when createAndPromote fails."""
         execs = {
             testing.Exec(
                 ExecCmd.MAINTENANCE_CREATE_AND_PROMOTE.value,
@@ -393,9 +427,12 @@ class TestRotateRootCredentials:
         state_in = dataclasses.replace(active_state, containers=[mediawiki_container])
         with (
             ctx(ctx.on.update_status(), state_in) as mgr,
-            pytest.raises(MediaWikiInstallError, match="Creating root user failed"),
+            pytest.raises(
+                MediaWikiInstallError,
+                match="Creating user failed: Mocked failure of createAndPromote",
+            ),
         ):
-            mgr.charm.mediawiki.rotate_root_credentials()
+            mgr.charm.mediawiki.create_and_promote_user("alice", bureaucrat=True)
 
 
 class TestUpdateDatabaseScheme:

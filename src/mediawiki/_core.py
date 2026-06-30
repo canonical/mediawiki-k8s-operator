@@ -189,34 +189,77 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
 
         return None
 
-    def rotate_root_credentials(self) -> tuple[str, str]:
-        """Rotate the root bureaucrat user's credentials and ensure that it is in the bureaucrat group.
-        If the user does not exist, it will be created.
+    def create_and_promote_user(
+        self,
+        username: str,
+        *,
+        generate_password: bool = False,
+        sysop: bool = False,
+        bureaucrat: bool = False,
+        interface_admin: bool = False,
+        bot: bool = False,
+        force: bool = False,
+        custom_groups: Optional[str] = None,
+        email: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> Optional[str]:
+        """Create or promote a MediaWiki user, exposing the createAndPromote.php script.
 
-        This user should only be used to assign permissions to real users, not for regular use.
+        Mirrors the options of MediaWiki's ``createAndPromote.php`` maintenance
+        script. If the user already exists, ``force`` must be set to promote it,
+        otherwise the script fails.
+
+        A password is only set when ``generate_password`` is ``True``, in which
+        case a secure password is generated and returned. When ``False``, the
+        password is left unchanged; this is only valid when promoting an existing
+        user, as creating a new user without a password fails.
+
+        Args:
+            username: The username of the user to create or promote.
+            generate_password: Whether to generate and set a new secure password.
+            sysop: Promote the user to the ``sysop`` group.
+            bureaucrat: Promote the user to the ``bureaucrat`` group.
+            interface_admin: Promote the user to the ``interface-admin`` group.
+            bot: Promote the user to the ``bot`` group.
+            force: Update the user if it already exists.
+            custom_groups: Comma-separated list of additional groups to promote the user to.
+            email: Email address to set for the user.
+            reason: Reason for the account creation, recorded in the logs.
 
         Returns:
-            Tuple of (username, password) for the root user.
+            The generated password if ``generate_password`` is ``True``, otherwise ``None``.
 
         Raises:
-            MediaWikiInstallError: If there was an error creating or promoting the root user
+            MediaWikiInstallError: If there was an error creating or promoting the user.
         """
-        root_password = secrets.token_urlsafe(64)
-        result = self._run_maintenance_script(
-            [
-                "createAndPromote",
-                "--bureaucrat",
-                "--force",
-                "--",
-                constants.ROOT_USER_NAME,
-                root_password,
-            ],
-            sensitive=True,
-        )
-        result.raise_for_status("Creating root user", MediaWikiInstallError)
-        logger.info("Root user creation output:\n%s", result.stdout)
+        password = secrets.token_urlsafe(64) if generate_password else None
 
-        return constants.ROOT_USER_NAME, root_password
+        args = ["createAndPromote"]
+        if sysop:
+            args.append("--sysop")
+        if bureaucrat:
+            args.append("--bureaucrat")
+        if interface_admin:
+            args.append("--interface-admin")
+        if bot:
+            args.append("--bot")
+        if force:
+            args.append("--force")
+        if custom_groups:
+            args.extend(["--custom-groups", custom_groups])
+        if email:
+            args.extend(["--email", email])
+        if reason:
+            args.extend(["--reason", reason])
+        args.extend(["--", username])
+        if password is not None:
+            args.append(password)
+
+        result = self._run_maintenance_script(args, sensitive=True)
+        result.raise_for_status("Creating user", MediaWikiInstallError, include_stderr=True)
+        logger.info("User creation output:\n%s", result.stdout)
+
+        return password
 
     def runner_queue_service_is_ready(self) -> bool:
         """Returns whether or not the runner queue services should be enabled."""
@@ -284,7 +327,7 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
         """Perform installation steps that should only be run by the leader unit.
         If the unit is not the leader, this method will wait until the database is marked as initialized by the leader, with a timeout.
 
-        This includes running the MediaWiki installation script and creating a root user.
+        This includes running the MediaWiki installation script.
         The LocalSettings.php file must be in place before this method is called.
 
         User local settings are cleared during installation to avoid issues with extensions
@@ -349,9 +392,6 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
         logger.debug("User settings restored after installation.")
         self.update_database_schema()
         logger.info("Database schema updated after installation.")
-
-        self.rotate_root_credentials()
-        logger.info("Completed root user creation.")
 
         self._set_database_initialized()
 

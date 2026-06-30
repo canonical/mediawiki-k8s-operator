@@ -35,6 +35,7 @@ from database import Database
 from exceptions import (
     CharmConfigInvalidError,
     MediaWikiBlockedStatusException,
+    MediaWikiInstallError,
     MediaWikiStatusException,
     MediaWikiWaitingStatusException,
 )
@@ -165,9 +166,7 @@ class Charm(StatefulCharmBase):
         self.framework.observe(
             self.on.rotate_mediawiki_secrets_action, self._on_rotate_mediawiki_secrets
         )
-        self.framework.observe(
-            self.on.rotate_root_credentials_action, self._on_rotate_root_credentials
-        )
+        self.framework.observe(self.on.create_and_promote_action, self._on_create_and_promote_user)
         self.framework.observe(self.on.update_database_action, self._on_update_database)
         self.framework.observe(self.on.force_reconciliation_action, self._on_force_reconciliation)
 
@@ -721,28 +720,56 @@ class Charm(StatefulCharmBase):
             logger.error("Failed to rotate secrets due to unexpected error: %s", e)
             event.fail("Failed to rotate secrets due to unexpected error")
 
-    def _on_rotate_root_credentials(self, event: ActionEvent) -> None:
-        """Handle the rotate-root-credentials action.
+    def _on_create_and_promote_user(self, event: ActionEvent) -> None:
+        """Handle the create-and-promote action.
 
-        Rotate the root bureaucrat user's credentials and ensure that it is in the bureaucrat group.
-        If the user does not exist, it will be created.
-
-        This user should only be used to assign permissions to real users, not for regular use.
+        Create a new MediaWiki user, or promote an existing one when ``force``
+        is set, and add it to the requested user groups. This exposes
+        MediaWiki's ``createAndPromote.php`` maintenance script. When
+        ``generate-password`` is set, a secure password is generated and
+        returned in the action results.
 
         Args:
-            event: The event that triggered the credential rotation.
+            event: The event that triggered the action.
         """
-        logger.info("Rotating root bureaucrat credentials due to event: %s", event)
+        username = event.params["username"]
+        generate_password = event.params.get("generate-password", False)
+        force = event.params.get("force", False)
+        logger.info("Creating and promoting user '%s' due to event: %s", username, event)
+
+        if not generate_password and not force:
+            event.fail(
+                "Refusing to create a user without a password. Pass generate-password=true to "
+                "create a user with a generated password, or force=true to promote an existing "
+                "user without changing its password."
+            )
+            return
 
         try:
-            new_username, new_password = self._mediawiki.rotate_root_credentials()
-            event.log("Root bureaucrat user credentials rotated successfully")
-            event.set_results({"username": new_username, "password": new_password})
+            password = self._mediawiki.create_and_promote_user(
+                username,
+                generate_password=generate_password,
+                sysop=event.params.get("sysop", False),
+                bureaucrat=event.params.get("bureaucrat", False),
+                interface_admin=event.params.get("interface-admin", False),
+                bot=event.params.get("bot", False),
+                force=force,
+                custom_groups=event.params.get("custom-groups") or None,
+                email=event.params.get("email") or None,
+                reason=event.params.get("reason") or None,
+            )
+            event.log(f"User '{username}' created and promoted successfully")
+            results = {"username": username}
+            if password is not None:
+                results["password"] = password
+            event.set_results(results)
         except MediaWikiStatusException as e:
-            event.fail(f"Credential rotation failed: {e.status.message}")
+            event.fail(f"User creation failed: {e.status.message}")
+        except MediaWikiInstallError as e:
+            event.fail(f"User creation failed: {e}")
         except Exception as e:
-            logger.error("Credential rotation process failed with unexpected error: %s", e)
-            event.fail("Credential rotation failed due to an unexpected error")
+            logger.error("User creation process failed with unexpected error: %s", e)
+            event.fail("User creation failed due to an unexpected error")
 
     def _on_update_database(self, event: ActionEvent) -> None:
         """Handle the update-database action.

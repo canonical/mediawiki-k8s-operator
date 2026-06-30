@@ -151,13 +151,13 @@ Then set the URL origin configuration to the unit's IP:
 Access the MediaWiki application
 --------------------------------
 
-Now that we have an active deployment, let's access the MediaWiki application by accessing the IP of a mediawiki-k8s unit. To start managing MediaWiki as an administrator, you need to get the credentials for the admin account.
+Now that we have an active deployment, let's access the MediaWiki application by accessing the IP of a mediawiki-k8s unit. To start managing MediaWiki as an administrator, you need to create an administrator account.
 
-By running the ``rotate-root-credentials`` action on a ``mediawiki-k8s`` unit, Juju will rotate and fetch the root user's credentials for you:
+By running the ``create-and-promote`` action on a ``mediawiki-k8s`` unit, Juju will create the user, promote it to the requested groups, and return a generated password for you:
 
 .. code-block:: bash
 
-    juju run mediawiki-k8s/0 rotate-root-credentials
+    juju run mediawiki-k8s/0 create-and-promote username=admin bureaucrat=true sysop=true generate-password=true
 
 The result should be similar to the following, with the password value filled in:
 
@@ -165,16 +165,16 @@ The result should be similar to the following, with the password value filled in
     :user: ubuntu
     :host: mediawiki-tutorial-vm
 
-    juju run mediawiki-k8s/0 rotate-root-credentials
+    juju run mediawiki-k8s/0 create-and-promote username=admin bureaucrat=true sysop=true generate-password=true
 
     Running operation 1 with 1 task
       - task 2 on unit-mediawiki-k8s-0
 
     Waiting for task 2...
-    18:48:57 Root bureaucrat user credentials rotated successfully
+    18:48:57 User 'admin' created and promoted successfully
 
     password: <password>
-    username: root
+    username: admin
 
 Now we can access MediaWiki in a browser at ``http://<UNIT_IP>``. Log in with the credentials retrieved from the action above.
 
