@@ -117,12 +117,15 @@ class _ComposerMixin(_MediaWikiBase):
                 group=constants.DAEMON_GROUP,
             )
 
+        environment = self._charm.state.get_proxy_env() or {}
+        environment["COMPOSER_DISCARD_CHANGES"] = "true"
+
         result = self._run_cli(
             [str(self._composer_path), subcommand, "--no-dev", "--optimize-autoloader"],
             user=constants.WEBROOT_OWNER_USER,
             group=constants.DAEMON_GROUP,
             working_dir=str(self._mediawiki_path),
-            environment=self._charm.state.get_proxy_env(),
+            environment=environment,
             timeout=constants.LONG_TIMEOUT * 2,
         )
 

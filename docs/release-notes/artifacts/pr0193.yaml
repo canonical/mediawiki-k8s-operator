@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Discarded local changes during composer operations
+    author: kkuo
+    type: bugfix
+    description: >
+      Composer operations discarded local changes first, preventing updates to
+      composer-managed packages from failing when the working tree already
+      contained modifications.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/193"
+    visibility: public
+    highlight: true
