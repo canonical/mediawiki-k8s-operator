@@ -91,7 +91,7 @@ Start by deploying the MediaWiki charm.
 
 .. code-block:: bash
 
-    juju deploy mediawiki-k8s --channel 1.45/edge
+    juju deploy mediawiki-k8s --channel 1.46/edge
 
 Deploy and integrate database 
 ---------------------------------
@@ -118,7 +118,7 @@ The output should be similar to the following:
     mediawiki-tutorial  concierge-microk8s  microk8s/localhost  3.6.21   unsupported  18:43:02-04:00
 
     App            Version           Status  Scale  Charm          Channel     Rev  Address         Exposed  Message
-    mediawiki-k8s  mediawiki-1.45.3  active      1  mediawiki-k8s  1.45/edge    17  10.152.183.157  no       
+    mediawiki-k8s  mediawiki-1.46.0  active      1  mediawiki-k8s  1.46/edge    17  10.152.183.157  no       
     mysql-k8s      8.0.44            active      1  mysql-k8s      8.0/stable  400  10.152.183.82   no       
 
     Unit              Workload  Agent  Address      Ports  Message

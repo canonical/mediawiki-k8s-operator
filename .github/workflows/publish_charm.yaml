@@ -14,4 +14,4 @@ jobs:
       contents: write
       packages: read
     with:
-      channel: 1.45/edge
+      channel: 1.46/edge
