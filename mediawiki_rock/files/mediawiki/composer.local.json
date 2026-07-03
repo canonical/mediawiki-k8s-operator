@@ -1,18 +1,22 @@
 {
     "require": {
         "edwardspec/mediawiki-aws-s3": "0.14.*",
-        "mediawiki/pluggable-auth": "dev-REL1_46",
+        "mediawiki/pluggable-auth": "7.5.0",
         "mediawiki/openidconnect": "dev-REL1_46",
         "mediawiki/simple-s-a-m-lphp": "dev-REL1_46"
     },
     "repositories": [
         {
-            "type": "vcs",
-            "url": "https://gerrit.wikimedia.org/r/mediawiki/extensions/OpenIDConnect.git"
+            "type": "git",
+            "url": "https://github.com/wikimedia/mediawiki-extensions-PluggableAuth.git"
         },
         {
-            "type": "vcs",
-            "url": "https://gerrit.wikimedia.org/r/mediawiki/extensions/SimpleSAMLphp.git"
+            "type": "git",
+            "url": "https://github.com/wikimedia/mediawiki-extensions-OpenIDConnect.git"
+        },
+        {
+            "type": "git",
+            "url": "https://github.com/wikimedia/mediawiki-extensions-SimpleSAMLphp.git"
         }
     ],
     "extra": {

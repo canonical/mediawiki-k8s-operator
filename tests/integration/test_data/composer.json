@@ -13,7 +13,7 @@
                 "version": "1.46.0",
                 "source": {
                     "type": "git",
-                    "url": "https://gerrit.wikimedia.org/r/mediawiki/extensions/UserMerge.git",
+                    "url": "https://github.com/wikimedia/mediawiki-extensions-UserMerge.git",
                     "reference": "REL1_46"
                 }
             }
@@ -26,7 +26,7 @@
                 "version": "1.46.0",
                 "source": {
                     "type": "git",
-                    "url": "https://gerrit.wikimedia.org/r/mediawiki/extensions/PageTriage.git",
+                    "url": "https://github.com/wikimedia/mediawiki-extensions-PageTriage.git",
                     "reference": "REL1_46"
                 }
             }
