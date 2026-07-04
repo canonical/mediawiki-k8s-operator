@@ -1,0 +1,49 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"Check uploading a file to MediaWiki via the API.","4013","test_upload","tests.integration","2026-07-04","passed","2026-07-04","","test_s3","",""
+"Send an email via the reset password action of the MediaWiki API and verify mailpit received it.","2145","test_send_email_via_api","tests.integration","2026-07-04","passed","2026-07-04","","test_smtp","",""
+"Test that git-sync clones a repository over SSH and assets are available.","13213","test_git_sync_ssh","tests.integration","2026-07-04","passed","2026-07-04","","test_git_sync","",""
+"Test that the charm can integrate with an OAuth provider and enter an active state.","32518","test_oauth_integration","tests.integration","2026-07-04","passed","2026-07-04","","test_oauth","",""
+"Test that removing the SAML integration returns MediaWiki to active.
+
+    arrange: MediaWiki is deployed with SAML integrated.
+    act: Remove the saml-integrator relation.
+    assert: MediaWiki returns to active status without SAML.
+    ","8153","test_saml_removal","tests.integration","2026-07-04","passed","2026-07-04","","test_saml","",""
+"Prepare the S3 bucket and integrate the S3 integrator with MediaWiki.","65847","test_integrate_s3_integrator_with_mediawiki","tests.integration","2026-07-04","passed","2026-07-04","","test_s3","",""
+"Check that the charm is the expected version.","238","test_workload_version_is_set","tests.integration","2026-07-04","passed","2026-07-04","","test_charm","",""
+"Check that the force-reconciliation action works on the leader and on all units.","47798","test_force_reconciliation_action","tests.integration","2026-07-04","passed","2026-07-04","","test_charm","",""
+"Test that Apache blocks HTTP access to dot files under /static.","534","test_git_sync_dotfiles_blocked","tests.integration","2026-07-04","passed","2026-07-04","","test_git_sync","",""
+"Test that the SMTP relation can be established and charm goes active.","19156","test_integrate_smtp","tests.integration","2026-07-04","passed","2026-07-04","","test_smtp","",""
+"Test that a user can log in to MediaWiki using SAML authentication.
+
+    arrange: MediaWiki is deployed with SAML configured and a test IdP running.
+    act: Register a user in the IdP, initiate SAML login via MediaWiki.
+    assert: The user is authenticated and can access their user page.
+    ","4579","test_saml_login","tests.integration","2026-07-04","passed","2026-07-04","","test_saml","",""
+"Check that ClamAV is working by uploading a test file containing the EICAR test signature.","3386","test_clamav","tests.integration","2026-07-04","passed","2026-07-04","","test_s3","",""
+"Check that the create-and-promote action works as expected.","9601","test_create_and_promote_action","tests.integration","2026-07-04","passed","2026-07-04","","test_charm","",""
+"Test that setting static-assets-git-ref checks out the specified branch.","12999","test_git_sync_ref","tests.integration","2026-07-04","passed","2026-07-04","","test_git_sync","",""
+"Test that static-assets-git-sparse-checkout limits which files are checked out.","20436","test_git_sync_sparse_checkout","tests.integration","2026-07-04","passed","2026-07-04","","test_git_sync","",""
+"Test that removing Redis while SAML is integrated causes blocked status.
+
+    arrange: MediaWiki is deployed with SAML and Redis integrated.
+    act: Remove the Redis relation.
+    assert: The charm enters blocked status. Re-adding Redis restores active.
+    ","21342","test_saml_requires_redis","tests.integration","2026-07-04","passed","2026-07-04","","test_saml","",""
+"Check that the rotate-mediawiki-secrets action works as expected.","5318","test_rotate_mediawiki_secrets_action","tests.integration","2026-07-04","passed","2026-07-04","","test_charm","",""
+"Check that the charm behaves correct regarding the ssh_key Juju secret.
+
+    Note that this test does not attempt to utilize the SSH key as the passed key is not expected to be
+    authorized anywhere.
+    ","22737","test_ssh_key_secret","tests.integration","2026-07-04","passed","2026-07-04","","test_charm","",""
+"Test that removing the SMTP relation returns the charm to active.","13964","test_smtp_relation_removal","tests.integration","2026-07-04","passed","2026-07-04","","test_smtp","",""
+"Test that clearing the git repo config returns to active.","13068","test_git_sync_disable","tests.integration","2026-07-04","passed","2026-07-04","","test_git_sync","",""
+"Check that the charm can have extensions added after deployment.
+
+    Add extensions by editing the composer config, and then running a database update.
+    ","66728","test_add_extensions","tests.integration","2026-07-04","passed","2026-07-04","","test_charm","",""
+"Check that the charm behaves correctly when certain relations are removed.","68554","test_relations","tests.integration","2026-07-04","passed","2026-07-04","","test_charm","",""
+"Check that the charm is active.
+
+    Assume that the charm has already been built and is running.
+    ","539","test_active","tests.integration","2026-07-04","passed","2026-07-04","","test_git_sync","",""
