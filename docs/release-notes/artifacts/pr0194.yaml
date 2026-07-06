@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Updated to MediaWiki 1.46
+    author: hk21702
+    type: major
+    description: >
+      MediaWiki was upgraded from 1.45 to 1.46. This change requires a database
+      update and may require updating any custom extensions or skins. Refer to
+      the MediaWiki 1.46 announcement for the full list of changes.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/194"
+    visibility: public
+    highlight: true

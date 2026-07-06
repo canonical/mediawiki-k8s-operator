@@ -54,7 +54,7 @@ def mock_site_info(mocker: MockerFixture) -> SiteInfo:
     info = SiteInfo(
         {
             "general": {
-                "generator": "MediaWiki 1.45.0",
+                "generator": "MediaWiki 1.46.0",
                 "server": "http://localhost",
                 "articlepath": "/wiki/$1",
             },

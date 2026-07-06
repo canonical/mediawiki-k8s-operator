@@ -118,7 +118,7 @@ parts:
     source: files/mediawiki
     # Switch to LTS version only once we get to 1.47
     build-environment:
-      - MW_VERSION: 1.45.4
+      - MW_VERSION: 1.46.0
     build-packages:
       - php-curl
     override-pull: |
@@ -139,7 +139,9 @@ parts:
         72D286F6F8F03C78F2C59C7326752EBB0D9E6218 \
         80D113B767E3D51936725679361F943B15C08DD4 \
         C83A8E4D3C8FEB7C8A3A1998131910E01605D9AA \
-        E059C034E7A430583C252F4AA8F734246D73B586
+        E059C034E7A430583C252F4AA8F734246D73B586 \
+        28F0A2111D0356C957F216D37633A61EAF85FFF4 \
+        7759DE19A22260232F251342FC4D45E75D14112B
 
       gpg --batch --verify mediawiki.tar.gz.sig mediawiki.tar.gz
 

@@ -82,10 +82,10 @@ class TestSiteInfoFetch:
         """Test that fetch calls _api_query and wraps the query dict."""
         mock_api = mocker.patch(
             "mediawiki_api._api_query",
-            return_value={"query": {"general": {"generator": "MediaWiki 1.45.1"}}},
+            return_value={"query": {"general": {"generator": "MediaWiki 1.46.0"}}},
         )
         info = SiteInfo.fetch()
-        assert info.version == "mediawiki-1.45.1"
+        assert info.version == "mediawiki-1.46.0"
         mock_api.assert_called_once_with(
             action="query", meta="siteinfo", siprop="general|namespaces"
         )
@@ -102,8 +102,8 @@ class TestSiteInfoFetch:
 class TestSiteInfoVersion:
     def test_version(self) -> None:
         """Test that the version is extracted and formatted correctly."""
-        info = SiteInfo({"general": {"generator": "MediaWiki 1.45.1"}})
-        assert info.version == "mediawiki-1.45.1"
+        info = SiteInfo({"general": {"generator": "MediaWiki 1.46.0"}})
+        assert info.version == "mediawiki-1.46.0"
 
     def test_no_generator(self) -> None:
         """Test that an empty string is returned when generator is absent."""

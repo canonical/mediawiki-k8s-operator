@@ -26,7 +26,7 @@ Inputs
    * - ``channel``
      - The channel to use when deploying a charm.
      - ``string``
-     - ``"1.45/stable"``
+     - ``"1.46/stable"``
    * - ``config``
      - Application config. See :ref:`charm configurations <reference_configurations>`.
      - ``map(string)``

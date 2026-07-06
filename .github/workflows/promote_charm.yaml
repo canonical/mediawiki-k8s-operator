@@ -7,12 +7,12 @@ on:
         type: choice
         description: 'Origin Channel'
         options:
-        - 1.45/edge
+        - 1.46/edge
       destination-channel:
         type: choice
         description: 'Destination Channel'
         options:
-        - 1.45/stable
+        - 1.46/stable
 
 jobs:
   promote-charm:
