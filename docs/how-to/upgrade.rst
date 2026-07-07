@@ -23,6 +23,8 @@ If you are upgrading to a new major release, you will need to update the databas
 .. warning::
     Updating the database schema is a potentially destructive operation. It is highly recommended to back up the database before performing a schema upgrade. Additional information can be found in the :doc:`MySQL documentation <mysql:how-to/back-up-and-restore/create-a-backup>`.
 
+    Ensure that all units have settled before running the action. You can check the status of the units with :doc:`juju status <juju:reference/juju-cli/list-of-juju-cli-commands/status>`.
+
 .. vale Canonical.005-Industry-product-names = YES
 
 .. code-block:: bash
