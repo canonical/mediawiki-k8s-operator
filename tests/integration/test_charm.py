@@ -188,6 +188,29 @@ def test_force_reconciliation_action(juju: jubilant.Juju, app: App):
 
 
 @pytest.mark.abort_on_fail
+def test_run_maintenance_script_action(juju: jubilant.Juju, app: App):
+    """Check that the action forwards arguments and rejects sensitive scripts."""
+    action = juju.run(
+        f"{app.name}/leader",
+        "run-maintenance-script",
+        {
+            "script": "resetPageRandom",
+            "args": "--from 20000101000000 --to 21000101000000 --dry",
+        },
+    )
+    assert action.status == "completed", f"Action failed: {action.message}"
+    assert "Resetting page_random column" in action.results.get("output", ""), (
+        "Expected resetPageRandom output; got: " + action.results.get("output", "")
+    )
+
+    # Configuration readers and charm-managed scripts should be rejected.
+    with pytest.raises(jubilant.TaskError):
+        juju.run(f"{app.name}/leader", "run-maintenance-script", {"script": "getConfiguration"})
+    with pytest.raises(jubilant.TaskError):
+        juju.run(f"{app.name}/leader", "run-maintenance-script", {"script": "install"})
+
+
+@pytest.mark.abort_on_fail
 def test_relations(
     juju: jubilant.Juju,
     app: App,

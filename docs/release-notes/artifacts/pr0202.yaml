@@ -1,0 +1,14 @@
+version_schema: 2
+
+changes:
+  - title: Added run-maintenance-script action
+    author: hk21702
+    type: minor
+    description: >
+      Added a new action for running allowed MediaWiki maintenance scripts from
+      Juju while blocking charm-managed scripts and unsafe flags.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/202"
+    visibility: public
+    highlight: false

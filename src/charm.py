@@ -7,6 +7,7 @@
 
 import json
 import logging
+import shlex
 import typing
 from urllib.parse import urlparse
 
@@ -47,6 +48,41 @@ from s3 import S3
 from smtp import Smtp
 from state import StatefulCharmBase
 from types_ import ForceReconciliationAction
+
+_ALLOWED_MAINTENANCE_SCRIPTS = frozenset(
+    {
+        "checkImages",
+        "cleanupBlocks",
+        "cleanupEmptyCategories",
+        "cleanupInvalidDbKeys",
+        "cleanupPreferences",
+        "cleanupUploadStash",
+        "cleanupWatchlist",
+        "findMissingFiles",
+        "findOrphanedFiles",
+        "pruneFileCache",
+        "purgeChangedFiles",
+        "purgeChangedPages",
+        "purgeExpiredBlocks",
+        "purgeExpiredUserrights",
+        "purgeExpiredWatchlistItems",
+        "purgeMessageBlobStore",
+        "purgeParserCache",
+        "rebuildall",
+        "rebuildImages",
+        "rebuildrecentchanges",
+        "rebuildtextindex",
+        "recountCategories",
+        "refreshImageMetadata",
+        "refreshLinks",
+        "removeUnusedAccounts",
+        "resetPageRandom",
+        "showJobs",
+        "showSiteStats",
+        "updateArticleCount",
+    }
+)
+_BLOCKED_FLAGS = frozenset({"--conf", "--wiki"})
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -169,6 +205,9 @@ class Charm(StatefulCharmBase):
         self.framework.observe(self.on.create_and_promote_action, self._on_create_and_promote_user)
         self.framework.observe(self.on.update_database_action, self._on_update_database)
         self.framework.observe(self.on.force_reconciliation_action, self._on_force_reconciliation)
+        self.framework.observe(
+            self.on.run_maintenance_script_action, self._on_run_maintenance_script
+        )
 
     @property
     def _container(self) -> ops.Container:
@@ -827,6 +866,66 @@ class Charm(StatefulCharmBase):
 
         self._reconciliation(event, force_composer_update=True)
         event.log("Force reconciliation completed on this unit")
+
+    def _on_run_maintenance_script(self, event: ActionEvent) -> None:
+        """Handle the run-maintenance-script action.
+
+        Run an allowed MediaWiki maintenance script after validating its arguments.
+
+        Args:
+            event: The event that triggered the action.
+        """
+        script = event.params["script"]
+        args_str = event.params.get("args", "")
+        logger.info("Running maintenance script '%s' due to event: %s", script, event)
+
+        if script.startswith("/") or ".." in script.split("/") or script.endswith(".php"):
+            event.fail(
+                f"Invalid script name '{script}': absolute paths and path traversal are not permitted."
+            )
+            return
+
+        if script not in _ALLOWED_MAINTENANCE_SCRIPTS:
+            event.fail(f"'{script}' is not an allowed maintenance script.")
+            return
+
+        try:
+            args = shlex.split(args_str)
+        except ValueError as e:
+            event.fail(f"Invalid args: {e}")
+            return
+
+        for arg in args:
+            flag = arg.split("=")[0]
+            if flag in _BLOCKED_FLAGS:
+                event.fail(f"Flag '{flag}' is not permitted.")
+                return
+
+        try:
+            result = self._mediawiki.run_maintenance_script([script, *args])
+        except MediaWikiStatusException as e:
+            event.fail(f"Maintenance script failed: {e.status.message}")
+            return
+        except Exception as e:
+            logger.error("Maintenance script failed with unexpected error: %s", e)
+            event.fail(f"Maintenance script failed: {e}")
+            return
+
+        if result.return_code != 0:
+            logger.error(
+                "Maintenance script '%s' failed (exit %s)\nstdout: %s\nstderr: %s",
+                script,
+                result.return_code,
+                result.stdout,
+                result.stderr,
+            )
+            event.fail(
+                f"Maintenance script failed (exit {result.return_code}):\n"
+                f"{result.stdout}{result.stderr or ''}"
+            )
+            return
+
+        event.set_results({"output": result.stdout})
 
 
 if __name__ == "__main__":  # pragma: nocover
