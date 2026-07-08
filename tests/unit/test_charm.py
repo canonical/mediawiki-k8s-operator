@@ -19,6 +19,7 @@ from exceptions import (
 from mediawiki import MediaWikiSecrets
 from mediawiki_api import SiteInfo
 from tests.unit.conftest import MOCK_COMPOSER_LOCK
+from types_ import CommandExecResult
 
 
 @pytest.fixture(autouse=True)
@@ -32,6 +33,9 @@ def mock_mediawiki(mocker: MockerFixture) -> MockType:
     mock_instance.reconciliation.return_value = None
     mock_instance.create_and_promote_user.return_value = "mocked-password"  # nosec: B105
     mock_instance.update_database_schema.return_value = None
+    mock_instance.run_maintenance_script.return_value = CommandExecResult(
+        return_code=0, stdout="mocked-output\n", stderr=""
+    )
 
     return mock_instance
 
@@ -760,6 +764,235 @@ class TestForceReconciliationAction:
         """Test that all-units=true fails when peer relation is not ready."""
         with pytest.raises(testing.ActionFailed, match="Peer relation not ready yet"):
             ctx.run(ctx.on.action("force-reconciliation", params={"all-units": True}), base_state)
+
+
+class TestRunMaintenanceScriptAction:
+    """Tests for the run-maintenance-script action."""
+
+    @pytest.mark.parametrize(
+        "script",
+        [
+            "checkImages",
+            "cleanupBlocks",
+            "cleanupEmptyCategories",
+            "cleanupInvalidDbKeys",
+            "cleanupPreferences",
+            "cleanupUploadStash",
+            "cleanupWatchlist",
+            "findMissingFiles",
+            "findOrphanedFiles",
+            "pruneFileCache",
+            "purgeChangedFiles",
+            "purgeChangedPages",
+            "purgeExpiredBlocks",
+            "purgeExpiredUserrights",
+            "purgeExpiredWatchlistItems",
+            "purgeMessageBlobStore",
+            "purgeParserCache",
+            "rebuildall",
+            "rebuildImages",
+            "rebuildrecentchanges",
+            "rebuildtextindex",
+            "recountCategories",
+            "refreshImageMetadata",
+            "refreshLinks",
+            "removeUnusedAccounts",
+            "resetPageRandom",
+            "showJobs",
+            "showSiteStats",
+            "updateArticleCount",
+        ],
+    )
+    def test_success(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+        script: str,
+    ) -> None:
+        """Test that the action succeeds and returns stdout as results."""
+        ctx.run(
+            ctx.on.action("run-maintenance-script", params={"script": script}),
+            active_state,
+        )
+        assert ctx.action_results == {"output": "mocked-output\n"}
+        mock_mediawiki.run_maintenance_script.assert_called_once_with([script])
+
+    def test_success_with_args(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Test that extra args are parsed and forwarded to the maintenance script."""
+        ctx.run(
+            ctx.on.action(
+                "run-maintenance-script",
+                params={
+                    "script": "resetPageRandom",
+                    "args": "--from 20000101000000 --to 21000101000000 --dry",
+                },
+            ),
+            active_state,
+        )
+        assert ctx.action_results == {"output": "mocked-output\n"}
+        mock_mediawiki.run_maintenance_script.assert_called_once_with(
+            [
+                "resetPageRandom",
+                "--from",
+                "20000101000000",
+                "--to",
+                "21000101000000",
+                "--dry",
+            ]
+        )
+
+    def test_success_output_only(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Test that only stdout is returned; stderr is not included in results."""
+        mock_mediawiki.run_maintenance_script.return_value = CommandExecResult(
+            return_code=0, stdout="some output\n", stderr="a warning\nanother warning\n"
+        )
+        ctx.run(
+            ctx.on.action("run-maintenance-script", params={"script": "showJobs"}),
+            active_state,
+        )
+        assert ctx.action_results == {"output": "some output\n"}
+
+    @pytest.mark.parametrize(
+        "script",
+        ["getConfiguration", "install", "mysql", "update"],
+    )
+    def test_non_allowed_script(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+        script: str,
+    ) -> None:
+        """Test that scripts outside the allow list are rejected with a clear error."""
+        with pytest.raises(
+            testing.ActionFailed, match=f"'{script}' is not an allowed maintenance script"
+        ):
+            ctx.run(
+                ctx.on.action("run-maintenance-script", params={"script": script}),
+                active_state,
+            )
+        mock_mediawiki.run_maintenance_script.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "args,flag",
+        [
+            ("--conf=/etc/evil.php", "--conf"),
+            ("--conf /etc/evil.php", "--conf"),
+        ],
+    )
+    def test_blocked_flag(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+        args: str,
+        flag: str,
+    ) -> None:
+        """Test that blocked flags are rejected with a clear error."""
+        with pytest.raises(testing.ActionFailed, match=f"Flag '{flag}' is not permitted"):
+            ctx.run(
+                ctx.on.action(
+                    "run-maintenance-script",
+                    params={"script": "showJobs", "args": args},
+                ),
+                active_state,
+            )
+        mock_mediawiki.run_maintenance_script.assert_not_called()
+
+    def test_absolute_path_script(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Test that scripts starting with '/' are rejected."""
+        with pytest.raises(testing.ActionFailed, match="Invalid script name"):
+            ctx.run(
+                ctx.on.action("run-maintenance-script", params={"script": "/etc/passwd"}),
+                active_state,
+            )
+        mock_mediawiki.run_maintenance_script.assert_not_called()
+
+    def test_path_traversal_script(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Test that scripts containing '..' path components are rejected."""
+        with pytest.raises(testing.ActionFailed, match="Invalid script name"):
+            ctx.run(
+                ctx.on.action("run-maintenance-script", params={"script": "../../etc/passwd"}),
+                active_state,
+            )
+        mock_mediawiki.run_maintenance_script.assert_not_called()
+
+    def test_script_failure(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Test that a non-zero exit code surfaces stdout and stderr in the failure message."""
+        mock_mediawiki.run_maintenance_script.return_value = CommandExecResult(
+            return_code=1, stdout="progress output\n", stderr="fatal: something went wrong\n"
+        )
+        with pytest.raises(
+            testing.ActionFailed,
+            match="Maintenance script failed \\(exit 1\\)",
+        ):
+            ctx.run(
+                ctx.on.action("run-maintenance-script", params={"script": "showJobs"}),
+                active_state,
+            )
+        assert ctx.action_results is None
+
+    def test_mediawiki_status_exception(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Test that MediaWikiStatusException is surfaced in the action failure message."""
+        mock_mediawiki.run_maintenance_script.side_effect = MediaWikiBlockedStatusException(
+            "MediaWiki is blocked"
+        )
+        with pytest.raises(
+            testing.ActionFailed, match="Maintenance script failed: MediaWiki is blocked"
+        ):
+            ctx.run(
+                ctx.on.action("run-maintenance-script", params={"script": "showJobs"}),
+                active_state,
+            )
+        assert ctx.action_results is None
+
+    def test_unexpected_error(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Test that unexpected errors result in a failure message containing the exception."""
+        mock_mediawiki.run_maintenance_script.side_effect = Exception("Unexpected failure")
+        with pytest.raises(
+            testing.ActionFailed, match="Maintenance script failed: Unexpected failure"
+        ):
+            ctx.run(
+                ctx.on.action("run-maintenance-script", params={"script": "showJobs"}),
+                active_state,
+            )
+        assert ctx.action_results is None
 
 
 class TestSshKey:

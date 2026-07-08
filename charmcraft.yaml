@@ -274,6 +274,26 @@ actions:
           If true, request a reconciliation run on all units. Must be run on the leader unit.
         additionalProperties: false
 
+  run-maintenance-script:
+    description: |
+      Run an allowed MediaWiki maintenance script via ``php maintenance/run.php``.
+    params:
+      script:
+        type: string
+        description: |
+          The allowed maintenance script name to run (e.g., ``showJobs``,
+          ``resetPageRandom``). Do not include the ``.php`` extension.
+      args:
+        type: string
+        description: |
+          Space-separated additional arguments to pass to the maintenance
+          script (e.g., ``"--from 20000101000000 --to 21000101000000 --dry"``).
+          Quoted values follow shell
+          quoting rules.
+    required:
+      - script
+    additionalProperties: false
+
 provides:
   grafana-dashboard:
     interface: grafana_dashboard
