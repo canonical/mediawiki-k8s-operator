@@ -1,0 +1,18 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+  - title: Added warning about unit status before database update
+    author: hk21702
+    type: minor
+    description: >-
+      Added a warning to the upgrade guide telling users to ensure all units
+      had settled before running the database update action, reducing the risk
+      of starting the schema change while the deployment was still in flux.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/200"
+      related_issue:
+    visibility: hidden
+    highlight: false
