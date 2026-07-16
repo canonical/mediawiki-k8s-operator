@@ -278,7 +278,6 @@ def early_app_fixture(
         app=app_name,
         resources=charm_resources,
         num_units=num_units,
-        base="ubuntu@24.04",
     )
 
     juju.wait(
