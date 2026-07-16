@@ -1,0 +1,14 @@
+version_schema: 2
+
+changes:
+  - title: Updated charm base to Ubuntu 26.04
+    author: hk21702
+    type: minor
+    description: >-
+      Updated the charm base to Ubuntu 26.04 to keep the deployment platform
+      current.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/207"
+    visibility: internal
+    highlight: false
