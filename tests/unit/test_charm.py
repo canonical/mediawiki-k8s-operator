@@ -16,6 +16,7 @@ from exceptions import (
     MediaWikiInstallError,
     MediaWikiWaitingStatusException,
 )
+from mediawiki import MediaWiki as WorkloadMediaWiki
 from mediawiki import MediaWikiSecrets
 from mediawiki_api import SiteInfo
 from tests.unit.conftest import MOCK_COMPOSER_LOCK
@@ -28,10 +29,22 @@ def mock_mediawiki(mocker: MockerFixture) -> MockType:
     mock_mediawiki_cls = mocker.patch("charm.MediaWiki", autospec=True)
     mock_instance = mock_mediawiki_cls.return_value
 
+    def reconcile_with_workload(*args, **kwargs):
+        """Run the real workload loop while retaining a mock at the Charm boundary."""
+        constructor_args = mock_mediawiki_cls.call_args.args
+        constructor_kwargs = mock_mediawiki_cls.call_args.kwargs
+        workload = WorkloadMediaWiki(*constructor_args, **constructor_kwargs)
+        workload._reconcile_configuration = mock_instance._reconcile_configuration
+        workload.update_database_schema = mock_instance.update_database_schema
+        workload.runner_queue_service_is_ready = mock_instance.runner_queue_service_is_ready
+        return workload.reconciliation(*args, **kwargs)
+
     # Setup default return values or side effects
-    mock_instance.reconciliation.return_value = None
+    mock_instance.reconciliation.side_effect = reconcile_with_workload
     mock_instance.create_and_promote_user.return_value = "mocked-password"  # nosec: B105
     mock_instance.update_database_schema.return_value = None
+    mock_instance._reconcile_configuration.return_value = None
+    mock_instance.runner_queue_service_is_ready.return_value = False
 
     return mock_instance
 
@@ -942,8 +955,8 @@ class TestComposerLockPeerSync:
         mediawiki_replica_relation: testing.PeerRelation,
         mock_mediawiki: MockType,
     ) -> None:
-        """Leader: when reconciliation returns a lock, it is published to the peer relation."""
-        mock_mediawiki.reconciliation.return_value = MOCK_COMPOSER_LOCK
+        """Leader Composer state is published within MediaWiki reconciliation."""
+        mock_mediawiki._reconcile_configuration.return_value = MOCK_COMPOSER_LOCK
 
         # configured_state already contains mediawiki_replica_relation; use it directly.
         state_out = ctx.run(ctx.on.config_changed(), configured_state)
@@ -959,8 +972,8 @@ class TestComposerLockPeerSync:
         mediawiki_replica_relation: testing.PeerRelation,
         mock_mediawiki: MockType,
     ) -> None:
-        """Leader: when reconciliation returns None (skipped), peer data is unchanged."""
-        mock_mediawiki.reconciliation.return_value = None
+        """Leader leaves peer data unchanged when configuration returns no lock."""
+        mock_mediawiki._reconcile_configuration.return_value = None
 
         # active_state already contains mediawiki_replica_relation; use it directly.
         state_out = ctx.run(ctx.on.config_changed(), active_state)
@@ -993,7 +1006,7 @@ class TestComposerLockPeerSync:
         mediawiki_replica_relation: testing.PeerRelation,
         mock_mediawiki: MockType,
     ) -> None:
-        """Non-leader: passes lock content to mediawiki.reconciliation() from peer data."""
+        """Charm does not pass peer Composer state into MediaWiki reconciliation."""
         lock_rel = dataclasses.replace(
             mediawiki_replica_relation,
             local_app_data={
@@ -1014,8 +1027,8 @@ class TestComposerLockPeerSync:
 
         mock_mediawiki.reconciliation.assert_called_once()
         _, kwargs = mock_mediawiki.reconciliation.call_args
-        assert kwargs.get("composer_lock") == MOCK_COMPOSER_LOCK
-        assert kwargs.get("peer_composer_json") == json.dumps({"require": {}})
+        assert "composer_lock" not in kwargs
+        assert "peer_composer_json" not in kwargs
 
 
 class TestMetricsEndpoint:
