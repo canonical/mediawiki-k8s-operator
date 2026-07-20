@@ -35,7 +35,8 @@ from exceptions import (
     MediaWikiWaitingStatusException,
 )
 from git_sync import GitSync
-from mediawiki import MediaWiki, MediaWikiSecrets
+from mediawiki import MediaWiki
+from mediawiki_peers import MediaWikiPeers
 from redis import Redis
 from s3 import S3
 from smtp import Smtp
@@ -74,13 +75,12 @@ class Charm(StatefulCharmBase):
     _S3_RELATION_NAME = "s3-parameters"
     _SMTP_RELATION_NAME = "smtp"
 
-    _PEER_RELATION_NAME = "mediawiki-replica"
-    _REPLICA_SECRET_LABEL = "replica-secret"  # nosec: B105
-
-    _RO_DATABASE_FLAG = "ro_db"
-    _FORCE_RECONCILIATION_FLAG = "force_reconciliation"
-    _COMPOSER_JSON_KEY = "composer_json"
-    _COMPOSER_LOCK_KEY = "composer_lock"
+    _PEER_RELATION_NAME = MediaWikiPeers.RELATION_NAME
+    _REPLICA_SECRET_LABEL = MediaWikiPeers.SECRET_LABEL
+    _RO_DATABASE_FLAG = MediaWikiPeers.RO_DATABASE_FLAG
+    _FORCE_RECONCILIATION_FLAG = MediaWikiPeers.FORCE_RECONCILIATION_FLAG
+    _COMPOSER_JSON_KEY = MediaWikiPeers.COMPOSER_JSON_KEY
+    _COMPOSER_LOCK_KEY = MediaWikiPeers.COMPOSER_LOCK_KEY
 
     _SSH_KEY_MEDIAWIKI_FIELD = "mediawiki"
     _SSH_KEY_GIT_SYNC_FIELD = "git-sync"
@@ -97,6 +97,11 @@ class Charm(StatefulCharmBase):
         self._redis = Redis(self, self._REDIS_RELATION_NAME)
         self._s3 = S3(self, self._S3_RELATION_NAME)
         self._smtp = Smtp(self, self._SMTP_RELATION_NAME)
+        self._peers = MediaWikiPeers(
+            self,
+            relation_name=self._PEER_RELATION_NAME,
+            secret_label=self._REPLICA_SECRET_LABEL,
+        )
         self._mediawiki = MediaWiki(
             self,
             self._database,
@@ -105,8 +110,7 @@ class Charm(StatefulCharmBase):
             self._redis,
             self._s3,
             self._smtp,
-            peer_relation_name=self._PEER_RELATION_NAME,
-            replica_secret_label=self._REPLICA_SECRET_LABEL,
+            self._peers,
         )
         self._git_sync = GitSync(self)
 
@@ -134,7 +138,7 @@ class Charm(StatefulCharmBase):
                 self.on.config_changed,
             ],
         )
-        self.framework.observe(self.on.leader_elected, self._setup_replica_data)
+        self.framework.observe(self.on.leader_elected, self._peers.setup_replica_data)
 
         # Reconciliation events
         reconciliation_events = [
@@ -171,30 +175,6 @@ class Charm(StatefulCharmBase):
         self.framework.observe(self.on.create_and_promote_action, self._on_create_and_promote_user)
         self.framework.observe(self.on.update_database_action, self._on_update_database)
         self.framework.observe(self.on.force_reconciliation_action, self._on_force_reconciliation)
-
-    def _replica_consensus_reached(self) -> bool:
-        """Check if the necessary minimal data and secrets shared with MediaWiki peers (replicas) has been initialized and synchronized."""
-        try:
-            self.model.get_secret(label=self._REPLICA_SECRET_LABEL)
-        except SecretNotFoundError:
-            return False
-
-        return True
-
-    def _setup_replica_data(self, _event: EventBase) -> None:
-        """Initialize the synchronized data required for MediaWiki replication.
-
-        The relation data content object is used to share (read and write) necessary secret data
-        used by MediaWiki to enhance security and must be synchronized.
-
-        Only the leader can update the data shared with all replicas.
-        """
-        if self._replica_consensus_reached() or not self.unit.is_leader():
-            return
-
-        logger.info("Creating replica data due to event %s", _event)
-        content = MediaWikiSecrets.generate().to_juju_secret()
-        self.app.add_secret(content, label=self._REPLICA_SECRET_LABEL)
 
     def _configure_ingress(self) -> None:
         """Configure the Traefik ingress relation.
@@ -349,9 +329,7 @@ class Charm(StatefulCharmBase):
             return
 
         try:
-            new_secrets = MediaWikiSecrets.generate()
-            secret_content = new_secrets.to_juju_secret()
-            self.model.get_secret(label=self._REPLICA_SECRET_LABEL).set_content(secret_content)
+            self._peers.rotate_secrets()
             event.log("MediaWiki secrets rotated successfully")
         except SecretNotFoundError:
             event.fail("Failed to rotate secrets: replica secret not found")
@@ -424,12 +402,9 @@ class Charm(StatefulCharmBase):
             event.fail("Only the leader unit can request a database update")
             return
 
-        replica_data = self.model.get_relation(self._PEER_RELATION_NAME)
-        if replica_data is None:
+        if not self._peers.request_database_update():
             event.fail("Peer relation not ready yet")
             return
-
-        replica_data.data[self.app][self._RO_DATABASE_FLAG] = "true"
         event.log("Database update requested")
 
     def _on_force_reconciliation(self, event: ActionEvent) -> None:
@@ -455,12 +430,9 @@ class Charm(StatefulCharmBase):
                 event.fail("The all-units flag requires the action to be run on the leader unit")
                 return
 
-            replica_relation = self.model.get_relation(self._PEER_RELATION_NAME)
-            if replica_relation is None:
+            if not self._peers.request_force_reconciliation():
                 event.fail("Peer relation not ready yet")
                 return
-
-            replica_relation.data[self.app][self._FORCE_RECONCILIATION_FLAG] = "true"
             event.log("Force reconciliation requested for all units")
             return
 

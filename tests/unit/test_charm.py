@@ -490,7 +490,7 @@ class TestRotateMediaWikiSecretsAction:
             "saml-salt": "new-mocked-saml-salt",
         }
         mocker.patch(
-            "charm.MediaWikiSecrets.generate",
+            "mediawiki_peers.MediaWikiSecrets.generate",
             return_value=MediaWikiSecrets.from_juju_secret(expected_secret_content),
         )
 
@@ -526,7 +526,9 @@ class TestRotateMediaWikiSecretsAction:
         self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
     ) -> None:
         """Test that rotate-mediawiki-secrets fails on unexpected exceptions."""
-        mocker.patch("charm.MediaWikiSecrets.generate", side_effect=Exception("Mocked exception"))
+        mocker.patch(
+            "mediawiki_peers.MediaWikiSecrets.generate", side_effect=Exception("Mocked exception")
+        )
 
         with pytest.raises(
             testing.ActionFailed, match="Failed to rotate secrets due to unexpected error"

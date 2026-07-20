@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Optional
 
 import ops
 from charmlibs.pathops import ContainerPath
-from ops import MaintenanceStatus, Relation, RelationData, SecretNotFoundError, pebble
+from ops import pebble
 
 import utils
 from auth import OAuth, Saml
@@ -27,6 +27,7 @@ from mediawiki._composer import _ComposerMixin
 from mediawiki._database import _DatabaseMixin
 from mediawiki._settings import _SettingsMixin
 from mediawiki_api import SiteInfo
+from mediawiki_peers import MediaWikiPeers
 from redis import Redis
 from s3 import S3
 from smtp import Smtp
@@ -51,13 +52,6 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
     _MEDIAWIKI_API_READY_CHECK = "mediawiki-api-ready"
     _MEDIAWIKI_CHECKS = (_MEDIAWIKI_API_READY_CHECK,)
 
-    _RO_DATABASE_FLAG = "ro_db"
-    _FORCE_RECONCILIATION_FLAG = "force_reconciliation"
-    _COMPOSER_JSON_KEY = "composer_json"
-    _COMPOSER_LOCK_KEY = "composer_lock"
-    _DEFAULT_PEER_RELATION_NAME = "mediawiki-replica"
-    _DEFAULT_REPLICA_SECRET_LABEL = "replica-secret"  # nosec: B105
-
     def __init__(
         self,
         charm: StatefulCharmBase,
@@ -67,8 +61,7 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
         redis: Redis,
         s3: S3,
         smtp: Smtp,
-        peer_relation_name: str = _DEFAULT_PEER_RELATION_NAME,
-        replica_secret_label: str = _DEFAULT_REPLICA_SECRET_LABEL,
+        peers: MediaWikiPeers,
     ):
         super().__init__(charm.unit.get_container("mediawiki"))
         self._charm = charm
@@ -78,8 +71,7 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
         self._redis = redis
         self._s3 = s3
         self._smtp = smtp
-        self._peer_relation_name = peer_relation_name
-        self._replica_secret_label = replica_secret_label
+        self._peers = peers
 
     @property
     def _logs_path(self) -> ContainerPath:
@@ -135,42 +127,33 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
                 raise MediaWikiBlockedStatusException(
                     f"Waiting for relation {self._database.db.relation_name}."
                 )
-            replica_relation = self._replica_relation()
-            replica_secrets = self._replica_secrets()
+            peer_state = self._peers.reconciliation_state()
         except (MediaWikiBlockedStatusException, MediaWikiWaitingStatusException):
             self._reconcile_services(active=False)
             raise
 
-        replica_data = replica_relation.data
-        ro_database = (
-            replica_data[self._charm.app].get(self._RO_DATABASE_FLAG, "false").lower() == "true"
-        )
-        force_composer_update = force_composer_update or self._force_reconciliation_requested(
-            replica_data
-        )
-        peer_app = replica_data[self._charm.app]
+        force_composer_update = force_composer_update or peer_state.force_reconciliation
         new_lock = self._reconcile_configuration(
-            replica_secrets,
+            peer_state.secrets,
             ssh_key=ssh_key,
-            ro_database=ro_database,
+            ro_database=peer_state.ro_database,
             force_composer_update=force_composer_update,
-            composer_lock=peer_app.get(self._COMPOSER_LOCK_KEY),
-            peer_composer_json=peer_app.get(self._COMPOSER_JSON_KEY),
+            composer_lock=peer_state.composer_lock,
+            peer_composer_json=peer_state.composer_json,
         )
         if new_lock is not None and self._charm.unit.is_leader():
             config = self._charm.load_charm_config()
-            peer_app[self._COMPOSER_JSON_KEY] = json.dumps(config.composer)
-            peer_app[self._COMPOSER_LOCK_KEY] = new_lock
+            self._peers.publish_composer_state(new_lock, json.dumps(config.composer))
         elif new_lock is not None:
             raise MediaWikiBlockedStatusException(
                 "Non-leader unit attempted to publish composer state"
             )
 
-        replica_data[self._charm.unit][self._RO_DATABASE_FLAG] = str(ro_database).lower()
-        self._database_reconciliation(replica_relation)
+        self._peers.acknowledge_database_mode(read_only=peer_state.ro_database)
+        self._peers.reconcile_database(self.update_database_schema)
         self._reconcile_services()
         self._oauth.update_client_config()
-        return ro_database
+        return peer_state.ro_database
 
     def _reconcile_configuration(
         self,
@@ -241,87 +224,6 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
             return self._composer_lock_file.read_text()
 
         return None
-
-    def _replica_relation(self) -> Relation:
-        """Return the MediaWiki peer relation."""
-        relation = self._charm.model.get_relation(self._peer_relation_name)
-        if relation is None:
-            raise MediaWikiWaitingStatusException(
-                f"Waiting for peer relation {self._peer_relation_name} to be ready"
-            )
-        return relation
-
-    def _replica_secrets(self) -> "MediaWikiSecrets":
-        """Return replica secrets, adding fields introduced by upgrades."""
-        from mediawiki._secrets import MediaWikiSecrets
-
-        try:
-            secret = self._charm.model.get_secret(label=self._replica_secret_label)
-            secrets_content = secret.get_content(refresh=True)
-            expected = MediaWikiSecrets.generate().to_juju_secret()
-            missing_keys = expected.keys() - secrets_content.keys()
-            if missing_keys:
-                if not self._charm.unit.is_leader():
-                    raise MediaWikiWaitingStatusException(
-                        "Waiting for leader to migrate replica secrets"
-                    )
-                secrets_content = dict(secrets_content)
-                for key in missing_keys:
-                    secrets_content[key] = expected[key]
-                secret.set_content(secrets_content)
-            return MediaWikiSecrets.from_juju_secret(secrets_content)
-        except SecretNotFoundError:
-            raise MediaWikiWaitingStatusException("Waiting for replica secrets to be available")
-
-    def _force_reconciliation_requested(self, replica_data: RelationData) -> bool:
-        """Acknowledge and return the peer force-reconciliation request."""
-        app_flag = (
-            replica_data[self._charm.app].get(self._FORCE_RECONCILIATION_FLAG, "false").lower()
-            == "true"
-        )
-        if not app_flag:
-            if (
-                replica_data[self._charm.unit]
-                .get(self._FORCE_RECONCILIATION_FLAG, "false")
-                .lower()
-                == "true"
-            ):
-                replica_data[self._charm.unit][self._FORCE_RECONCILIATION_FLAG] = "false"
-            return False
-
-        replica_data[self._charm.unit][self._FORCE_RECONCILIATION_FLAG] = "true"
-        if self._charm.unit.is_leader() and all(
-            replica_data[unit].get(self._FORCE_RECONCILIATION_FLAG, "false").lower() == "true"
-            for unit in self._replica_relation().units
-        ):
-            replica_data[self._charm.app][self._FORCE_RECONCILIATION_FLAG] = "false"
-            logger.info("All units acknowledged force reconciliation, app flag cleared")
-        return True
-
-    def _database_reconciliation(self, replica_relation: Relation) -> None:
-        """Run a requested schema update after all peer units acknowledge read-only mode."""
-        if not self._charm.unit.is_leader():
-            return
-        if (
-            replica_relation.data[self._charm.app].get(self._RO_DATABASE_FLAG, "false").lower()
-            != "true"
-        ):
-            return
-        for unit in replica_relation.units:
-            if replica_relation.data[unit].get(self._RO_DATABASE_FLAG, "false").lower() != "true":
-                raise MediaWikiWaitingStatusException(
-                    f"Waiting for unit {unit.name} to acknowledge database update by setting ro_db to true"
-                )
-
-        original_status = self._charm.unit.status
-        self._charm.unit.status = MaintenanceStatus("Updating database schema")
-        logger.info(
-            "All units have acknowledged the database update, proceeding with database schema update"
-        )
-        self.update_database_schema()
-        replica_relation.data[self._charm.app][self._RO_DATABASE_FLAG] = "false"
-        self._charm.unit.status = original_status
-        logger.info("Database schema update complete")
 
     def _pebble_layer(self) -> pebble.LayerDict:
         """Build the Pebble layer for the MediaWiki container."""

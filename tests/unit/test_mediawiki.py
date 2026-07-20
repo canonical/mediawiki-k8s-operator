@@ -14,6 +14,7 @@ from pytest_mock import MockerFixture, MockType
 
 import auth
 import database
+import mediawiki_peers
 import redis
 import s3
 import smtp
@@ -41,6 +42,7 @@ class WrapperCharm(StatefulCharmBase):
         self.redis = redis.Redis(self, "redis")
         self.s3 = s3.S3(self, "s3-parameters")
         self.smtp = smtp.Smtp(self, "smtp")
+        self.peers = mediawiki_peers.MediaWikiPeers(self)
         self.mediawiki = MediaWiki(
             self,
             self.database,
@@ -49,6 +51,7 @@ class WrapperCharm(StatefulCharmBase):
             self.redis,
             self.s3,
             self.smtp,
+            self.peers,
         )
 
 
@@ -204,8 +207,11 @@ class TestReconciliation:
             state_out = mgr.run()
 
         relation = state_out.get_relation(mediawiki_replica_relation.id)
-        assert relation.local_app_data[MediaWiki._COMPOSER_LOCK_KEY] == MOCK_COMPOSER_LOCK
-        assert relation.local_app_data[MediaWiki._COMPOSER_JSON_KEY]
+        assert (
+            relation.local_app_data[mediawiki_peers.MediaWikiPeers.COMPOSER_LOCK_KEY]
+            == MOCK_COMPOSER_LOCK
+        )
+        assert relation.local_app_data[mediawiki_peers.MediaWikiPeers.COMPOSER_JSON_KEY]
 
     def test_initial(self, ctx: testing.Context, active_state: testing.State, meta: dict) -> None:
         """Test that reconciliation runs successfully as a leader unit with required relations."""
