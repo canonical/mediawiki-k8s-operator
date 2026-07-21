@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Added optional TLS support
+    author: hk21702
+    type: minor
+    description: >
+      MediaWiki can now obtain TLS certificates through the optional
+      certificates relation and serve HTTPS to Traefik, securing traffic to the
+      MediaWiki backend.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/216"
+      related_doc: "https://documentation.ubuntu.com/mediawiki-k8s-charm/reference/relation-endpoints/#tls-certificates"
+    visibility: public
+    highlight: false
