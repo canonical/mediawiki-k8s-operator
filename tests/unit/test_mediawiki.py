@@ -18,6 +18,7 @@ import mediawiki_peers
 import redis
 import s3
 import smtp
+import tls
 from charm import Charm
 from exceptions import (
     MediaWikiBlockedStatusException,
@@ -44,6 +45,7 @@ class WrapperCharm(StatefulCharmBase):
         self.s3 = s3.S3(self, "s3-parameters")
         self.smtp = smtp.Smtp(self, "smtp")
         self.peers = mediawiki_peers.MediaWikiPeers(self)
+        self.tls = tls.Tls(self, "certificates")
         self.mediawiki = MediaWiki(
             self,
             self.database,
@@ -53,6 +55,7 @@ class WrapperCharm(StatefulCharmBase):
             self.s3,
             self.smtp,
             self.peers,
+            self.tls,
         )
 
 
@@ -1911,7 +1914,7 @@ class TestComposerLockSync:
     ) -> None:
         """Leader path: reconciliation returns the composer.lock content after a successful update."""
         with ctx(ctx.on.update_status(), configured_state) as mgr:
-            lock = mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            lock, _ = mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
         assert lock == MOCK_COMPOSER_LOCK, (
             "reconciliation() should return lock content on the leader path"
@@ -1926,7 +1929,7 @@ class TestComposerLockSync:
         composer config is set, so that non-leaders can always sync from the peer relation.
         """
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            lock = mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            lock, _ = mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
         assert lock == MOCK_COMPOSER_LOCK, (
             "reconciliation() should return lock content on the leader path even with no user composer config"
@@ -2007,7 +2010,7 @@ class TestComposerLockSync:
         new_lock = '{"packages": [], "_readme": ["Different lock"]}'
         state_in = dataclasses.replace(configured_state, leader=False)
         with ctx(ctx.on.update_status(), state_in) as mgr:
-            result = mgr.charm.mediawiki._reconcile_configuration(
+            result, _ = mgr.charm.mediawiki._reconcile_configuration(
                 make_mediawiki_peer_state(
                     composer_lock=new_lock,
                     leader_state_hash=mgr.charm.load_charm_config().state_hash,

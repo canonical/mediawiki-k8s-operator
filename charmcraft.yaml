@@ -283,6 +283,10 @@ provides:
     optional: true
 
 requires:
+  certificates:
+    interface: tls-certificates
+    limit: 1
+    optional: true
   #TODO: Switch to ingress once gateway-api-integrator supports an upstream ingress, or once we can connect to HAProxy more directly.
   traefik-route:
     interface: traefik_route
