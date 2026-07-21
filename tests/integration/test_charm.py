@@ -15,7 +15,7 @@ import pytest
 import requests
 
 from .types_ import App
-from .utils import req_okay
+from .utils import juju_exec, req_okay
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,94 @@ def test_workload_version_is_set(juju: jubilant.Juju, app: App):
     version = status.apps[app.name].version
     assert "mediawiki" in version.lower(), (
         f"Expected 'mediawiki' in workload version, got {version}"
+    )
+
+
+@pytest.mark.abort_on_fail
+def test_tls_certificate_lifecycle(
+    juju: jubilant.Juju,
+    app: App,
+    ssc: App,
+    traefik: App,
+    ingress_address: str,
+    requests_timeout: int,
+):
+    """Check TLS enablement, HTTP fallback, and re-enablement for later tests."""
+
+    def _tls_material_matches(*, ready: bool) -> bool:
+        """Return whether Apache TLS material matches the expected state."""
+        predicate = (
+            "test -L /etc/apache2/sites-enabled/mediawiki-tls.conf "
+            "&& test -s /etc/mediawiki/tls/certificate.pem "
+            "&& test -s /etc/mediawiki/tls/private-key.pem"
+            if ready
+            else "test ! -e /etc/apache2/sites-enabled/mediawiki-tls.conf "
+            "&& test ! -e /etc/mediawiki/tls/certificate.pem "
+            "&& test ! -e /etc/mediawiki/tls/private-key.pem"
+        )
+        return juju_exec(juju, app, f"{predicate} && echo matched || true").strip() == "matched"
+
+    juju.integrate(f"{traefik.name}:receive-ca-cert", f"{ssc.name}:send-ca-cert")
+    juju.integrate(f"{app.name}:certificates", f"{ssc.name}:certificates")
+    juju.wait(
+        lambda status: (
+            jubilant.all_active(status)
+            and "certificates" in status.apps[app.name].relations
+            and _tls_material_matches(ready=True)
+            and req_okay(ingress_address, requests_timeout)
+        ),
+        error=jubilant.any_error,
+    )
+
+    assert "Syntax OK" in juju_exec(juju, app, "apache2ctl configtest 2>&1")
+    assert (
+        juju_exec(
+            juju,
+            app,
+            "test -L /etc/apache2/sites-enabled/mediawiki-tls.conf && echo enabled",
+        ).strip()
+        == "enabled"
+    )
+    assert (
+        juju_exec(
+            juju,
+            app,
+            "test -s /etc/mediawiki/tls/certificate.pem "
+            "&& test -s /etc/mediawiki/tls/private-key.pem && echo present",
+        ).strip()
+        == "present"
+    )
+
+    juju.remove_relation(f"{app.name}:certificates", f"{ssc.name}:certificates")
+    juju.wait(
+        lambda status: (
+            jubilant.all_active(status)
+            and req_okay(ingress_address, requests_timeout)
+            and "certificates" not in status.apps[app.name].relations
+            and _tls_material_matches(ready=False)
+        ),
+        error=jubilant.any_error,
+    )
+    assert (
+        juju_exec(
+            juju,
+            app,
+            "test ! -e /etc/apache2/sites-enabled/mediawiki-tls.conf "
+            "&& test ! -e /etc/mediawiki/tls/certificate.pem "
+            "&& test ! -e /etc/mediawiki/tls/private-key.pem && echo removed",
+        ).strip()
+        == "removed"
+    )
+
+    juju.integrate(f"{app.name}:certificates", f"{ssc.name}:certificates")
+    juju.wait(
+        lambda status: (
+            jubilant.all_active(status)
+            and "certificates" in status.apps[app.name].relations
+            and _tls_material_matches(ready=True)
+            and req_okay(ingress_address, requests_timeout)
+        ),
+        error=jubilant.any_error,
     )
 
 

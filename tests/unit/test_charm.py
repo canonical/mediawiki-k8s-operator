@@ -43,7 +43,7 @@ def mock_mediawiki(mocker: MockerFixture) -> MockType:
     mock_instance.reconciliation.side_effect = reconcile_with_workload
     mock_instance.create_and_promote_user.return_value = "mocked-password"  # nosec: B105
     mock_instance.update_database_schema.return_value = None
-    mock_instance._reconcile_configuration.return_value = None
+    mock_instance._reconcile_configuration.return_value = (None, False)
     mock_instance.runner_queue_service_is_ready.return_value = False
 
     return mock_instance
@@ -86,6 +86,44 @@ class TestGeneralEvents:
         monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "invalid")
         state_out = ctx.run(ctx.on.update_status(), active_state)
         assert isinstance(state_out.unit_status, ops.BlockedStatus)
+
+
+class TestCertificatesRelationEvents:
+    """Tests for the optional TLS certificates relation."""
+
+    def test_relation_changed_without_certificate_keeps_http_active(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        certificates_relation: testing.Relation,
+    ) -> None:
+        """A relation without an issued certificate leaves the HTTP workload active."""
+        state_in = dataclasses.replace(
+            active_state, relations=[*active_state.relations, certificates_relation]
+        )
+
+        state_out = ctx.run(ctx.on.relation_changed(relation=certificates_relation), state_in)
+
+        assert isinstance(state_out.unit_status, ops.ActiveStatus)
+
+    def test_tls_change_requests_restart_during_service_reconciliation(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        certificates_relation: testing.Relation,
+        mock_mediawiki: MockType,
+        mocker: MockerFixture,
+    ) -> None:
+        """Changed TLS configuration requests restart through service reconciliation."""
+        state_in = dataclasses.replace(
+            active_state, relations=[*active_state.relations, certificates_relation]
+        )
+        mock_mediawiki.reconciliation.return_value = False
+
+        state_out = ctx.run(ctx.on.relation_changed(relation=certificates_relation), state_in)
+
+        assert isinstance(state_out.unit_status, ops.ActiveStatus)
+        mock_mediawiki.reconciliation.assert_called_once()
 
 
 class TestPebbleReadyEvent:
@@ -958,7 +996,7 @@ class TestComposerLockPeerSync:
         mock_mediawiki: MockType,
     ) -> None:
         """Leader Composer state is published within MediaWiki reconciliation."""
-        mock_mediawiki._reconcile_configuration.return_value = MOCK_COMPOSER_LOCK
+        mock_mediawiki._reconcile_configuration.return_value = (MOCK_COMPOSER_LOCK, False)
 
         # configured_state already contains mediawiki_replica_relation; use it directly.
         state_out = ctx.run(ctx.on.config_changed(), configured_state)
@@ -975,7 +1013,7 @@ class TestComposerLockPeerSync:
         mock_mediawiki: MockType,
     ) -> None:
         """Leader leaves peer data unchanged when configuration returns no lock."""
-        mock_mediawiki._reconcile_configuration.return_value = None
+        mock_mediawiki._reconcile_configuration.return_value = (None, False)
 
         # active_state already contains mediawiki_replica_relation; use it directly.
         state_out = ctx.run(ctx.on.config_changed(), active_state)
