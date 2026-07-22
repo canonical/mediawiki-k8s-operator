@@ -54,7 +54,7 @@ html_title = project + " documentation"
 #       and is used by social media platforms; see https://ogp.me/
 
 # NOTE: Ensure the URL has "mediawiki-k8s-charm" instead of just "mediawiki-charm" even though the project name does not have it to avoid conflicts.
-ogp_site_url = "https://canonical-mediawiki-k8s-charm.readthedocs-hosted.com/"
+ogp_site_url = "https://canonical.com/juju/docs/mediawiki-k8s-charm"
 
 
 # Preview name of the documentation website
@@ -174,7 +174,7 @@ html_theme_options = {
 # TODO: If your documentation is hosted on https://docs.ubuntu.com/,
 #       uncomment and update as needed.
 
-# slug = 'mediawiki-k8s-charm'
+slug = 'juju/docs/mediawiki-k8s-charm'
 
 #######################
 # Sitemap configuration: https://sphinx-sitemap.readthedocs.io/
@@ -182,11 +182,13 @@ html_theme_options = {
 
 # Use RTD canonical URL to ensure duplicate pages have a specific canonical URL
 
-html_baseurl = os.environ.get("READTHEDOCS_CANONICAL_URL", "/")
+html_baseurl = "https://canonical.com/juju/docs/mediawiki-k8s-charm"
 
 # sphinx-sitemap uses html_baseurl to generate the full URL for each page:
 
 sitemap_url_scheme = "{link}"
+
+sitemap_filename = "doc-sitemap.xml"
 
 # Include `lastmod` dates in the sitemap:
 
