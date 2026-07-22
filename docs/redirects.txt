@@ -7,7 +7,7 @@
 # a file that does exist in the source.
 
 
-# "tutorial/" "set-up-a-new-project"
-# "tutorial/set-up-automated-testing/" "how-to/optional-customisation/add-documentation-testing"
-# "tutorial/set-up/" "set-up-a-new-project"
+"tutorial/advanced-deployment" "tutorial/basic-deployment"
+"how-to/redeploy/" "how-to/"
+"how-to/troubleshoot/" "how-to/"
 
