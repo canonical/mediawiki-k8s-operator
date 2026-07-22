@@ -15,7 +15,7 @@ Each revision is versioned by the date of the revision.
 2026-07-21
 ----------
 
-- Unpublish stub pages from documentation
+- Don't publish stub pages from documentation
 
 2026-06-11
 ----------
