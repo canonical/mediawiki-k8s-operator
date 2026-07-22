@@ -41,6 +41,7 @@ from redis import Redis
 from s3 import S3
 from smtp import Smtp
 from state import StatefulCharmBase
+from tls import Tls
 from types_ import ForceReconciliationAction
 
 # Log messages can be retrieved using juju debug-log
@@ -67,6 +68,7 @@ class Charm(StatefulCharmBase):
     _DATABASE_RELATION_NAME = "database"
     _DATABASE_NAME = "mediawiki"
 
+    _CERTIFICATES_RELATION_NAME = "certificates"
     _INGRESS_RELATION_NAME = "traefik-route"
 
     _OAUTH_RELATION_NAME = "oauth"
@@ -102,6 +104,7 @@ class Charm(StatefulCharmBase):
             relation_name=self._PEER_RELATION_NAME,
             secret_label=self._REPLICA_SECRET_LABEL,
         )
+        self._tls = Tls(self, self._CERTIFICATES_RELATION_NAME)
         self._mediawiki = MediaWiki(
             self,
             self._database,
@@ -111,6 +114,7 @@ class Charm(StatefulCharmBase):
             self._s3,
             self._smtp,
             self._peers,
+            self._tls,
         )
         self._git_sync = GitSync(self)
 
@@ -158,6 +162,10 @@ class Charm(StatefulCharmBase):
             self._s3.s3.on.credentials_gone,
             self.on[self._SMTP_RELATION_NAME].relation_broken,
             self._smtp.on.smtp_data_available,
+            self.on[self._CERTIFICATES_RELATION_NAME].relation_changed,
+            self.on[self._CERTIFICATES_RELATION_NAME].relation_broken,
+            self._tls.tls.on.certificate_available,
+            self._tls.tls.on.certificate_denied,
             self.on.traefik_route_relation_joined,
             self.on.traefik_route_relation_changed,
             self.on.traefik_route_relation_broken,
@@ -176,7 +184,7 @@ class Charm(StatefulCharmBase):
         self.framework.observe(self.on.update_database_action, self._on_update_database)
         self.framework.observe(self.on.force_reconciliation_action, self._on_force_reconciliation)
 
-    def _configure_ingress(self) -> None:
+    def _configure_ingress(self, *, tls_enabled: bool) -> None:
         """Configure the Traefik ingress relation.
 
         TODO: Switch to ingress once gateway-api-integrator supports an upstream ingress, or once connecting directly to HAProxy is viable.
@@ -190,6 +198,8 @@ class Charm(StatefulCharmBase):
         if self._ingress_requirer.is_ready():
             config = self.load_charm_config()
             traefik_hostname = urlparse(config.url_origin).hostname or self.app.name
+            backend_scheme = "https" if tls_enabled else "http"
+            backend_port = 443 if tls_enabled else 80
 
             self._ingress_requirer.submit_to_traefik(
                 config={
@@ -205,7 +215,7 @@ class Charm(StatefulCharmBase):
                                 "loadBalancer": {
                                     "servers": [
                                         {
-                                            "url": f"http://{self.app.name}-endpoints.{self.model.name}.svc.cluster.local:80"
+                                            "url": f"{backend_scheme}://{self.app.name}-endpoints.{self.model.name}.svc.cluster.local:{backend_port}"
                                         }
                                     ]
                                 },
@@ -285,7 +295,7 @@ class Charm(StatefulCharmBase):
             return
 
         try:
-            self._configure_ingress()
+            self._configure_ingress(tls_enabled=self._tls.is_ready())
             self._git_sync.reconciliation(
                 ssh_key=self._ssh_key(self._SSH_KEY_GIT_SYNC_FIELD),
             )

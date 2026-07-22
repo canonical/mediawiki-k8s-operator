@@ -9,7 +9,7 @@ output "application" {
 output "provides" {
   description = "Provided endpoints"
   value = {
-    metrics_endpoint = "metrics-endpoint"
+    metrics_endpoint  = "metrics-endpoint"
     grafana_dashboard = "grafana-dashboard"
   }
 }
@@ -17,6 +17,7 @@ output "provides" {
 output "requires" {
   description = "Requires endpoints"
   value = {
+    certificates  = "certificates"
     database      = "database"
     logging       = "logging"
     oauth         = "oauth"

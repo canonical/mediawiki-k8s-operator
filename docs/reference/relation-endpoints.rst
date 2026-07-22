@@ -33,6 +33,24 @@ Example ``database`` integrate command:
 
    juju integrate mediawiki-k8s mysql-k8s:database
 
+.. _reference_relation_endpoints_certificates:
+
+TLS certificates
+----------------
+
+* **Interface**: `tls-certificates <https://charmhub.io/integrations/tls-certificates>`_
+* **Supported charms**: `lego <https://charmhub.io/lego>`_, `manual-tls-certificates <https://charmhub.io/manual-tls-certificates>`_, `self-signed-certificates <https://charmhub.io/self-signed-certificates>`_
+
+The optional ``certificates`` relation requests a certificate and private key for each MediaWiki unit. When a certificate is available, the charm configures Apache to serve MediaWiki over HTTPS on port 443 while continuing to serve HTTP on port 80. The certificate includes the Kubernetes service hostname so that Traefik can verify its HTTPS connection to the MediaWiki backend.
+
+When this relation is integrated with ``traefik-route``, the charm changes Traefik's backend target from HTTP on port 80 to HTTPS on port 443. Configure Traefik to trust the certificate provider's CA separately through Traefik's certificate and CA transfer relations.
+
+Example ``certificates`` integrate command:
+
+.. code-block:: bash
+
+   juju integrate mediawiki-k8s:certificates self-signed-certificates:certificates
+
 .. _reference_relation_endpoints_grafana_dashboard:
 
 Grafana dashboard
