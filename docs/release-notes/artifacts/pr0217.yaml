@@ -1,0 +1,15 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Remove stub pages from published docs
+  author: edibotopic
+  type: minor
+  description: Removed stub pages so that users don't think important information is missing.
+  urls:
+    pr:
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/217"
+  visibility: public
+  highlight: false
+
