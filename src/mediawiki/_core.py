@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Optional
 
 import ops
 from charmlibs.pathops import ContainerPath
+from ops import pebble
 
 import utils
 from auth import OAuth, Saml
@@ -25,6 +26,8 @@ from mediawiki._base import _MediaWikiBase
 from mediawiki._composer import _ComposerMixin
 from mediawiki._database import _DatabaseMixin
 from mediawiki._settings import _SettingsMixin
+from mediawiki_api import SiteInfo
+from mediawiki_peers import MediaWikiPeers
 from redis import Redis
 from s3 import S3
 from smtp import Smtp
@@ -39,6 +42,16 @@ logger = logging.getLogger(__name__)
 class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
     """Class to manage MediaWiki."""
 
+    _SERVICE_NAME = "mediawiki"
+    _LOGROTATE_SERVICE_NAME = "logrotate"
+    _APACHE_EXPORTER_SERVICE_NAME = "apache-exporter"
+    _REDIS_JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
+    _APACHE_EXPORTER_PORT = 9117
+    _FRESHCLAM_SERVICE_NAME = "freshclam"
+    _CLAMD_SERVICE_NAME = "clamd"
+    _MEDIAWIKI_API_READY_CHECK = "mediawiki-api-ready"
+    _MEDIAWIKI_CHECKS = (_MEDIAWIKI_API_READY_CHECK,)
+
     def __init__(
         self,
         charm: StatefulCharmBase,
@@ -48,6 +61,7 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
         redis: Redis,
         s3: S3,
         smtp: Smtp,
+        peers: MediaWikiPeers,
     ):
         super().__init__(charm.unit.get_container("mediawiki"))
         self._charm = charm
@@ -57,6 +71,7 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
         self._redis = redis
         self._s3 = s3
         self._smtp = smtp
+        self._peers = peers
 
     @property
     def _logs_path(self) -> ContainerPath:
@@ -85,43 +100,18 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
 
     def reconciliation(
         self,
-        secrets: "MediaWikiSecrets",
         ssh_key: Optional[str] = None,
-        ro_database: bool = False,
         force_composer_update: bool = False,
-        composer_lock: Optional[str] = None,
-        peer_composer_json: Optional[str] = None,
-    ) -> Optional[str]:
-        """Reconcile the state of MediaWiki installation and configuration.
-
-        The following actions are completed here:
-        - Ensure the logs directory exists with proper permissions.
-        - Reconcile the SSH configuration for the webroot_owner user.
-        - Reconcile the composer configuration, running composer update if needed.
-        - Reconcile MediaWiki settings that are part of LocalSettings.php.
-        - Reconcile the robots.txt file.
-        - Install MediaWiki if the database is not initialized.
-
-        Composer behaviour depends on the unit's leadership role:
-        - Leaders always run ``composer update`` against the current charm config and return
-          the generated lock content. ``composer_lock`` and ``peer_composer_json`` are ignored.
-        - Non-leaders use ``peer_composer_json`` (the serialised composer.json the leader
-          published) together with ``composer_lock`` to run ``composer install``.
+    ) -> bool:
+        """Reconcile MediaWiki configuration, peer state, database, and services.
 
         Args:
-            secrets: An instance of MediaWikiSecrets containing secrets synced between units.
             ssh_key: Optional SSH private key content to write into the container for git access.
-            ro_database: Whether to include settings that put the database into read-only mode
-                for updates. Defaults to False.
             force_composer_update: Whether to force a composer update regardless of config
                 changes. Defaults to False.
-            composer_lock: The composer.lock content published by the leader. Ignored on
-                leaders; required on non-leaders that have extensions configured.
-            peer_composer_json: Serialised composer.json published by the leader alongside the
-                lock. Ignored on leaders; used by non-leaders to ensure json+lock consistency.
 
         Returns:
-            The current composer.lock content if this is the leader unit, None otherwise.
+            Whether MediaWiki remains in database read-only mode.
 
         Raises:
             MediaWikiStatusException: If there is a potentially transient error stopping the
@@ -129,6 +119,52 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
             MediaWikiInstallError: If there is an error during installation that should be
                 investigated by an operator.
         """
+        if not self._container.can_connect():
+            raise MediaWikiWaitingStatusException("Waiting for pebble")
+
+        try:
+            if not self._database.has_relation():
+                raise MediaWikiBlockedStatusException(
+                    f"Waiting for relation {self._database.db.relation_name}."
+                )
+            peer_state = self._peers.reconciliation_state()
+        except (MediaWikiBlockedStatusException, MediaWikiWaitingStatusException):
+            self._reconcile_services(active=False)
+            raise
+
+        force_composer_update = force_composer_update or peer_state.force_reconciliation
+        new_lock = self._reconcile_configuration(
+            peer_state.secrets,
+            ssh_key=ssh_key,
+            ro_database=peer_state.ro_database,
+            force_composer_update=force_composer_update,
+            composer_lock=peer_state.composer_lock,
+            peer_composer_json=peer_state.composer_json,
+        )
+        if new_lock is not None and self._charm.unit.is_leader():
+            config = self._charm.load_charm_config()
+            self._peers.publish_composer_state(new_lock, json.dumps(config.composer))
+        elif new_lock is not None:
+            raise MediaWikiBlockedStatusException(
+                "Non-leader unit attempted to publish composer state"
+            )
+
+        self._peers.acknowledge_database_mode(read_only=peer_state.ro_database)
+        self._peers.reconcile_database(self.update_database_schema)
+        self._reconcile_services()
+        self._oauth.update_client_config()
+        return peer_state.ro_database
+
+    def _reconcile_configuration(
+        self,
+        secrets: "MediaWikiSecrets",
+        ssh_key: Optional[str] = None,
+        ro_database: bool = False,
+        force_composer_update: bool = False,
+        composer_lock: Optional[str] = None,
+        peer_composer_json: Optional[str] = None,
+    ) -> Optional[str]:
+        """Reconcile MediaWiki files, installation, and workload configuration."""
         if not self._database.is_relation_ready():
             raise MediaWikiBlockedStatusException("Database relation is not ready")
         config = self._charm.load_charm_config()
@@ -188,6 +224,128 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
             return self._composer_lock_file.read_text()
 
         return None
+
+    def _pebble_layer(self) -> pebble.LayerDict:
+        """Build the Pebble layer for the MediaWiki container."""
+        health_check_timeout = 5
+        php_path = "/usr/bin/php"
+        job_runner_service_dir = "/opt/redis-job-runner-service"
+        return {
+            "summary": "mediawiki layer",
+            "description": "Pebble layer configuration for MediaWiki",
+            "services": {
+                self._SERVICE_NAME: {
+                    "override": "replace",
+                    "summary": "MediaWiki service (apache)",
+                    "command": "/usr/sbin/apache2ctl -D FOREGROUND",
+                    "startup": "disabled",
+                    "requires": ["mediawikiLogs"],
+                    "after": ["mediawikiLogs"],
+                    "environment": self._charm.state.get_proxy_env({}),
+                },
+                **{
+                    service: {
+                        "override": "replace",
+                        "summary": f"MediaWiki {service}",
+                        "command": f"{php_path} {job_runner_service_dir}/{service} --config-file={constants.JOB_RUNNER_CONFIG_PATH}",
+                        "startup": "disabled",
+                        "environment": self._charm.state.get_proxy_env({}),
+                    }
+                    for service in self._REDIS_JOB_SERVICES
+                },
+                "mediawikiLogs": {
+                    "override": "replace",
+                    "summary": "MediaWiki logs",
+                    "command": "tail -n0 -F /var/log/mediawiki/logs.log",
+                    "startup": "enabled",
+                },
+                self._LOGROTATE_SERVICE_NAME: {
+                    "override": "replace",
+                    "summary": "Logrotate service",
+                    "command": 'bash -c "while :; do sleep 3600; logrotate /etc/logrotate.d/mediawiki/logrotate.conf; done"',
+                    "startup": "enabled",
+                },
+                self._APACHE_EXPORTER_SERVICE_NAME: {
+                    "override": "replace",
+                    "summary": "Apache exporter for Prometheus",
+                    "command": "/usr/bin/apache_exporter",
+                    "startup": "enabled",
+                },
+                self._FRESHCLAM_SERVICE_NAME: {
+                    "override": "replace",
+                    "summary": "FreshClam service",
+                    "command": "/usr/bin/freshclam --daemon --foreground",
+                    "startup": "enabled",
+                    "environment": self._charm.state.get_proxy_env({}),
+                },
+                self._CLAMD_SERVICE_NAME: {
+                    "override": "replace",
+                    "summary": "ClamAV Daemon service",
+                    "command": "/usr/sbin/clamd --foreground",
+                    "startup": "enabled",
+                    "after": self._FRESHCLAM_SERVICE_NAME,
+                },
+            },
+            "checks": {
+                self._MEDIAWIKI_API_READY_CHECK: {
+                    "override": "replace",
+                    "level": "ready",
+                    "startup": "disabled",
+                    "http": {
+                        "url": "http://localhost/w/api.php?action=query&format=json&prop=&meta=siteinfo&formatversion=2"
+                    },
+                    "period": f"{max(10, health_check_timeout * 2)}s",
+                    "timeout": f"{health_check_timeout}s",
+                },
+                "apache-exporter-up": {
+                    "override": "replace",
+                    "level": "alive",
+                    "http": {"url": f"http://localhost:{self._APACHE_EXPORTER_PORT}/metrics"},
+                },
+            },
+        }
+
+    def _reconcile_checks(self, *, active: bool) -> None:
+        """Start or stop MediaWiki health checks."""
+        checks = self._container.get_plan().checks
+        for check in self._MEDIAWIKI_CHECKS:
+            if check not in checks:
+                continue
+            status = self._container.get_check(check).status
+            if active and status == pebble.CheckStatus.INACTIVE:
+                self._container.start_checks(check)
+            elif not active and status != pebble.CheckStatus.INACTIVE:
+                self._container.stop_checks(check)
+
+    def _reconcile_services(self, *, active: bool = True, restart_required: bool = False) -> None:
+        """Privately reconcile MediaWiki services and checks."""
+        if not self._container.can_connect():
+            raise MediaWikiWaitingStatusException("Waiting for pebble")
+        self._container.add_layer(self._SERVICE_NAME, self._pebble_layer(), combine=True)
+        self._container.replan()
+
+        all_conditional_services = {self._SERVICE_NAME, *self._REDIS_JOB_SERVICES}
+        services_to_run = {self._SERVICE_NAME}
+        mediawiki_is_running = self._container.get_service(self._SERVICE_NAME).is_running()
+        if not active:
+            services_to_run.clear()
+            self._reconcile_checks(active=False)
+        elif self.runner_queue_service_is_ready():
+            services_to_run.update(self._REDIS_JOB_SERVICES)
+
+        services_to_stop = all_conditional_services - services_to_run
+        services = self._container.get_plan().services
+        for service in services_to_stop:
+            if service in services and self._container.get_service(service).is_running():
+                self._container.stop(service)
+        for service in services_to_run:
+            if service in services and not self._container.get_service(service).is_running():
+                self._container.start(service)
+        if active and restart_required and mediawiki_is_running:
+            self._container.restart(self._SERVICE_NAME)
+        if active:
+            self._reconcile_checks(active=True)
+            self._charm.unit.set_workload_version(SiteInfo.fetch().version)
 
     def create_and_promote_user(
         self,

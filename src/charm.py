@@ -5,7 +5,6 @@
 
 """Charm Operator for mediawiki-k8s."""
 
-import json
 import logging
 import typing
 from urllib.parse import urlparse
@@ -23,25 +22,21 @@ from ops import (
     EventBase,
     MaintenanceStatus,
     ModelError,
-    Relation,
-    RelationData,
     SecretNotFoundError,
     WaitingStatus,
-    pebble,
 )
 
 from auth import OAuth, Saml
 from database import Database
 from exceptions import (
     CharmConfigInvalidError,
-    MediaWikiBlockedStatusException,
     MediaWikiInstallError,
     MediaWikiStatusException,
     MediaWikiWaitingStatusException,
 )
 from git_sync import GitSync
-from mediawiki import MediaWiki, MediaWikiSecrets, constants
-from mediawiki_api import SiteInfo
+from mediawiki import MediaWiki
+from mediawiki_peers import MediaWikiPeers
 from redis import Redis
 from s3 import S3
 from smtp import Smtp
@@ -80,13 +75,12 @@ class Charm(StatefulCharmBase):
     _S3_RELATION_NAME = "s3-parameters"
     _SMTP_RELATION_NAME = "smtp"
 
-    _PEER_RELATION_NAME = "mediawiki-replica"
-    _REPLICA_SECRET_LABEL = "replica-secret"  # nosec: B105
-
-    _RO_DATABASE_FLAG = "ro_db"
-    _FORCE_RECONCILIATION_FLAG = "force_reconciliation"
-    _COMPOSER_JSON_KEY = "composer_json"
-    _COMPOSER_LOCK_KEY = "composer_lock"
+    _PEER_RELATION_NAME = MediaWikiPeers.RELATION_NAME
+    _REPLICA_SECRET_LABEL = MediaWikiPeers.SECRET_LABEL
+    _RO_DATABASE_FLAG = MediaWikiPeers.RO_DATABASE_FLAG
+    _FORCE_RECONCILIATION_FLAG = MediaWikiPeers.FORCE_RECONCILIATION_FLAG
+    _COMPOSER_JSON_KEY = MediaWikiPeers.COMPOSER_JSON_KEY
+    _COMPOSER_LOCK_KEY = MediaWikiPeers.COMPOSER_LOCK_KEY
 
     _SSH_KEY_MEDIAWIKI_FIELD = "mediawiki"
     _SSH_KEY_GIT_SYNC_FIELD = "git-sync"
@@ -103,8 +97,20 @@ class Charm(StatefulCharmBase):
         self._redis = Redis(self, self._REDIS_RELATION_NAME)
         self._s3 = S3(self, self._S3_RELATION_NAME)
         self._smtp = Smtp(self, self._SMTP_RELATION_NAME)
+        self._peers = MediaWikiPeers(
+            self,
+            relation_name=self._PEER_RELATION_NAME,
+            secret_label=self._REPLICA_SECRET_LABEL,
+        )
         self._mediawiki = MediaWiki(
-            self, self._database, self._oauth, self._saml, self._redis, self._s3, self._smtp
+            self,
+            self._database,
+            self._oauth,
+            self._saml,
+            self._redis,
+            self._s3,
+            self._smtp,
+            self._peers,
         )
         self._git_sync = GitSync(self)
 
@@ -132,7 +138,7 @@ class Charm(StatefulCharmBase):
                 self.on.config_changed,
             ],
         )
-        self.framework.observe(self.on.leader_elected, self._setup_replica_data)
+        self.framework.observe(self.on.leader_elected, self._peers.setup_replica_data)
 
         # Reconciliation events
         reconciliation_events = [
@@ -169,179 +175,6 @@ class Charm(StatefulCharmBase):
         self.framework.observe(self.on.create_and_promote_action, self._on_create_and_promote_user)
         self.framework.observe(self.on.update_database_action, self._on_update_database)
         self.framework.observe(self.on.force_reconciliation_action, self._on_force_reconciliation)
-
-    @property
-    def _container(self) -> ops.Container:
-        """Return the MediaWiki container."""
-        return self.unit.get_container(self._CONTAINER_NAME)
-
-    def _pebble_layer(self) -> pebble.LayerDict:
-        """Build the Pebble layer for the MediaWiki container.
-
-        Services that are always running (mediawikiLogs, logrotate, apache-exporter,
-        freshclam, clamd) have startup set to enabled and are managed via replan.
-        Conditional services (mediawiki/apache, redis job runners) have startup set
-        to disabled and are explicitly started/stopped in _reconcile_services.
-        """
-        health_check_timeout = 5
-        php_path = "/usr/bin/php"
-        job_runner_service_dir = "/opt/redis-job-runner-service"
-
-        layer: pebble.LayerDict = {
-            "summary": "mediawiki layer",
-            "description": "Pebble layer configuration for MediaWiki",
-            "services": {
-                self._SERVICE_NAME: {
-                    "override": "replace",
-                    "summary": "MediaWiki service (apache)",
-                    "command": "/usr/sbin/apache2ctl -D FOREGROUND",
-                    "startup": "disabled",
-                    "requires": ["mediawikiLogs"],
-                    "after": ["mediawikiLogs"],
-                    "environment": self.state.get_proxy_env({}),
-                },
-                **{
-                    service: {
-                        "override": "replace",
-                        "summary": f"MediaWiki {service}",
-                        "command": f"{php_path} {job_runner_service_dir}/{service} --config-file={constants.JOB_RUNNER_CONFIG_PATH}",
-                        "startup": "disabled",
-                        "environment": self.state.get_proxy_env({}),
-                    }
-                    for service in self._REDIS_JOB_SERVICES
-                },
-                "mediawikiLogs": {
-                    "override": "replace",
-                    "summary": "MediaWiki logs",
-                    "command": "tail -n0 -F /var/log/mediawiki/logs.log",
-                    "startup": "enabled",
-                },
-                self._LOGROTATE_SERVICE_NAME: {
-                    "override": "replace",
-                    "summary": "Logrotate service",
-                    "command": 'bash -c "while :; '
-                    "do sleep 3600; logrotate /etc/logrotate.d/mediawiki/logrotate.conf; "
-                    'done"',
-                    "startup": "enabled",
-                },
-                self._APACHE_EXPORTER_SERVICE_NAME: {
-                    "override": "replace",
-                    "summary": "Apache exporter for Prometheus",
-                    "command": "/usr/bin/apache_exporter",
-                    "startup": "enabled",
-                },
-                self._FRESHCLAM_SERVICE_NAME: {
-                    "override": "replace",
-                    "summary": "FreshClam service",
-                    "command": "/usr/bin/freshclam --daemon --foreground",
-                    "startup": "enabled",
-                    "environment": self.state.get_proxy_env({}),
-                },
-                self._CLAMD_SERVICE_NAME: {
-                    "override": "replace",
-                    "summary": "ClamAV Daemon service",
-                    "command": "/usr/sbin/clamd --foreground",
-                    "startup": "enabled",
-                    "after": self._FRESHCLAM_SERVICE_NAME,
-                },
-            },
-            "checks": {
-                self._MEDIAWIKI_API_READY_CHECK: {
-                    "override": "replace",
-                    "level": "ready",
-                    "startup": "disabled",
-                    "http": {
-                        "url": "http://localhost/w/api.php?action=query&format=json&prop=&meta=siteinfo&formatversion=2"
-                    },
-                    "period": f"{max(10, health_check_timeout * 2)}s",
-                    "timeout": f"{health_check_timeout}s",
-                },
-                self._APACHE_ALIVE_CHECK: {
-                    "override": "replace",
-                    "level": "alive",
-                    "startup": "disabled",
-                    "http": {
-                        "url": f"http://localhost:{self._APACHE_EXPORTER_PORT}/metrics",
-                    },
-                    "period": f"{max(10, health_check_timeout * 2)}s",
-                    "timeout": f"{health_check_timeout}s",
-                },
-                "apache-exporter-up": {
-                    "override": "replace",
-                    "level": "alive",
-                    "http": {
-                        "url": f"http://localhost:{self._APACHE_EXPORTER_PORT}/metrics",
-                    },
-                },
-            },
-        }
-
-        return layer
-
-    def _replica_relation(self) -> Relation:
-        """Get the relation object for the replica peer relation.
-
-        Raises:
-            MediaWikiWaitingStatusException: If the peer relation is not ready.
-        """
-        replica_data = self.model.get_relation(self._PEER_RELATION_NAME)
-        if replica_data is None:
-            raise MediaWikiWaitingStatusException(
-                f"Waiting for peer relation {self._PEER_RELATION_NAME} to be ready"
-            )
-        return replica_data
-
-    def _replica_secrets(self) -> MediaWikiSecrets:
-        """Get the generated secrets shared between the MediaWiki replicas.
-
-        If the leader detects missing fields (e.g. after an upgrade that adds new secrets),
-        they are populated with freshly generated values.
-
-        Raises:
-            MediaWikiWaitingStatusException: If the secrets are not available yet.
-        """
-        try:
-            secret = self.model.get_secret(label=self._REPLICA_SECRET_LABEL)
-            secrets_content = secret.get_content(refresh=True)
-            # Migrate: add any fields that were not present in older deployments.
-            expected = MediaWikiSecrets.generate().to_juju_secret()
-            missing_keys = expected.keys() - secrets_content.keys()
-            if missing_keys:
-                if not self.unit.is_leader():
-                    raise MediaWikiWaitingStatusException(
-                        "Waiting for leader to migrate replica secrets"
-                    )
-                secrets_content = dict(secrets_content)
-                for key in missing_keys:
-                    secrets_content[key] = expected[key]
-                secret.set_content(secrets_content)
-            return MediaWikiSecrets.from_juju_secret(secrets_content)
-        except SecretNotFoundError:
-            raise MediaWikiWaitingStatusException("Waiting for replica secrets to be available")
-
-    def _replica_consensus_reached(self) -> bool:
-        """Check if the necessary minimal data and secrets shared with MediaWiki peers (replicas) has been initialized and synchronized."""
-        try:
-            self.model.get_secret(label=self._REPLICA_SECRET_LABEL)
-        except SecretNotFoundError:
-            return False
-
-        return True
-
-    def _setup_replica_data(self, _event: EventBase) -> None:
-        """Initialize the synchronized data required for MediaWiki replication.
-
-        The relation data content object is used to share (read and write) necessary secret data
-        used by MediaWiki to enhance security and must be synchronized.
-
-        Only the leader can update the data shared with all replicas.
-        """
-        if self._replica_consensus_reached() or not self.unit.is_leader():
-            return
-
-        logger.info("Creating replica data due to event %s", _event)
-        content = MediaWikiSecrets.generate().to_juju_secret()
-        self.app.add_secret(content, label=self._REPLICA_SECRET_LABEL)
 
     def _configure_ingress(self) -> None:
         """Configure the Traefik ingress relation.
@@ -386,75 +219,6 @@ class Charm(StatefulCharmBase):
                 f"Waiting for {self._INGRESS_RELATION_NAME} relation to be ready"
             )
 
-    def _reconcile_checks(self, container: ops.Container, *, active: bool) -> None:
-        """Start or stop the MediaWiki health checks.
-
-        Args:
-            container: The Pebble container.
-            active: Whether checks should be running.
-        """
-        checks = container.get_plan().checks
-        for check in self._MEDIAWIKI_CHECKS:
-            if check not in checks:
-                continue
-            status = container.get_check(check).status
-            if active and status == pebble.CheckStatus.INACTIVE:
-                container.start_checks(check)
-            elif not active and status != pebble.CheckStatus.INACTIVE:
-                container.stop_checks(check)
-
-    def _reconcile_services(self, *, active: bool = True) -> None:
-        """Reconcile the MediaWiki services.
-
-        Applies the Pebble layer and replans to ensure always-on services are running.
-        Then explicitly starts or stops conditional services (mediawiki/apache, redis
-        job runners) based on the active flag and readiness conditions.
-
-        Ordering: checks are stopped before their dependent services are stopped,
-        and checks are started only after their dependent services are started.
-
-        Args:
-            active: Whether the mediawiki (apache) service should be running.
-        """
-        container = self._container
-        if not container.can_connect():
-            raise MediaWikiWaitingStatusException("Waiting for pebble")
-
-        container.add_layer(self._SERVICE_NAME, self._pebble_layer(), combine=True)
-        container.replan()
-
-        # Determine which conditional services should be running.
-        redis_enabled = active and self._mediawiki.runner_queue_service_is_ready()
-        all_conditional_services = {self._SERVICE_NAME, *self._REDIS_JOB_SERVICES}
-
-        services_to_run = set()
-        if active:
-            services_to_run.add(self._SERVICE_NAME)
-        if active and redis_enabled:
-            services_to_run.update(self._REDIS_JOB_SERVICES)
-        services_to_stop = all_conditional_services - services_to_run
-
-        # Stop checks before stopping services to avoid health check failures
-        # during shutdown.
-        if not active:
-            self._reconcile_checks(container, active=False)
-
-        # Stop services that should not be running.
-        services = container.get_plan().services
-        for service in services_to_stop:
-            if service in services and container.get_service(service).is_running():
-                container.stop(service)
-
-        # Start services that should be running.
-        for service in services_to_run:
-            if service in services and not container.get_service(service).is_running():
-                container.start(service)
-
-        # Start checks only after services are running.
-        if active:
-            self._reconcile_checks(container, active=True)
-            self.unit.set_workload_version(SiteInfo.fetch().version)
-
     def _ssh_key(self, field: str) -> typing.Optional[str]:
         """Get an SSH private key from the configured user secret by field name.
 
@@ -490,113 +254,6 @@ class Charm(StatefulCharmBase):
             raise CharmConfigInvalidError(f"The ssh-key secret field '{field}' must not be empty.")
         return value
 
-    def _pre_reconciliation(self) -> tuple[RelationData, MediaWikiSecrets]:
-        """Check for the presence of required relations and secrets, and return them.
-
-        On error, an appropriate MediaWikiStatusException is raised, and the service is stopped.
-
-        Returns:
-            tuple[RelationData, MediaWikiSecrets]:
-                RelationData: The relation data content for the replica relation.
-                MediaWikiSecrets: The secrets shared between replicas.
-
-        Raises:
-            MediaWikiStatusException: If any of the required relations or secrets are not ready.
-        """
-        try:
-            if not self._database.has_relation():
-                raise MediaWikiBlockedStatusException(
-                    f"Waiting for relation {self._DATABASE_RELATION_NAME}"
-                )
-
-            replica_relation = self._replica_relation()
-            replica_secrets = self._replica_secrets()
-        except MediaWikiStatusException as e:
-            self._reconcile_services(active=False)
-            raise e
-
-        return replica_relation.data, replica_secrets
-
-    def _database_reconciliation(self) -> None:
-        """Complete a database schema update if requested and all units are ready.
-
-        Does nothing if the unit calling is not the leader.
-
-        If the self._RO_DATABASE_FLAG flag is set to "true" at the application level and for all units known to the peer relation,
-        then we start the database reconciliation process.
-
-        Once completed, the application level self._RO_DATABASE_FLAG flag is set back to "false" to allow units to return to read-write mode.
-
-        Raises:
-            MediaWikiWaitingStatusException: If the replica peer relation is not ready.
-            MediaWikiWaitingStatusException: If the database update was requested but not all units have entered read-only mode yet.
-        """
-        if not self.unit.is_leader():
-            return
-
-        replica_relation = self._replica_relation()
-        # Check if database update was requested
-        if replica_relation.data[self.app].get(self._RO_DATABASE_FLAG, "false").lower() != "true":
-            return
-        # Check if all units are in read-only mode, which indicates they are ready for the database update
-        for unit in replica_relation.units:
-            unit_data = replica_relation.data[unit]
-            if unit_data.get(self._RO_DATABASE_FLAG, "false").lower() != "true":
-                raise MediaWikiWaitingStatusException(
-                    f"Waiting for unit {unit.name} to acknowledge database update by setting ro_db to true"
-                )
-
-        original_status = self.unit.status
-        self.unit.status = MaintenanceStatus("Updating database schema")
-        logger.info(
-            "All units have acknowledged the database update, proceeding with database schema update"
-        )
-
-        self._mediawiki.update_database_schema()
-
-        replica_relation.data[self.app][self._RO_DATABASE_FLAG] = "false"
-        self.unit.status = original_status
-        logger.info("Database schema update complete")
-
-    def _check_and_clear_force_reconciliation_flag(self, replica_data: RelationData) -> bool:
-        """Check if a forced reconciliation is requested and coordinate flag cleanup.
-
-        Each unit checks the app-level force reconciliation flag. If set, the unit
-        performs the forced reconciliation and sets its own unit-level flag to acknowledge.
-        The leader clears the app-level flag once all units have acknowledged.
-
-        Args:
-            replica_data: The peer relation data bags.
-
-        Returns:
-            True if a forced reconciliation should be performed.
-        """
-        app_flag = (
-            replica_data[self.app].get(self._FORCE_RECONCILIATION_FLAG, "false").lower() == "true"
-        )
-        if not app_flag:
-            if (
-                replica_data[self.unit].get(self._FORCE_RECONCILIATION_FLAG, "false").lower()
-                == "true"
-            ):
-                replica_data[self.unit][self._FORCE_RECONCILIATION_FLAG] = "false"
-            return False
-
-        replica_data[self.unit][self._FORCE_RECONCILIATION_FLAG] = "true"
-
-        if self.unit.is_leader():
-            replica_relation = self._replica_relation()
-            all_acked = all(
-                replica_relation.data[unit].get(self._FORCE_RECONCILIATION_FLAG, "false").lower()
-                == "true"
-                for unit in replica_relation.units
-            )
-            if all_acked:
-                replica_data[self.app][self._FORCE_RECONCILIATION_FLAG] = "false"
-                logger.info("All units acknowledged force reconciliation, app flag cleared")
-
-        return True
-
     def _reconciliation(self, _event: EventBase, *, force_composer_update: bool = False) -> None:
         """Reconcile the charm state.
 
@@ -622,59 +279,21 @@ class Charm(StatefulCharmBase):
         """
         self.unit.status = MaintenanceStatus("Reconciling charm state")
         logger.info("Starting reconciliation due to event: %s", _event)
-        if not self._container.can_connect():
-            logger.info("Reconciliation process terminated early, pebble is not ready")
-            self.unit.status = WaitingStatus("Waiting for pebble")
-            return
-
         if not self._git_sync.is_ready():
             logger.info("Reconciliation process terminated early, git-sync sidecar is not ready")
             self.unit.status = WaitingStatus("Waiting for git-sync sidecar")
             return
 
         try:
-            replica_data, secrets = self._pre_reconciliation()
-            set_ro_database = (
-                replica_data[self.app].get(self._RO_DATABASE_FLAG, "false").lower() == "true"
-            )
-
             self._configure_ingress()
             self._git_sync.reconciliation(
                 ssh_key=self._ssh_key(self._SSH_KEY_GIT_SYNC_FIELD),
             )
 
-            force_composer_update = (
-                force_composer_update
-                or self._check_and_clear_force_reconciliation_flag(replica_data)
-            )
-
-            # Extract composer data from the peer relation for non-leader units.
-            peer_app = replica_data[self.app]
-            new_lock = self._mediawiki.reconciliation(
-                secrets,
+            set_ro_database = self._mediawiki.reconciliation(
                 ssh_key=self._ssh_key(self._SSH_KEY_MEDIAWIKI_FIELD),
-                ro_database=set_ro_database,
                 force_composer_update=force_composer_update,
-                composer_lock=peer_app.get(self._COMPOSER_LOCK_KEY),
-                peer_composer_json=peer_app.get(self._COMPOSER_JSON_KEY),
             )
-
-            # Publish composer state
-            if new_lock is not None and self.unit.is_leader():
-                config = self.load_charm_config()
-                replica_data[self.app][self._COMPOSER_JSON_KEY] = json.dumps(config.composer)
-                replica_data[self.app][self._COMPOSER_LOCK_KEY] = new_lock
-            elif new_lock is not None and not self.unit.is_leader():
-                raise MediaWikiBlockedStatusException(
-                    "Non-leader unit attempted to publish composer state"
-                )
-
-            replica_data[self.unit][self._RO_DATABASE_FLAG] = str(set_ro_database).lower()
-            self._database_reconciliation()
-
-            self._reconcile_services()
-
-            self._oauth.update_client_config()
 
         except MediaWikiStatusException as e:
             logger.info("Reconciliation process terminated early, status exception raised: %s", e)
@@ -710,9 +329,7 @@ class Charm(StatefulCharmBase):
             return
 
         try:
-            new_secrets = MediaWikiSecrets.generate()
-            secret_content = new_secrets.to_juju_secret()
-            self.model.get_secret(label=self._REPLICA_SECRET_LABEL).set_content(secret_content)
+            self._peers.rotate_secrets()
             event.log("MediaWiki secrets rotated successfully")
         except SecretNotFoundError:
             event.fail("Failed to rotate secrets: replica secret not found")
@@ -785,12 +402,9 @@ class Charm(StatefulCharmBase):
             event.fail("Only the leader unit can request a database update")
             return
 
-        replica_data = self.model.get_relation(self._PEER_RELATION_NAME)
-        if replica_data is None:
+        if not self._peers.request_database_update():
             event.fail("Peer relation not ready yet")
             return
-
-        replica_data.data[self.app][self._RO_DATABASE_FLAG] = "true"
         event.log("Database update requested")
 
     def _on_force_reconciliation(self, event: ActionEvent) -> None:
@@ -816,12 +430,9 @@ class Charm(StatefulCharmBase):
                 event.fail("The all-units flag requires the action to be run on the leader unit")
                 return
 
-            replica_relation = self.model.get_relation(self._PEER_RELATION_NAME)
-            if replica_relation is None:
+            if not self._peers.request_force_reconciliation():
                 event.fail("Peer relation not ready yet")
                 return
-
-            replica_relation.data[self.app][self._FORCE_RECONCILIATION_FLAG] = "true"
             event.log("Force reconciliation requested for all units")
             return
 
