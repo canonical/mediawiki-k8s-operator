@@ -37,7 +37,7 @@ Get started
 
 Learn about what's in the charm, step through a basic deployment, and perform some common operations.
 
-- **Learn, try, and plan**: :ref:`Guided tutorial <tutorial_index>` • :ref:`High-level deployment <reference_high_level_deployment>` 
+- **Learn, try, and plan**: :ref:`Guided tutorial <tutorial_basic_deployment>` • :ref:`High-level deployment <reference_high_level_deployment>` 
 - **Deploy and configure**: :ref:`Configure MediaWiki <how_to_configure_mediawiki>` • :ref:`Relation endpoints <reference_relation_endpoints>`
 - **Observe, maintain, and update**: :ref:`Integrate with COS <how_to_integrate_with_cos>` • :ref:`Metrics <reference_metrics>` • :ref:`Upgrade <how_to_upgrade>`
 
@@ -51,7 +51,6 @@ Learn more about operations focused on advanced configurations and security.
 
 - **Security**: :ref:`Overview <explanation_security>` • :ref:`Firewall allowlist <reference_allowlist>`
 - **Design**: :ref:`Architecture <reference_charm_architecture>`
-- **Troubleshooting**: :ref:`How to troubleshoot <how_to_troubleshoot>`
 
 Develop and contribute
 ^^^^^^^^^^^^^^^^^^^^^^^
@@ -66,7 +65,7 @@ How this documentation is organized
 
 This documentation uses the `Diátaxis documentation structure <https://diataxis.fr/>`_.
 
-- The :ref:`Tutorial <tutorial_index>` takes you step-by-step through a basic deployment of the `MediaWiki`_ charm.
+- The :ref:`Tutorial <tutorial_basic_deployment>` takes you step-by-step through a basic deployment of the `MediaWiki`_ charm.
 - :ref:`How-to guides <how_to_index>` assume you have basic familiarity with the `MediaWiki`_ charm. Learn more about setting up, using, maintaining, and contributing to this charm.
 - :ref:`Reference <reference_index>` provides a guide to actions, configurations, relations, and other technical details.
 - :ref:`Explanation <explanation_index>` includes topic overviews, background and context and detailed discussion.

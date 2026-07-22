@@ -309,6 +309,7 @@ mermaid_version = "11.15.0"
 
 exclude_patterns = [
     ".venv*",
+    "stubs/*"
 ]
 
 # Adds custom CSS files, located under 'html_static_path'

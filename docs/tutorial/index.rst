@@ -21,16 +21,3 @@ This tutorial walks through a basic deployment of the charm.
 
     Deploy the charm for the first time <basic-deployment>
 
-Advanced tutorial
------------------
-
-.. TODO: Update section name, and provide a specific summary of the advanced tutorial.
-         Remove this section if there's no advanced tutorial.
-
-Now that you have a basic deployment, learn more about what you can do with it!
-
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-
-    Advanced tutorial <advanced-deployment>
