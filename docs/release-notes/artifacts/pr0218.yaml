@@ -1,0 +1,15 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Enabled Google analytics
+  author: edibotopic
+  type: minor
+  description: Enabled Google analytics for monotiring docs traffic
+  urls:
+    pr: 
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/218"
+  visibility: public
+  highlight: false
+
