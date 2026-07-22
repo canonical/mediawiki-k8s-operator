@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Bumped MicroK8s channel to 1.36-strict/stable
+    author: hk21702
+    type: minor
+    description: >-
+      Updated the MicroK8s channel used by the integration test environment to
+      1.36-strict/stable to improve environment startup stability for test runs.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/138"
+      related_doc:
+      related_issue:
+    visibility: internal
+    highlight: false
