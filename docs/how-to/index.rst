@@ -29,27 +29,20 @@ basic operations you can complete with the charm.
     Rotate secrets <rotate-secrets>
     Use static assets <use-static-assets>
 
-Update and refresh
-------------------
+Upgrade
+-------
 
-The following guides provide instructions on upgrading your deployment,
-including backup and redeployment processes.
+The following guide provides instructions on upgrading your deployment.
 
 .. toctree::
     :maxdepth: 1
 
     Upgrade <upgrade>
 
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-
-    Redeploy <redeploy>
-
 Development
 -----------
 
-These guides can help you with deploying the MediaWiki charm, troubleshooting your deployment, and contributing to the project.
+These guides can help you with deploying the MediaWiki charm and contributing to the project.
 
 .. toctree::
     :maxdepth: 1
@@ -57,8 +50,3 @@ These guides can help you with deploying the MediaWiki charm, troubleshooting yo
     Use Terraform <terraform>
     Contribute <contribute>
 
-.. toctree::
-    :hidden:
-    :maxdepth: 1
-
-    Troubleshoot <troubleshoot>
