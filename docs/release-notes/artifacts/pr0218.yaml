@@ -6,7 +6,7 @@ changes:
 - title: Enabled Google analytics
   author: edibotopic
   type: minor
-  description: Enabled Google analytics for monotiring docs traffic
+  description: Enabled Google analytics for monitoring docs traffic
   urls:
     pr: 
       - "https://github.com/canonical/mediawiki-k8s-operator/pull/218"
