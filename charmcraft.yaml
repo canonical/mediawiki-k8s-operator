@@ -415,6 +415,8 @@ containers:
         location: /mnt/cache
       - storage: static-assets-repo
         location: /mnt/static-assets
+  shellbox:
+    resource: shellbox-image
 
 resources:
   git-sync-image:
@@ -424,6 +426,9 @@ resources:
   mediawiki-image:
     type: oci-image
     description: OCI image for MediaWiki
+  shellbox-image:
+    type: oci-image
+    description: OCI image for Shellbox command execution
 
 storage:
   cache:
