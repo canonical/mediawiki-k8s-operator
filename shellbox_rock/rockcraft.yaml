@@ -1,0 +1,157 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+name: shellbox
+summary: Private Shellbox command execution
+description: Shellbox sidecar runtime for MediaWiki command execution
+base: ubuntu@26.04
+run-user: _daemon_
+license: Apache-2.0
+version: "1.0"
+platforms:
+  amd64:
+
+services:
+  php-fpm:
+    override: replace
+    user: root
+    group: root
+    command: /bin/sh -ec 'mkdir -p /run/php; exec /usr/sbin/php-fpm* --nodaemonize --fpm-config /etc/shellbox/php-fpm.conf'
+    startup: disabled
+    on-check-failure:
+      shellbox: restart
+  apache2:
+    override: replace
+    user: _daemon_
+    group: _daemon_
+    command: /bin/sh -ec 'mkdir -p /run/apache2; exec /usr/sbin/apache2 -D FOREGROUND'
+    startup: disabled
+    on-check-failure:
+      shellbox: restart
+    environment:
+      APACHE_RUN_USER: _daemon_
+      APACHE_RUN_GROUP: _daemon_
+      APACHE_RUN_DIR: /run/apache2
+      APACHE_PID_FILE: /run/apache2/apache2.pid
+      APACHE_LOCK_DIR: /run/apache2
+      APACHE_LOG_DIR: /run/apache2
+    requires:
+      - php-fpm
+    after:
+      - php-fpm
+  apache-exporter:
+    override: replace
+    user: _daemon_
+    group: _daemon_
+    command: /bin/apache_exporter --scrape_uri=http://127.0.0.1:8091/server-status?auto --web.listen-address=:9118
+    startup: disabled
+    after:
+      - apache2
+  php-fpm-exporter:
+    override: replace
+    user: _daemon_
+    group: _daemon_
+    command: /bin/php-fpm_exporter server --web.listen-address=:9253
+    environment:
+      PHP_FPM_SCRAPE_URI: unix:///run/php/shellbox.sock;/status
+    startup: disabled
+    after:
+      - php-fpm
+
+parts:
+  shellbox:
+    plugin: dump
+    source: https://github.com/wikimedia/mediawiki-libs-Shellbox.git
+    source-type: git
+    source-commit: 627394e638dae0198667837839bd6e926dcb708e
+    source-depth: 1
+    build-packages:
+      - composer
+      - php-cli
+    override-build: |
+      COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --no-interaction --no-progress \
+        --classmap-authoritative --working-dir "${CRAFT_PART_BUILD}"
+      mkdir -p "${CRAFT_PART_BUILD}/config"
+      chmod -R go-w "${CRAFT_PART_BUILD}"
+      craftctl default
+    organize:
+      "*": srv/shellbox/
+    permissions:
+      - owner: 0
+        group: 0
+      - path: srv/shellbox/config
+        owner: 0
+        group: 33
+        mode: "0750"
+
+  runtime:
+    after:
+      - shellbox
+    plugin: dump
+    source: files
+    overlay-packages:
+      - apache2
+      - php-fpm
+      - php-mbstring
+      - php-curl
+      - python3-pygments
+      - bash
+    overlay-script: |
+      craftctl default
+      printf 'Listen 127.0.0.1:8080\nListen 127.0.0.1:8091\n' > "${CRAFT_OVERLAY}/etc/apache2/ports.conf"
+      # Drop the package's loopback-trusted /server-status location; commands share loopback, so
+      # only the dedicated status listener serves the status page.
+      : > "${CRAFT_OVERLAY}/etc/apache2/mods-available/status.conf"
+      chroot "${CRAFT_OVERLAY}" /bin/sh -ex <<'EOF'
+      a2dismod mpm_event
+      a2enmod mpm_worker proxy proxy_fcgi rewrite setenvif status
+      a2dissite 000-default
+      EOF
+    override-build: |
+      craftctl default
+      mkdir -p "${CRAFT_PART_INSTALL}/etc/apache2/sites-enabled" \
+        "${CRAFT_PART_INSTALL}/tmp/shellbox" "${CRAFT_PART_INSTALL}/run/php" \
+        "${CRAFT_PART_INSTALL}/run/apache2"
+      ln -sf ../sites-available/shellbox.conf \
+        "${CRAFT_PART_INSTALL}/etc/apache2/sites-enabled/shellbox.conf"
+      # Staged directories such as srv/shellbox otherwise keep the build host's umask.
+      chmod -R go-w "${CRAFT_PART_INSTALL}"
+    permissions:
+      - path: srv/shellbox/config
+        owner: 0
+        group: 33
+        mode: "0750"
+      - path: srv/shellbox/config/config.json
+        owner: 0
+        group: 33
+        mode: "0640"
+      - path: tmp/shellbox
+        owner: 33
+        group: 33
+        mode: "0700"
+      - path: run/php
+        owner: 0
+        group: 0
+        mode: "0755"
+      - path: run/apache2
+        owner: 584792
+        group: 584792
+        mode: "0700"
+
+  apache-exporter:
+    plugin: go
+    build-snaps:
+      - go/1.25/stable
+    source: https://github.com/Lusitaniae/apache_exporter.git
+    source-type: git
+    source-tag: v1.1.1
+    source-depth: 1
+
+  php-fpm-exporter:
+    plugin: go
+    build-snaps:
+      - go/1.25/stable
+    source: https://github.com/hipages/php-fpm_exporter.git
+    source-type: git
+    source-tag: v2.2.0
+    source-depth: 1

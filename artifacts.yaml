@@ -7,6 +7,10 @@ rocks:
     rockcraft-yaml: mediawiki_rock/rockcraft.yaml
     platforms:
       - arch: amd64
+  - name: shellbox
+    rockcraft-yaml: shellbox_rock/rockcraft.yaml
+    platforms:
+      - arch: amd64
 charms:
   - name: mediawiki-k8s
     charmcraft-yaml: charmcraft.yaml
@@ -16,6 +20,9 @@ charms:
       mediawiki-image:
         type: oci-image
         rock: mediawiki
+      shellbox-image:
+        type: oci-image
+        rock: shellbox
     platforms:
       - arch: amd64
 snaps: []
