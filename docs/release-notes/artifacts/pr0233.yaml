@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Updated the Redis job runner service reference
+  author: hk21702
+  type: minor
+  description: Updated the Redis job runner service reference to unblock rock builds and address a dependency CVE.
+  urls:
+    pr:
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/233"
+  visibility: public
+  highlight: false

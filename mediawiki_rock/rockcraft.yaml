@@ -161,7 +161,7 @@ parts:
     plugin: nil
     source: https://github.com/wikimedia/mediawiki-services-jobrunner
     source-type: git
-    source-commit: 078cf6b1b02d4c86279364940fdd5be578698ebc
+    source-commit: 09f30782077b6101871fa95715f7181391d20486
     overlay-packages:
       - php-json
       - php-mbstring
