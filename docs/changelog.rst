@@ -12,6 +12,11 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
 Each revision is versioned by the date of the revision.
 
+2026-08-17
+----------
+
+- Add documentation page on basic troubleshooting concepts and steps.
+
 2026-07-22
 ----------
 
