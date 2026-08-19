@@ -48,5 +48,6 @@ These guides can help you with deploying the MediaWiki charm and contributing to
     :maxdepth: 1
 
     Use Terraform <terraform>
+    Troubleshoot <troubleshoot>
     Contribute <contribute>
 

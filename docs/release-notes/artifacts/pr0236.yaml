@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Add troubleshoot how-to
+  author: hk21702
+  type: minor
+  description: Updated a how to troubleshoot documentation page, going over general troubleshooting concepts and steps.
+  urls:
+    pr:
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/236"
+  visibility: public
+  highlight: false

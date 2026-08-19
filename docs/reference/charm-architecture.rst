@@ -76,6 +76,8 @@ This shows there are three containers: MediaWiki, git-sync, and the charm operat
 Containers
 ----------
 
+.. _reference_charm_architecture_containers:
+
 The MediaWiki charm is driven by the :ref:`charm operator container <reference_charm_architecture_containers_charm>` that manages the workload sidecars. The core workload is the in the :ref:`MediaWiki container <reference_charm_architecture_containers_mediawiki>`. Supporting it is the :ref:`git-sync workload container <reference_charm_architecture_containers_git_sync>`, which can be optionally used for syncing static assets from a git repository. Both of these containers are managed by :doc:`Pebble <juju:reference/pebble>`.
 
 .. vale Canonical.000-US-spellcheck = NO

@@ -9,5 +9,3 @@
 
 "tutorial/advanced-deployment" "tutorial/basic-deployment"
 "how-to/redeploy/" "how-to/"
-"how-to/troubleshoot/" "how-to/"
-
