@@ -50,6 +50,7 @@ from types_ import ForceReconciliationAction
 
 _ALLOWED_MAINTENANCE_SCRIPTS = frozenset(
     {
+        "blockUsers",
         "checkImages",
         "cleanupBlocks",
         "cleanupEmptyCategories",
@@ -57,6 +58,7 @@ _ALLOWED_MAINTENANCE_SCRIPTS = frozenset(
         "cleanupPreferences",
         "cleanupUploadStash",
         "cleanupWatchlist",
+        "emptyUserGroup",
         "findMissingFiles",
         "findOrphanedFiles",
         "pruneFileCache",
