@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+- title: Docs url migration
+  author: edibotopic
+  type: minor
+  description: Updated configuration to serve docs at canonical.com
+  urls:
+    pr:
+      - "https://github.com/canonical/mediawiki-k8s-operator/pull/219"
+  visibility: public
+  highlight: false
