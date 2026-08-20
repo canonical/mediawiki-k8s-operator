@@ -182,7 +182,7 @@ slug = 'juju/docs/mediawiki-k8s-charm'
 
 # Use RTD canonical URL to ensure duplicate pages have a specific canonical URL
 
-html_baseurl = "https://canonical.com/juju/docs/mediawiki-k8s-charm"
+html_baseurl = "https://canonical.com/juju/docs/mediawiki-k8s-charm/"
 
 # sphinx-sitemap uses html_baseurl to generate the full URL for each page:
 
