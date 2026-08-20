@@ -3,7 +3,7 @@ version_schema: 2
 
 # The key holding the change(s)
 changes:
-- title: Docs url migration
+- title: Docs URL migration
   author: edibotopic
   type: minor
   description: Updated configuration to serve docs at canonical.com

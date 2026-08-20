@@ -15,7 +15,7 @@ Each revision is versioned by the date of the revision.
 2026-08-20
 ----------
 
-- Add configuration to serve docs at canonical.com url.
+- Add configuration to serve docs at canonical.com URL.
 
 2026-08-17
 ----------
