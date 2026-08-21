@@ -99,6 +99,9 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
    * - `$wgResourceBasePath <https://www.mediawiki.org/wiki/Manual:$wgResourceBasePath>`__
      - .. centered:: :bdg-success:`Yes`
      - 
+   * - `$wgScribuntoDefaultEngine <https://www.mediawiki.org/wiki/Extension:Scribunto>`__
+     - .. centered:: :bdg-success:`Yes`
+     - Defaults to ``luasandbox``.
    * - `$wgScriptPath <https://www.mediawiki.org/wiki/Manual:$wgScriptPath>`__
      - .. centered:: :bdg-success:`Yes`
      - 

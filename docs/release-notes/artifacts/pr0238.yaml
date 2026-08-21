@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Added LuaSandbox support
+    author: hk21702
+    type: minor
+    description: >-
+      Added support for LuaSandbox as the default engine for Scribunto. Users
+      can override or unset this setting when configuring MediaWiki.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/238"
+      related_issue:
+    visibility: public
+    highlight: false
