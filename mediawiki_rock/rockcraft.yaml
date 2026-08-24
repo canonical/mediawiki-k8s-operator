@@ -45,6 +45,7 @@ parts:
       - composer
       - unzip
       - php-ldap
+      - php-luasandbox
       # MediaWiki log rotation
       - logrotate
     permissions:

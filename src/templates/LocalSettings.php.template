@@ -58,3 +58,4 @@ $wgAntivirusSetup['clamavd'] = [
 ];
 
 $wgAntivirus = "clamavd";
+$wgScribuntoDefaultEngine = 'luasandbox';
