@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Read the MediaWiki version from Defines.php
+    author: hk21702
+    type: minor
+    description: >
+      The charm now read the MediaWiki version directly from Defines.php,
+      making workload version detection more reliable and available before
+      Apache and the localization cache are ready.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki/mediawiki-k8s-operator/pull/243"
+    visibility: internal
+    highlight: false
