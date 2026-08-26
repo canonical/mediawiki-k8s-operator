@@ -22,6 +22,7 @@ from exceptions import (
 )
 from mediawiki import constants
 from mediawiki._base import _MediaWikiBase
+from mediawiki._cache import _CacheMixin
 from mediawiki._composer import _ComposerMixin
 from mediawiki._database import _DatabaseMixin
 from mediawiki._settings import _SettingsMixin
@@ -39,7 +40,14 @@ from tls import Tls
 logger = logging.getLogger(__name__)
 
 
-class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _MediaWikiBase):
+class MediaWiki(
+    _ComposerMixin,
+    _DatabaseMixin,
+    _CacheMixin,
+    _SettingsMixin,
+    _TlsMixin,
+    _MediaWikiBase,
+):
     """Class to manage MediaWiki."""
 
     _SERVICE_NAME = "mediawiki"
@@ -124,6 +132,9 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _Medi
         if not self._container.can_connect():
             raise MediaWikiWaitingStatusException("Waiting for pebble")
 
+        if not self._charm.storage_is_ready(constants.CACHE_STORAGE_NAME, self._cache_dir.parent):
+            raise MediaWikiWaitingStatusException("Waiting for cache storage to be attached")
+
         try:
             if not self._database.has_relation():
                 raise MediaWikiBlockedStatusException(
@@ -186,6 +197,13 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _Medi
             user=constants.DAEMON_USER,
             group=constants.DAEMON_GROUP,
         )
+        self._cache_dir.mkdir(
+            exist_ok=True,
+            parents=True,
+            mode=0o750,
+            user=constants.DAEMON_USER,
+            group=constants.DAEMON_GROUP,
+        )
         self._ensure_static_assets_symlink()
         self._ssh_config_reconciliation(config, ssh_key)
 
@@ -197,7 +215,7 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _Medi
                 "Waiting for leader to reconcile Composer and local settings"
             )
 
-        self._composer_reconciliation(
+        composer_ran = self._composer_reconciliation(
             config.composer,
             lock_content=peer_state.composer_lock,
             force=force,
@@ -208,8 +226,14 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _Medi
             self._settings_reconciliation(config, peer_state.secrets, ro_database=True)
             self._install(config)
 
-        self._settings_reconciliation(
+        settings_changed = self._settings_reconciliation(
             config, peer_state.secrets, ro_database=peer_state.ro_database
+        )
+
+        self._localisation_cache_reconciliation(
+            settings_changed,
+            composer_ran,
+            force=force,
         )
 
         if self._charm.unit.is_leader():

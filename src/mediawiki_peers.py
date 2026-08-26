@@ -36,6 +36,7 @@ class MediaWikiPeers(Object):
     FORCE_RECONCILIATION_FLAG = "force_reconciliation"
     COMPOSER_LOCK_KEY = "composer_lock"
     LEADER_STATE_HASH_KEY = "leader_state_hash"
+    L10N_CACHE_VERSION_KEY = "l10n_cache_version"
 
     def __init__(
         self,
@@ -76,6 +77,22 @@ class MediaWikiPeers(Object):
     def acknowledge_database_mode(self, *, read_only: bool) -> None:
         """Publish this unit's current database mode acknowledgement."""
         self._relation().data[self._charm.unit][self.RO_DATABASE_FLAG] = str(read_only).lower()
+
+    def localisation_cache_version(self) -> str | None:
+        """Return the MediaWiki version of this unit's last successful localisation cache rebuild.
+
+        Returns:
+            The MediaWiki version string, or None if no rebuild has been recorded.
+        """
+        return self._relation().data[self._charm.unit].get(self.L10N_CACHE_VERSION_KEY)
+
+    def mark_localisation_cache_rebuilt(self, version: str) -> None:
+        """Record the MediaWiki version of this unit's last successful localisation cache rebuild.
+
+        Args:
+            version: The MediaWiki version the localisation cache was rebuilt against.
+        """
+        self._relation().data[self._charm.unit][self.L10N_CACHE_VERSION_KEY] = version
 
     def reconcile_database(self, update_database_schema: Callable[[], None]) -> None:
         """Run a requested schema update after all peer units acknowledge read-only mode."""

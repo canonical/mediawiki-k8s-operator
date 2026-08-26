@@ -18,6 +18,7 @@ from mediawiki import constants
 if TYPE_CHECKING:
     from auth import OAuth, Saml
     from database import Database
+    from mediawiki_peers import MediaWikiPeers
     from redis import Redis
     from s3 import S3
     from smtp import Smtp
@@ -45,6 +46,7 @@ class _MediaWikiBase(ContainerService):
     _redis: Redis
     _s3: S3
     _smtp: Smtp
+    _peers: MediaWikiPeers
 
     @property
     def _composer_lock_file(self) -> ContainerPath:

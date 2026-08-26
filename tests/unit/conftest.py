@@ -5,6 +5,7 @@ import dataclasses
 import enum
 import pathlib
 import textwrap
+from pathlib import Path
 from typing import Generator
 
 import pytest
@@ -49,6 +50,11 @@ class ExecCmd(enum.Enum):
         "update",
         "--conf",
         "/etc/mediawiki/UpdateWrapper.php",
+    )
+    MAINTENANCE_REBUILD_L10N_CACHE = (
+        "/usr/bin/php",
+        "/var/www/html/w/maintenance/run.php",
+        "rebuildLocalisationCache",
     )
     SYMLINK_STATIC_ASSETS = (
         "ln",
@@ -107,7 +113,10 @@ def base_state(
 ) -> testing.State:
     return testing.State(
         containers=[mediawiki_container, git_sync_container],
-        storages=[testing.Storage(name="static-assets-repo")],
+        storages=[
+            testing.Storage(name="static-assets-repo"),
+            testing.Storage(name=constants.CACHE_STORAGE_NAME),
+        ],
         secrets=secrets,
         leader=True,
     )
@@ -158,9 +167,13 @@ def container_mounts(tmp_path):
     ssh_dir = tmp_path / "ssh_dir"
     ssh_dir.mkdir(parents=True)
 
+    cache_dir = tmp_path / Path(constants.CACHE_STORAGE_MOUNT).name
+    cache_dir.mkdir(parents=True)
+
     return {
         "install_location": testing.Mount(location="/var/www/html/w", source=install_location),
         "ssh_dir": testing.Mount(location="/home/webroot_owner/.ssh", source=ssh_dir),
+        "cache": testing.Mount(location=constants.CACHE_STORAGE_MOUNT, source=cache_dir),
     }
 
 
@@ -208,6 +221,12 @@ def execs() -> Generator[set[testing.Exec], None, None]:
             ExecCmd.MAINTENANCE_UPDATE.value,
             return_code=0,
             stdout="Mocked maintenance update",
+            stderr="",
+        ),
+        testing.Exec(
+            ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.value,
+            return_code=0,
+            stdout="Mocked rebuildLocalisationCache",
             stderr="",
         ),
         testing.Exec(

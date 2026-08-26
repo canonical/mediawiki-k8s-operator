@@ -58,6 +58,11 @@ STATIC_ASSETS_MOUNT_POINT = "/mnt/static-assets"
 STATIC_ASSETS_REPO_PATH = STATIC_ASSETS_MOUNT_POINT + "/repo"
 WEBROOT_STATIC_PATH = WEBROOT_PATH + "/static"
 
+# Cache storage
+CACHE_STORAGE_NAME = "cache"
+CACHE_STORAGE_MOUNT = "/mnt/cache"
+CACHE_DIR = CACHE_STORAGE_MOUNT + "/mediawiki"
+
 # Composer
 USER_COMPOSER_FILE = MEDIAWIKI_PATH + "/composer.user.json"
 COMPOSER_LOCK_FILE = MEDIAWIKI_PATH + "/composer.lock"
