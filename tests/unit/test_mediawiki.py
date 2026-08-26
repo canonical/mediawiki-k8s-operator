@@ -8,6 +8,7 @@ import logging
 
 import mysql.connector
 import pytest
+from charmlibs.pathops import ensure_contents
 from charms.smtp_integrator.v0.smtp import AuthType, SmtpRelationData, TransportSecurity
 from ops import pebble, testing
 from pytest_mock import MockerFixture, MockType
@@ -191,6 +192,24 @@ def mock_database_cursor(mock_database: MockType) -> MockType:
     mock_cursor.fetchone.return_value = None
 
     return mock_cursor
+
+
+@pytest.fixture(autouse=True)
+def mock_ensure_contents(mocker: MockerFixture) -> MockType:
+    """Wrap pathops.ensure_contents, dropping the ownership check.
+
+    The mocked ops.testing container ignores user/group on push, so files always read
+    back with host ownership and the real ownership comparison would never settle.
+    Everything else (content, mode, parent creation, bytes conversion) is delegated to
+    the real implementation; ownership is still passed through on writes.
+    """
+    real_ensure_contents = ensure_contents
+
+    def without_ownership_check(path, source, *, mode=0o644, user=None, group=None) -> bool:
+        """Delegate to the real ensure_contents without checking ownership."""
+        return real_ensure_contents(path, source, mode=mode)
+
+    return mocker.patch("mediawiki._settings.ensure_contents", side_effect=without_ownership_check)
 
 
 @pytest.fixture
@@ -2441,3 +2460,99 @@ class TestMediaWikiVersion:
             pytest.raises(MediaWikiInstallError),
         ):
             mgr.charm.mediawiki.version()
+
+
+class TestSettingsChangeDetection:
+    """Tests for the change indicator returned by settings reconciliation."""
+
+    def test_first_run_reports_change_second_run_does_not(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Test that the first settings write reports a change and a repeat run does not."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            config = mgr.charm.load_charm_config()
+            secrets = MediaWikiSecrets.generate()
+            first = mgr.charm.mediawiki._settings_reconciliation(config, secrets)
+            second = mgr.charm.mediawiki._settings_reconciliation(config, secrets)
+
+        assert first is True
+        assert second is False
+
+    def test_user_settings_change_detected(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Test that a local settings change is reported by settings reconciliation."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            config = mgr.charm.load_charm_config()
+            secrets = MediaWikiSecrets.generate()
+            mgr.charm.mediawiki._settings_reconciliation(config, secrets)
+
+            new_config = config.model_copy(
+                update={"local_settings": "$wgDummySettingForTesting = true;"}
+            )
+            changed = mgr.charm.mediawiki._settings_reconciliation(new_config, secrets)
+
+        assert changed is True
+
+
+class TestComposerChangeDetection:
+    """Tests for the "composer ran" indicator returned by composer reconciliation."""
+
+    def test_leader_reports_run_when_config_changes(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Test that a leader composer run (new composer config) is reported."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            ran = mgr.charm.mediawiki._composer_reconciliation(
+                {"require": {"mediawiki/semantic-media-wiki": "^3.2"}}
+            )
+
+        assert ran is True
+
+    def test_leader_skip_reports_no_run(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Test that a repeated leader composer reconciliation is skipped and not reported."""
+        composer_json = {"require": {"mediawiki/semantic-media-wiki": "^3.2"}}
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            first = mgr.charm.mediawiki._composer_reconciliation(composer_json)
+            second = mgr.charm.mediawiki._composer_reconciliation(composer_json)
+
+        assert first is True
+        assert second is False
+        composer_runs = sum(
+            1
+            for exec_event in ctx.exec_history[Charm._CONTAINER_NAME]
+            if set(ExecCmd.COMPOSER_UPDATE.value) <= set(exec_event.command)
+        )
+        assert composer_runs == 1, "Expected the second reconciliation to skip composer update"
+
+    def test_non_leader_reports_run_on_new_lock(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Test that a non-leader composer install on a new lock is reported."""
+        state_in = dataclasses.replace(active_state, leader=False)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            ran = mgr.charm.mediawiki._composer_reconciliation(
+                {"require": {"mediawiki/semantic-media-wiki": "^3.2"}},
+                lock_content='{"changed": "lock"}',
+            )
+
+        assert ran is True
+
+    def test_non_leader_skip_reports_no_run(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Test that a repeated non-leader reconciliation with an unchanged lock is skipped."""
+        composer_json = {"require": {"mediawiki/semantic-media-wiki": "^3.2"}}
+        state_in = dataclasses.replace(active_state, leader=False)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            first = mgr.charm.mediawiki._composer_reconciliation(
+                composer_json, lock_content=MOCK_COMPOSER_LOCK
+            )
+            second = mgr.charm.mediawiki._composer_reconciliation(
+                composer_json, lock_content=MOCK_COMPOSER_LOCK
+            )
+
+        assert first is True
+        assert second is False

@@ -45,7 +45,7 @@ class _ComposerMixin(_MediaWikiBase):
         *,
         lock_content: Optional[str] = None,
         force: bool = False,
-    ) -> None:
+    ) -> bool:
         """Reconcile the composer configuration.
 
         Routing is determined by the unit's leadership role:
@@ -65,6 +65,12 @@ class _ComposerMixin(_MediaWikiBase):
             lock_content: Pre-generated lock file content from the peer leader. Ignored on
                 the leader; required (non-None) on non-leaders.
             force: If True, skip the content-diff check and always run composer.
+
+        Returns:
+            Whether composer re-resolved dependencies (``update``/``install`` ran). False
+            when the operation was skipped because the configuration is unchanged. Note
+            that a run may still produce an identical lock; the rebuild consuming this
+            signal is cheap and incremental, so that trade-off is accepted for simplicity.
 
         Raises:
             MediaWikiWaitingStatusException: If this is a non-leader unit and no lock has
@@ -92,7 +98,7 @@ class _ComposerMixin(_MediaWikiBase):
                 "" if is_leader else " and lock",
                 "update" if is_leader else "install",
             )
-            return
+            return False
 
         subcommand = "update" if is_leader else "install"
         logger.info(
@@ -134,6 +140,7 @@ class _ComposerMixin(_MediaWikiBase):
             result.raise_for_status(f"Composer {subcommand}", MediaWikiBlockedStatusException)
 
         logger.info("Composer %s completed successfully:\n%s", subcommand, result.stdout)
+        return True
 
     def _handle_composer_failure(self, composer_json: dict[str, Any], *, is_leader: bool) -> None:
         """Write a marker after a failed composer command so that the next reconciliation retries.

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Optional
 from urllib.parse import urlparse
 
 import charms.smtp_integrator.v0.smtp as smtp
-from charmlibs.pathops import ContainerPath, LocalPath
+from charmlibs.pathops import ContainerPath, LocalPath, ensure_contents
 from charms.saml_integrator.v0.saml import SamlRelationData
 
 import utils
@@ -64,7 +64,7 @@ class _SettingsMixin(_MediaWikiBase):
         config: CharmConfig,
         secrets: MediaWikiSecrets,
         ro_database: bool = False,
-    ) -> None:
+    ) -> bool:
         """Reconcile all the MediaWiki settings derived from LocalSettings.php.
 
         Args:
@@ -72,31 +72,46 @@ class _SettingsMixin(_MediaWikiBase):
             secrets (MediaWikiSecrets): An instance of MediaWikiSecrets containing secrets synced between units.
             ro_database: Whether to include settings that put the database into read-only mode for updates. Defaults to False.
 
+        Returns:
+            Whether any of the settings files' content changed.
+
         Raises:
             MediaWikiBlockedStatusException: If S3 relation data is malformed (raised after settings are written).
         """
         self._secure_settings_base_path.mkdir(exist_ok=True, parents=True)
 
-        self._push_user_settings(config)
-        self._push_late_settings(secrets, ro_database=ro_database)
-        self._push_local_settings(config)
+        changed = self._push_user_settings(config)
+        changed |= self._push_late_settings(secrets, ro_database=ro_database)
+        changed |= self._push_local_settings(config)
         logger.debug("Settings reconciliation completed successfully.")
+        return changed
 
-    def _push_user_settings(self, config: CharmConfig) -> None:
-        """Push the user editable settings to the container."""
-        self._user_settings_file.write_text(
+    def _push_user_settings(self, config: CharmConfig) -> bool:
+        """Push the user editable settings to the container.
+
+        Args:
+            config (CharmConfig): The charm configuration.
+
+        Returns:
+            Whether the file was changed.
+        """
+        return ensure_contents(
+            self._user_settings_file,
             config.local_settings,
             mode=0o640,
             user=constants.ROOT_USER_NAME,
             group=constants.DAEMON_GROUP,
         )
 
-    def _push_late_settings(self, secrets: MediaWikiSecrets, ro_database: bool = False) -> None:
+    def _push_late_settings(self, secrets: MediaWikiSecrets, ro_database: bool = False) -> bool:
         """Push the charm-controlled late MediaWiki settings to the container.
 
         Args:
             secrets (MediaWikiSecrets): An instance of MediaWikiSecrets containing secrets synced between units.
             ro_database: Whether to include settings that put the database into read-only mode for updates. Defaults to False.
+
+        Returns:
+            Whether the file content changed.
         """
         self._secure_settings_base_path.mkdir(exist_ok=True, parents=True)
         content = self._late_settings_template_file.read_text()
@@ -140,8 +155,12 @@ class _SettingsMixin(_MediaWikiBase):
 
         content += "?>\n"
 
-        self._late_settings_file.write_text(
-            content, mode=0o640, user=constants.ROOT_USER_NAME, group=constants.DAEMON_GROUP
+        changed = ensure_contents(
+            self._late_settings_file,
+            content,
+            mode=0o640,
+            user=constants.ROOT_USER_NAME,
+            group=constants.DAEMON_GROUP,
         )
 
         # Raise any deferred configuration error after settings have been written to ensure
@@ -149,8 +168,17 @@ class _SettingsMixin(_MediaWikiBase):
         if deferred_error:
             raise deferred_error
 
-    def _push_local_settings(self, config: CharmConfig) -> None:
-        """Push the base LocalSettings.php file to the container."""
+        return changed
+
+    def _push_local_settings(self, config: CharmConfig) -> bool:
+        """Push the base LocalSettings.php file to the container.
+
+        Args:
+            config (CharmConfig): The charm configuration.
+
+        Returns:
+            Whether the file was changed.
+        """
         template = PhpTemplate(self._local_settings_template_file.read_text())
         server_name = config.url_origin or f"//{self._charm.app.name}"
         content = template.substitute(
@@ -162,8 +190,12 @@ class _SettingsMixin(_MediaWikiBase):
         ?>
         """)
 
-        self._local_settings_file.write_text(
-            content, mode=0o640, user=constants.WEBROOT_OWNER_USER, group=constants.DAEMON_GROUP
+        return ensure_contents(
+            self._local_settings_file,
+            content,
+            mode=0o640,
+            user=constants.WEBROOT_OWNER_USER,
+            group=constants.DAEMON_GROUP,
         )
 
     def _get_proxy_settings(self) -> str:
