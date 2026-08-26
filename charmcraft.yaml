@@ -348,6 +348,8 @@ containers:
   mediawiki:
     resource: mediawiki-image
     mounts:
+      - storage: cache
+        location: /mnt/cache
       - storage: static-assets-repo
         location: /mnt/static-assets
 
@@ -361,6 +363,10 @@ resources:
     description: OCI image for MediaWiki
 
 storage:
+  cache:
+    type: filesystem
+    description: |
+      File cache.
   static-assets-repo:
     type: filesystem
     description: |
