@@ -7,7 +7,7 @@ import logging
 from typing import Literal
 
 from charmlibs.pathops import ContainerPath
-from ops import ModelError, Object, pebble
+from ops import Object, pebble
 
 import utils
 from exceptions import CharmConfigInvalidError, MediaWikiBlockedStatusException
@@ -128,16 +128,7 @@ class GitSync(Object):
         """Check if the git-sync container is ready to be used."""
         if not self._container.can_connect():
             return False
-
-        if len(self._charm.model.storages[self._storage_name]) == 0:
-            return False
-
-        try:
-            _ = self._charm.model.storages[self._storage_name][0].location
-        except ModelError:
-            return False
-
-        return self._repo_mount_point.exists()
+        return self._charm.storage_is_ready(self._storage_name, self._repo_mount_point)
 
     def _git_sync_command(self, config: CharmConfig) -> list[str]:
         """Get the command to run git-sync with the current configuration."""

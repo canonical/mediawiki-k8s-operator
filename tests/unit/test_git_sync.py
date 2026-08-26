@@ -83,6 +83,21 @@ class TestIsReady:
         with ctx(ctx.on.update_status(), state_in) as mgr:
             assert not mgr.charm.git_sync.is_ready()
 
+    def test_not_ready_no_mount(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        git_sync_container: testing.Container,
+    ) -> None:
+        """Test is_ready returns False when the mount path does not exist in the container."""
+        unmounted = dataclasses.replace(git_sync_container, mounts={})
+        state_in = dataclasses.replace(
+            active_state,
+            containers=[c for c in active_state.containers if c.name != "git-sync"] + [unmounted],
+        )
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            assert not mgr.charm.git_sync.is_ready()
+
 
 class TestReconciliation:
     """Tests for GitSync.reconciliation()."""
