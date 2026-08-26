@@ -26,7 +26,6 @@ from mediawiki._base import _MediaWikiBase
 from mediawiki._composer import _ComposerMixin
 from mediawiki._database import _DatabaseMixin
 from mediawiki._settings import _SettingsMixin
-from mediawiki_api import SiteInfo
 from mediawiki_peers import MediaWikiPeers
 from redis import Redis
 from s3 import S3
@@ -345,7 +344,6 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
             self._container.restart(self._SERVICE_NAME)
         if active:
             self._reconcile_checks(active=True)
-            self._charm.unit.set_workload_version(SiteInfo.fetch().version)
 
     def create_and_promote_user(
         self,

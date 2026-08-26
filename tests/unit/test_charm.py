@@ -45,6 +45,7 @@ def mock_mediawiki(mocker: MockerFixture) -> MockType:
     mock_instance.update_database_schema.return_value = None
     mock_instance._reconcile_configuration.return_value = None
     mock_instance.runner_queue_service_is_ready.return_value = False
+    mock_instance.version.return_value = "1.46.0"
 
     return mock_instance
 

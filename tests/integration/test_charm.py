@@ -7,6 +7,7 @@
 
 import functools
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +26,8 @@ def test_workload_version_is_set(juju: jubilant.Juju, app: App):
     """Check that the charm is the expected version."""
     status = juju.status()
     version = status.apps[app.name].version
-    assert "mediawiki" in version.lower(), (
-        f"Expected 'mediawiki' in workload version, got {version}"
+    assert re.match(r"1\.\d{2}\.\d+$", version), (
+        f"Expected workload version to match '1.XX.X' pattern, got {version}"
     )
 
 

@@ -77,6 +77,7 @@ LATE_SETTINGS_TEMPLATE = "LateSettings.php.template"
 # Scripts
 PHP_CLI_PATH = "/usr/bin/php"
 MAINTENANCE_SCRIPTS_PATH = MEDIAWIKI_PATH + "/maintenance"
+DEFINES_FILE = MEDIAWIKI_PATH + "/includes/Defines.php"
 
 # robots.txt
 ROBOTS_TXT_PATH = WEBROOT_PATH + "/robots.txt"

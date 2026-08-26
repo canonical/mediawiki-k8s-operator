@@ -2304,3 +2304,78 @@ class TestSmtpSettings:
 
         assert "$wgEnableEmail = false;" in late_settings
         assert "$wgSMTP" not in late_settings
+
+
+class TestMediaWikiVersion:
+    """Tests for _MediaWikiBase.version()."""
+
+    @staticmethod
+    def _state_with_defines(
+        active_state: testing.State,
+        mediawiki_container: testing.Container,
+        tmp_path,
+        defines_content: str | None,
+    ) -> testing.State:
+        """Return a state whose mediawiki webroot mount contains (or lacks) a Defines.php."""
+        webroot = tmp_path / "webroot"
+        install_dir = webroot / "w" / "includes"
+        install_dir.mkdir(parents=True)
+        (webroot / "w" / "composer.lock").write_text(MOCK_COMPOSER_LOCK)
+        if defines_content is not None:
+            (install_dir / "Defines.php").write_text(defines_content)
+        mounts = {
+            "install_location": testing.Mount(location="/var/www/html/w", source=webroot / "w")
+        }
+        container = dataclasses.replace(mediawiki_container, mounts=mounts)
+        return dataclasses.replace(active_state, containers=[container])
+
+    def test_reads_version_from_defines(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_container: testing.Container,
+        tmp_path,
+    ) -> None:
+        """Test that the MW_VERSION constant is read from Defines.php."""
+        state_in = self._state_with_defines(
+            active_state,
+            mediawiki_container,
+            tmp_path,
+            "<?php\ndefine( 'MW_VERSION', '1.46.0' );\n",
+        )
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            assert mgr.charm.mediawiki.version() == "1.46.0"
+
+    def test_missing_defines_raises_install_error(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_container: testing.Container,
+        tmp_path,
+    ) -> None:
+        """Test that a missing Defines.php raises an install error."""
+        state_in = self._state_with_defines(
+            active_state, mediawiki_container, tmp_path, defines_content=None
+        )
+        with (
+            ctx(ctx.on.update_status(), state_in) as mgr,
+            pytest.raises(MediaWikiInstallError),
+        ):
+            mgr.charm.mediawiki.version()
+
+    def test_unparseable_defines_raises_install_error(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_container: testing.Container,
+        tmp_path,
+    ) -> None:
+        """Test that a Defines.php without MW_VERSION raises an install error."""
+        state_in = self._state_with_defines(
+            active_state, mediawiki_container, tmp_path, "<?php\n// no version here\n"
+        )
+        with (
+            ctx(ctx.on.update_status(), state_in) as mgr,
+            pytest.raises(MediaWikiInstallError),
+        ):
+            mgr.charm.mediawiki.version()

@@ -308,6 +308,8 @@ class Charm(StatefulCharmBase):
             else ActiveStatus()
         )
 
+        self.unit.set_workload_version(self._mediawiki.version())
+
         logger.info("Reconciliation process complete.")
 
     def _on_rotate_mediawiki_secrets(self, event: ActionEvent) -> None:
