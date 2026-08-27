@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Handled localisation cache rebuilds asynchronously
+    author: hk21702
+    type: minor
+    description: >
+      The charm now rebuilds MediaWiki's localisation cache asynchronously when
+      its inputs change, including after upgrades, configuration changes, and
+      forced reconciliation. The cache is stored on configurable per-unit
+      storage, reducing database load and preventing cache rebuilds from
+      degrading the database.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/244"
+    visibility: public
+    highlight: true
