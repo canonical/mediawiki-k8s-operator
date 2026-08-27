@@ -111,14 +111,13 @@ class MediaWiki(
     def reconciliation(
         self,
         ssh_key: Optional[str] = None,
-        force_composer_update: bool = False,
+        force: bool = False,
     ) -> bool:
         """Reconcile MediaWiki configuration, peer state, database, and services.
 
         Args:
             ssh_key: Optional SSH private key content to write into the container for git access.
-            force_composer_update: Whether to force a composer update regardless of config
-                changes. Defaults to False.
+            force: Whether to force updates and rebuilds regardless of state. Defaults to False.
 
         Returns:
             Whether MediaWiki remains in database read-only mode.
@@ -148,7 +147,7 @@ class MediaWiki(
         new_lock, restart_required = self._reconcile_configuration(
             peer_state,
             ssh_key=ssh_key,
-            force=force_composer_update,
+            force=force,
         )
         if new_lock is not None and self._charm.unit.is_leader():
             self._peers.publish_state(new_lock)

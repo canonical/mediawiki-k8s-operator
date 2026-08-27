@@ -37,8 +37,7 @@ class _CacheMixin(_MediaWikiBase):
         Args:
             settings_changed: Whether the settings files' content changed this cycle.
             composer_ran: Whether composer re-resolved dependencies this cycle.
-            force: Whether to rebuild regardless of the recorded state, e.g. for an
-                operator-requested forced reconciliation.
+            force: Whether to do a force rebuild all localisation cache entries.
 
         Raises:
             MediaWikiBlockedStatusException: If the rebuild fails. The peer databag is left
@@ -64,7 +63,9 @@ class _CacheMixin(_MediaWikiBase):
             composer_ran,
             force,
         )
-        result = self._run_maintenance_script(["rebuildLocalisationCache"])
+        result = self._run_maintenance_script(
+            ["rebuildLocalisationCache", "--force"] if force else ["rebuildLocalisationCache"]
+        )
         result.raise_for_status("Localisation cache rebuild", MediaWikiBlockedStatusException)
         logger.debug("Localisation cache rebuild output:\n%s", result.stdout)
 

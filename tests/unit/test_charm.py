@@ -754,7 +754,7 @@ class TestForceReconciliationAction:
         ctx.run(ctx.on.action("force-reconciliation"), active_state)
         mock_mediawiki.reconciliation.assert_called_once()
         call_kwargs = mock_mediawiki.reconciliation.call_args.kwargs
-        assert call_kwargs.get("force_composer_update") is True
+        assert call_kwargs.get("force") is True
 
     def test_non_leader_runs_forced_reconciliation(
         self,
@@ -783,7 +783,7 @@ class TestForceReconciliationAction:
         ctx.run(ctx.on.action("force-reconciliation"), state_in)
         mock_mediawiki.reconciliation.assert_called_once()
         call_kwargs = mock_mediawiki.reconciliation.call_args.kwargs
-        assert call_kwargs.get("force_composer_update") is True
+        assert call_kwargs.get("force") is True
 
     def test_all_units_sets_app_flag(
         self,
