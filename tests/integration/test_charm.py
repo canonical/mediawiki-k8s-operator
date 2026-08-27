@@ -92,7 +92,7 @@ def test_add_extensions(
     app_config["local-settings"] += "wfLoadExtension( 'Mermaid' );\n"
 
     juju.config(app.name, app_config)
-    juju.wait(jubilant.all_active)
+    juju.wait(jubilant.all_active, timeout=5 * 60)
 
     update_database_action = juju.run(f"{app.name}/leader", "update-database")
     assert update_database_action.status == "completed"

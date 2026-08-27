@@ -3,11 +3,10 @@
 
 """Functions for managing and interacting with the primary MediaWiki workload/container."""
 
-import json
 import logging
 import secrets
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 import ops
 from charmlibs.pathops import ContainerPath
@@ -26,14 +25,14 @@ from mediawiki._base import _MediaWikiBase
 from mediawiki._composer import _ComposerMixin
 from mediawiki._database import _DatabaseMixin
 from mediawiki._settings import _SettingsMixin
-from mediawiki_peers import MediaWikiPeers
+from mediawiki_peers import (
+    MediaWikiPeers,
+    MediaWikiPeerState,
+)
 from redis import Redis
 from s3 import S3
 from smtp import Smtp
 from state import CharmConfig, StatefulCharmBase
-
-if TYPE_CHECKING:
-    from mediawiki._secrets import MediaWikiSecrets
 
 logger = logging.getLogger(__name__)
 
@@ -131,18 +130,13 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
             self._reconcile_services(active=False)
             raise
 
-        force_composer_update = force_composer_update or peer_state.force_reconciliation
         new_lock = self._reconcile_configuration(
-            peer_state.secrets,
+            peer_state,
             ssh_key=ssh_key,
-            ro_database=peer_state.ro_database,
-            force_composer_update=force_composer_update,
-            composer_lock=peer_state.composer_lock,
-            peer_composer_json=peer_state.composer_json,
+            force=force_composer_update,
         )
         if new_lock is not None and self._charm.unit.is_leader():
-            config = self._charm.load_charm_config()
-            self._peers.publish_composer_state(new_lock, json.dumps(config.composer))
+            self._peers.publish_state(new_lock)
         elif new_lock is not None:
             raise MediaWikiBlockedStatusException(
                 "Non-leader unit attempted to publish composer state"
@@ -156,17 +150,25 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
 
     def _reconcile_configuration(
         self,
-        secrets: "MediaWikiSecrets",
+        peer_state: MediaWikiPeerState,
         ssh_key: Optional[str] = None,
-        ro_database: bool = False,
-        force_composer_update: bool = False,
-        composer_lock: Optional[str] = None,
-        peer_composer_json: Optional[str] = None,
+        force: bool = False,
     ) -> Optional[str]:
-        """Reconcile MediaWiki files, installation, and workload configuration."""
+        """Reconcile MediaWiki files, installation, and workload configuration.
+
+        Args:
+            peer_state: The current state of the MediaWiki peer relation.
+            ssh_key: An optional SSH key for accessing private repositories.
+            force: Whether to force a Composer update.
+
+        Raises:
+            MediaWikiWaitingStatusException: If we need to wait for the state to match the leader published state.
+            MediaWikiBlockedStatusException: If the relations are not ready or an unexpected state was reached.
+        """
         if not self._database.is_relation_ready():
             raise MediaWikiBlockedStatusException("Database relation is not ready")
         config = self._charm.load_charm_config()
+        force = force or peer_state.force_reconciliation
 
         self._logs_path.mkdir(
             exist_ok=True,
@@ -178,44 +180,28 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
         self._ensure_static_assets_symlink()
         self._ssh_config_reconciliation(config, ssh_key)
 
-        # Leaders compose against the current config; non-leaders must use the composer.json
-        # that the leader published alongside the lock so that the two files are always in
-        # sync.  If the config already requires extensions but the leader hasn't published a
-        # json+lock pair yet, the non-leader waits rather than installing a mismatched state.
-        if self._charm.unit.is_leader():
-            composer_json_for_reconciliation = config.composer
-            composer_lock_for_reconciliation = None
-        else:
-            composer_lock_for_reconciliation = composer_lock
-            if peer_composer_json is not None:
-                try:
-                    composer_json_for_reconciliation = json.loads(peer_composer_json)
-                except json.JSONDecodeError:
-                    logger.warning(
-                        "Peer-published composer.json is not valid JSON; waiting for leader to republish."
-                    )
-                    raise MediaWikiWaitingStatusException(
-                        "Waiting for leader to publish valid composer configuration"
-                    )
-            elif config.composer:
-                raise MediaWikiWaitingStatusException(
-                    "Waiting for leader to publish composer configuration"
-                )
-            else:
-                composer_json_for_reconciliation = {}
+        if not self._charm.unit.is_leader() and peer_state.leader_state_hash != config.state_hash:
+            # To prevent any races, we need to ensure that the state we want to reconcile towards is compatible
+            # with the composer lock that we were provided by the leader. If we don't match, we should wait for the leader
+            # to reconcile, and potentially update the shared composer lock.
+            raise MediaWikiWaitingStatusException(
+                "Waiting for leader to reconcile Composer and local settings"
+            )
 
         self._composer_reconciliation(
-            composer_json_for_reconciliation,
-            lock_content=composer_lock_for_reconciliation,
-            force=force_composer_update,
+            config.composer,
+            lock_content=peer_state.composer_lock,
+            force=force,
         )
         self._robots_txt_reconciliation(config)
 
         if not self._is_database_initialized():
-            self._settings_reconciliation(config, secrets, ro_database=True)
+            self._settings_reconciliation(config, peer_state.secrets, ro_database=True)
             self._install(config)
 
-        self._settings_reconciliation(config, secrets, ro_database=ro_database)
+        self._settings_reconciliation(
+            config, peer_state.secrets, ro_database=peer_state.ro_database
+        )
 
         if self._charm.unit.is_leader():
             if not self._composer_lock_file.exists():
