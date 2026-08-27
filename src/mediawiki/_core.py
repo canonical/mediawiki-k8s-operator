@@ -534,6 +534,10 @@ class MediaWiki(
         )
         logger.debug("User settings cleared for installation.")
 
+        # The i18n cache needs to be at least initialized before installation
+        # It can be updated later with the user settings if required
+        self._localisation_cache_reconciliation()
+
         for attempt in range(1, constants.INSTALL_MAX_ATTEMPTS + 1):
             result = self._run_maintenance_script(["installPreConfigured"])
             if result.return_code == 0:

@@ -30,7 +30,7 @@ class _CacheMixin(_MediaWikiBase):
         return ContainerPath(constants.CACHE_DIR, container=self._container)
 
     def _localisation_cache_reconciliation(
-        self, settings_changed: bool, composer_ran: bool, *, force: bool = False
+        self, settings_changed: bool = False, composer_ran: bool = False, *, force: bool = False
     ) -> None:
         """Rebuild the MediaWiki localisation cache when any of its inputs changed.
 
