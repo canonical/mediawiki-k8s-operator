@@ -57,7 +57,6 @@ class SiteInfo:
     Use :meth:`fetch` to query the API::
 
         info = SiteInfo.fetch()
-        print(info.version)
         print(info.article_url)
     """
 
@@ -69,17 +68,6 @@ class SiteInfo:
         """Query the MediaWiki siteinfo API and return a :class:`SiteInfo`."""
         result = _api_query(action="query", meta="siteinfo", siprop="general|namespaces")
         return cls(result.get("query", {}))
-
-    @property
-    def version(self) -> str:
-        """The running MediaWiki version as a lowercase, hyphen-separated string.
-
-        The string is modified to be Juju status-friendly (lowercase, no spaces).
-
-        Returns an empty string if the version cannot be determined.
-        """
-        version = self._data.get("general", {}).get("generator", "")
-        return "-".join(version.lower().split())
 
     @property
     def article_path(self) -> str | None:

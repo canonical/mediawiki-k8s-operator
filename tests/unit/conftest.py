@@ -144,6 +144,10 @@ def container_mounts(tmp_path):
     install_location.mkdir(parents=True)
     # Pre-create composer.lock so the leader path can read it after a mocked composer update.
     (install_location / "composer.lock").write_text(MOCK_COMPOSER_LOCK)
+    # Pre-create Defines.php so _mediawiki_version() can read the MW_VERSION constant.
+    includes = install_location / "includes"
+    includes.mkdir(parents=True)
+    (includes / "Defines.php").write_text("<?php\ndefine( 'MW_VERSION', '1.46.0' );\n")
 
     ssh_dir = tmp_path / "ssh_dir"
     ssh_dir.mkdir(parents=True)

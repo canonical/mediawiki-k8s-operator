@@ -5,11 +5,14 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from typing import TYPE_CHECKING, List
 
 from charmlibs.pathops import ContainerPath
 
 from container import ContainerService
+from exceptions import MediaWikiInstallError
 from mediawiki import constants
 
 if TYPE_CHECKING:
@@ -20,6 +23,8 @@ if TYPE_CHECKING:
     from smtp import Smtp
     from state import StatefulCharmBase
     from types_ import CommandExecResult
+
+logger = logging.getLogger(__name__)
 
 
 class _MediaWikiBase(ContainerService):
@@ -94,3 +99,29 @@ class _MediaWikiBase(ContainerService):
             sensitive=sensitive,
         )
         return result
+
+    def version(self) -> str:
+        """Get the MediaWiki version running in the workload container.
+
+        Reads the ``MW_VERSION`` constant from ``includes/Defines.php`` rather than running
+        any MediaWiki code: the ``Version`` maintenance script bootstraps MediaWiki (loading
+        LocalSettings.php, extensions, and the localisation cache) and its output is
+        localised, whereas the constant is a static, language-independent identifier that is
+        always present in the image, even before the localisation cache is built.
+
+        Returns:
+            The MediaWiki version string (e.g. ``"1.46.0"``).
+
+        Raises:
+            MediaWikiInstallError: If the version cannot be determined, which indicates a
+                broken workload image rather than a transient condition.
+        """
+        defines_file = ContainerPath(constants.DEFINES_FILE, container=self._container)
+        content = defines_file.read_text() if defines_file.exists() else ""
+        match = re.search(r"define\(\s*'MW_VERSION',\s*'([^']+)'", content)
+        if not match:
+            logger.error("Unable to find MW_VERSION in %s", constants.DEFINES_FILE)
+            raise MediaWikiInstallError(
+                "Unable to determine the MediaWiki version from the workload"
+            )
+        return match.group(1)
