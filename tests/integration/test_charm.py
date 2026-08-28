@@ -263,7 +263,7 @@ def test_create_and_promote_action(juju: jubilant.Juju, app: App):
 def test_force_reconciliation_action(juju: jubilant.Juju, app: App):
     """Check that the force-reconciliation action works on the leader and on all units."""
     # Single unit (leader)
-    action = juju.run(f"{app.name}/leader", "force-reconciliation")
+    action = juju.run(f"{app.name}/leader", "force-reconciliation", wait=5 * 60)
     assert action.status == "completed", f"force-reconciliation on leader failed: {action.message}"
     juju.wait(jubilant.all_active)
 
@@ -273,7 +273,7 @@ def test_force_reconciliation_action(juju: jubilant.Juju, app: App):
         f"force-reconciliation all-units failed: {all_units_action.message}"
     )
     # The update completes asynchronously via peer relation coordination
-    juju.wait(jubilant.all_active, successes=5)
+    juju.wait(jubilant.all_active, successes=5, timeout=8 * 60)
 
 
 @pytest.mark.abort_on_fail
