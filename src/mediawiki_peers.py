@@ -24,7 +24,7 @@ class MediaWikiPeerState:
     ro_database: bool
     force_reconciliation: bool
     composer_lock: str | None
-    composer_json: str | None
+    leader_state_hash: str | None
 
 
 class MediaWikiPeers(Object):
@@ -34,8 +34,8 @@ class MediaWikiPeers(Object):
     SECRET_LABEL = "replica-secret"  # nosec: B105
     RO_DATABASE_FLAG = "ro_db"
     FORCE_RECONCILIATION_FLAG = "force_reconciliation"
-    COMPOSER_JSON_KEY = "composer_json"
     COMPOSER_LOCK_KEY = "composer_lock"
+    LEADER_STATE_HASH_KEY = "leader_state_hash"
 
     def __init__(
         self,
@@ -64,14 +64,14 @@ class MediaWikiPeers(Object):
             ro_database=app_data.get(self.RO_DATABASE_FLAG, "false").lower() == "true",
             force_reconciliation=self._force_reconciliation_requested(relation.data),
             composer_lock=app_data.get(self.COMPOSER_LOCK_KEY),
-            composer_json=app_data.get(self.COMPOSER_JSON_KEY),
+            leader_state_hash=app_data.get(self.LEADER_STATE_HASH_KEY),
         )
 
-    def publish_composer_state(self, lock: str, composer_json: str) -> None:
-        """Publish the leader-generated Composer state to peer application data."""
+    def publish_state(self, lock: str) -> None:
+        """Publish the leader-generated state to peer application data."""
         app_data = self._relation().data[self._charm.app]
-        app_data[self.COMPOSER_JSON_KEY] = composer_json
         app_data[self.COMPOSER_LOCK_KEY] = lock
+        app_data[self.LEADER_STATE_HASH_KEY] = self._charm.load_charm_config().state_hash
 
     def acknowledge_database_mode(self, *, read_only: bool) -> None:
         """Publish this unit's current database mode acknowledgement."""

@@ -75,6 +75,27 @@ class TestCharmConfig:
         with pytest.raises(ValidationError, match="Composer configuration must be a JSON object"):
             self.make_config(composer="{not-json}")
 
+    def test_state_hash_is_stable_for_composer_key_order(self) -> None:
+        first = self.make_config(composer='{"require": {"a/b": "^1.0"}, "extra": {}}')
+        second = self.make_config(composer='{"extra": {}, "require": {"a/b": "^1.0"}}')
+
+        assert first.state_hash == second.state_hash
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"composer": '{"require": {"a/b": "^1.0"}}'},
+            {"local_settings": "$wgSitename = 'Example';"},
+        ],
+    )
+    def test_state_hash_changes_when_synchronised_input_changes(
+        self, overrides: dict[str, Any]
+    ) -> None:
+        baseline = self.make_config()
+        changed = self.make_config(**overrides)
+
+        assert baseline.state_hash != changed.state_hash
+
     @pytest.mark.parametrize(
         "url_origin, expected",
         [

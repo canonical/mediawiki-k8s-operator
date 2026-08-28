@@ -70,12 +70,14 @@ The leader will only proceed with the database update once it determines that al
 Reconciliation
 --------------
 
-Composer
-^^^^^^^^
+Composer and local settings
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 MediaWiki extensions and skins can be installed with `Composer <https://getcomposer.org/>`_, a PHP dependency manager. The charm manages this through a ``composer.user.json`` file, which is written into the MediaWiki installation directory and merged with the base MediaWiki composer configurations. When libraries are configured by the operator, Composer resolves and installs them.
 
 In a multi-unit deployment, all units must run with identical Composer packages. If each unit independently resolved dependencies, different units could end up on different package versions, potentially leading to inconsistent behavior. To avoid this, the charm ensures that only the leader resolves dependencies (``composer update``) while all other units install exactly what the leader resolved (``composer install`` against the leader-published lock file).
+
+The charm also synchronizes the user-provided ``LocalSettings.php`` content across units. The leader publishes a state hash alongside the Composer lock file. This hash combines the configured Composer dependencies and local settings, allowing non-leader units to verify that their configuration matches the state used to produce the published lock before they reconcile. If it does not match, they enter ``WaitingStatus`` until the leader publishes state for the new configuration.
 
 .. mermaid::
    :name: composer-sync-diagram
@@ -89,7 +91,7 @@ In a multi-unit deployment, all units must run with identical Composer packages.
 
    rect rgb(245, 245, 245)
    Note over PR,PrePublishReplica: Replica reconciles before leader has published
-   PR->>PrePublishReplica: composer_json + composer_lock (absent)
+   PR->>PrePublishReplica: composer_lock + state_hash (absent)
    break Leader has not yet published
       PrePublishReplica-->>PrePublishReplica: WaitingStatus<br/>(retries on the next event)
    end
@@ -101,10 +103,12 @@ In a multi-unit deployment, all units must run with identical Composer packages.
       Leader->>Leader: composer update<br/>(resolves latest compatible versions)
    end
    Leader->>Leader: read composer.lock<br/>from container
-   Leader->>PR: composer_json = serialised json<br/>composer_lock = lock content
+   Leader->>PR: composer_lock + state_hash<br/>(Composer + local settings)
 
-   PR->>Replicas: composer_json<br/>composer_lock
-   opt composer.user.json + composer.lock differ from peer data
+   PR->>Replicas: composer_lock + state_hash
+   alt local state differs from published state
+      Replicas-->>Replicas: WaitingStatus
+   else Composer files differ from peer data
       Replicas->>Replicas: write composer.user.json + composer.lock<br/>(from peer data)
       Replicas->>Replicas: composer install<br/>(installs exact versions from lock)
    end
@@ -112,8 +116,8 @@ In a multi-unit deployment, all units must run with identical Composer packages.
 This process is designed according to the following principles:
 
 - **Leader as single source of truth**: Only the leader unit runs ``composer update``, which resolves and pins dependency versions. This prevents version drift between units. The resulting ``composer.lock`` is treated as the authoritative dependency manifest.
-- **The leader always publishes the lock**: At the end of every reconciliation the leader reads ``composer.lock`` and publishes it, even when ``composer update`` was skipped. This ensures that non-leaders are not perpetually blocked waiting for a lock. As the ``relation_changed`` event is only triggered when the contents of the data bag change, this behavior does not result in unnecessary reconciliation calls.
-- **The lock matches the config**: Instead of pulling from the charm config, replica units use the composer config published by the leader. This prevents a race condition that could otherwise result in a mismatch between the composer config and lock file on replicas.
+- **The leader always publishes the lock and state hash**: At the end of every reconciliation the leader reads ``composer.lock`` and publishes it with a hash of the configured Composer dependencies and local settings, even when ``composer update`` was skipped. This ensures that non-leaders can verify that the lock belongs to their current configuration.
+- **The lock matches the config**: Non-leader units only proceed when their Composer and local-settings configuration matches the state hash published by the leader. This prevents a race condition that could otherwise result in a mismatch between the configuration and lock file on replicas.
 - **Non-leaders installs from the lock**: Non-leader units write the leader-published lock file to disk *before* invoking Composer. This means that Composer installs exactly the packages and versions already resolved by the leader, regardless of what the current charm config resolves to independently.
 - **Idempotent skipping without halting reconciliation**: Before running Composer, each unit checks whether its on-disk state already matches the desired state. Leaders skip when ``composer.user.json`` matches the current config, while non-leaders skip when both ``composer.user.json`` and ``composer.lock`` match what the leader published. Skipping only short-circuits the Composer step, so the rest of the reconciliation still runs. A stale or missing lock on a non-leader will always trigger a re-install.
-- **Non-leaders wait if no data is available**: If the leader has not yet published a composer pair, non-leaders abort the reconciliation process and enter ``WaitingStatus`` rather than attempting to resolve dependencies themselves.
+- **Non-leaders wait if state is unavailable or stale**: If the leader has not yet published a lock and matching state hash, or if a non-leader's configuration differs from the published state, it aborts reconciliation and enters ``WaitingStatus`` rather than attempting to resolve dependencies itself.

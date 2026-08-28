@@ -4,6 +4,7 @@
 """MediaWiki charm state."""
 
 import dataclasses
+import hashlib
 import ipaddress
 import json
 import logging
@@ -109,6 +110,13 @@ class CharmConfig(BaseModel):
             raise ValueError("url-origin hostname is not valid")
 
         return v.strip()
+
+    @property
+    def state_hash(self) -> str:
+        """Return a stable fingerprint for the user-controlled Composer and settings inputs."""
+        canonical_composer = json.dumps(self.composer, sort_keys=True, separators=(",", ":"))
+        fingerprint_input = f"{canonical_composer}\0{self.local_settings}".encode()
+        return hashlib.blake2b(fingerprint_input).hexdigest()
 
 
 class ProxyConfig(BaseModel):

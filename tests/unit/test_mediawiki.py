@@ -26,7 +26,8 @@ from exceptions import (
 )
 from mediawiki import MediaWiki, MediaWikiSecrets, constants
 from mediawiki_api import SiteInfo
-from state import CharmConfigInvalidError, StatefulCharmBase
+from mediawiki_peers import MediaWikiPeerState
+from state import CharmConfig, CharmConfigInvalidError, StatefulCharmBase
 from tests.unit.conftest import MOCK_COMPOSER_LOCK, ExecCmd
 from types_ import CommandExecResult, DatabaseConfig, DatabaseEndpoint, S3ConnectionInfo
 
@@ -53,6 +54,23 @@ class WrapperCharm(StatefulCharmBase):
             self.smtp,
             self.peers,
         )
+
+
+def make_mediawiki_peer_state(
+    *,
+    ro_database: bool = False,
+    force_reconciliation: bool = False,
+    composer_lock: str | None = None,
+    leader_state_hash: str | None = None,
+) -> MediaWikiPeerState:
+    """Build peer state for direct MediaWiki reconciliation tests."""
+    return MediaWikiPeerState(
+        secrets=MediaWikiSecrets.generate(),
+        ro_database=ro_database,
+        force_reconciliation=force_reconciliation,
+        composer_lock=composer_lock,
+        leader_state_hash=leader_state_hash,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -211,12 +229,12 @@ class TestReconciliation:
             relation.local_app_data[mediawiki_peers.MediaWikiPeers.COMPOSER_LOCK_KEY]
             == MOCK_COMPOSER_LOCK
         )
-        assert relation.local_app_data[mediawiki_peers.MediaWikiPeers.COMPOSER_JSON_KEY]
+        assert relation.local_app_data[mediawiki_peers.MediaWikiPeers.LEADER_STATE_HASH_KEY]
 
     def test_initial(self, ctx: testing.Context, active_state: testing.State, meta: dict) -> None:
         """Test that reconciliation runs successfully as a leader unit with required relations."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
             state_out = mgr.run()
 
@@ -242,7 +260,7 @@ class TestReconciliation:
     ) -> None:
         """Test that reconciliation runs successfully with a valid config."""
         with ctx(ctx.on.update_status(), configured_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
             state_out = mgr.run()
 
@@ -272,7 +290,7 @@ class TestReconciliation:
             ctx(ctx.on.update_status(), state_in) as mgr,
             pytest.raises(CharmConfigInvalidError, match="Invalid charm configuration"),
         ):
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
     def test_initial_not_leader(
         self,
@@ -286,9 +304,12 @@ class TestReconciliation:
 
         state_in = dataclasses.replace(active_state, leader=False)
         with ctx(ctx.on.update_status(), state_in) as mgr:
+            config = mgr.charm.load_charm_config()
             mgr.charm.mediawiki._reconcile_configuration(
-                MediaWikiSecrets.generate(),
-                composer_lock=MOCK_COMPOSER_LOCK,
+                make_mediawiki_peer_state(
+                    composer_lock=MOCK_COMPOSER_LOCK,
+                    leader_state_hash=config.state_hash,
+                ),
             )
 
             state_out = mgr.run()
@@ -305,7 +326,7 @@ class TestReconciliation:
         """Test that reconciliation can run successfully with a read-only database."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mgr.charm.mediawiki._reconcile_configuration(
-                MediaWikiSecrets.generate(), ro_database=True
+                make_mediawiki_peer_state(ro_database=True)
             )
 
             state_out = mgr.run()
@@ -328,7 +349,7 @@ class TestReconciliation:
         monkeypatch.setenv("JUJU_CHARM_NO_PROXY", no_proxy)
 
         with ctx(ctx.on.update_status(), configured_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
         found_one = False
         for exec_event in ctx.exec_history[Charm._CONTAINER_NAME]:
@@ -356,7 +377,7 @@ class TestReconciliation:
         fake_key = "-----BEGIN OPENSSH PRIVATE KEY-----\nfake\n-----END OPENSSH PRIVATE KEY-----\n"
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mgr.charm.mediawiki._reconcile_configuration(
-                MediaWikiSecrets.generate(), ssh_key=fake_key
+                make_mediawiki_peer_state(), ssh_key=fake_key
             )
             state_out = mgr.run()
 
@@ -395,7 +416,7 @@ class TestReconciliation:
             ctx(ctx.on.update_status(), state_in) as mgr,
             pytest.raises(Exception, match="Composer update failed"),
         ):
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
         container_fs = state_in.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
         composer_file = container_fs / "var/www/html/w/composer.user.json"
@@ -417,7 +438,7 @@ class TestReconciliation:
     ) -> None:
         """Test that no id_charm file is written when no SSH key is provided."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
@@ -1042,7 +1063,7 @@ class TestInstall:
             ctx(ctx.on.update_status(), state_in) as mgr,
             pytest.raises(MediaWikiInstallError, match="MediaWiki installation failed"),
         ):
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
         install_prefix = set(ExecCmd.MAINTENANCE_INSTALL_PRE_CONFIGURED.value)
         attempts = sum(
@@ -1080,7 +1101,7 @@ class TestInstall:
         )
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
         assert install_attempts == constants.INSTALL_MAX_ATTEMPTS
         assert mock_sleep.call_count == constants.INSTALL_MAX_ATTEMPTS - 1
@@ -1116,7 +1137,7 @@ class TestInstall:
         )
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
         assert install_attempts == 2
         mock_reset.assert_called_once()
@@ -1154,7 +1175,7 @@ class TestInstall:
         )
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
         assert install_attempts == 2
         mock_reset.assert_not_called()
@@ -1213,7 +1234,7 @@ class TestS3Settings:
         mock_s3.has_relation.return_value = False
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = (
@@ -1231,7 +1252,7 @@ class TestS3Settings:
     ) -> None:
         """Test that the AWS extension and credentials are rendered in LateSettings.php when S3 is configured."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = (
@@ -1263,7 +1284,7 @@ class TestS3Settings:
         )
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = (
@@ -1291,7 +1312,7 @@ class TestS3Settings:
         )
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = (
@@ -1320,7 +1341,7 @@ class TestS3Settings:
         )
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = (
@@ -1348,7 +1369,7 @@ class TestS3Settings:
         )
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = (
@@ -1372,7 +1393,7 @@ class TestS3Settings:
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
             with pytest.raises(MediaWikiBlockedStatusException, match="Mocked block status"):
-                mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+                mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = (
@@ -1400,7 +1421,7 @@ class TestCacheSettings:
     ) -> None:
         """Test that default cache settings are used when Redis is not available."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = self._get_late_settings(ctx, state_out)
@@ -1420,7 +1441,7 @@ class TestCacheSettings:
         mock_redis.get_endpoint.return_value = "redis-host:6379"
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = self._get_late_settings(ctx, state_out)
@@ -1439,7 +1460,7 @@ class TestCacheSettings:
         mock_redis.get_endpoint.return_value = "redis-host:6379"
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = self._get_late_settings(ctx, state_out)
@@ -1459,7 +1480,7 @@ class TestCacheSettings:
         mock_redis.get_endpoint.return_value = "redis-host:6379"
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
@@ -1479,7 +1500,7 @@ class TestCacheSettings:
     ) -> None:
         """Test that the job runner config is removed when Redis is not available."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
@@ -1499,7 +1520,7 @@ class TestCacheSettings:
         mock_redis.get_endpoint.return_value = None
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = self._get_late_settings(ctx, state_out)
@@ -1556,7 +1577,7 @@ class TestRunnerQueueServiceIsReady:
         mock_redis.get_endpoint.return_value = "redis-host:6379"
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             assert mgr.charm.mediawiki.runner_queue_service_is_ready() is True
 
 
@@ -1599,7 +1620,7 @@ class TestSamlRequiresRedis:
         mock_redis.get_endpoint.return_value = "redis-host:6379"
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
@@ -1631,7 +1652,7 @@ class TestSamlRequiresRedis:
         mock_redis.get_endpoint.return_value = "redis-host:6379"
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = self._get_late_settings(ctx, state_out)
@@ -1664,7 +1685,7 @@ class TestSamlRequiresRedis:
         )
 
         with ctx(ctx.on.update_status(), state_in) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
@@ -1704,7 +1725,7 @@ class TestSamlRequiresRedis:
 
         with ctx(ctx.on.update_status(), state_in) as mgr:
             with pytest.raises(MediaWikiBlockedStatusException, match="HTTPS"):
-                mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+                mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
@@ -1726,7 +1747,7 @@ class TestSamlRequiresRedis:
                 match="SAML requires a Redis relation",
             ),
         ):
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
     def test_saml_without_redis_removes_charm_config_php(
         self,
@@ -1736,7 +1757,7 @@ class TestSamlRequiresRedis:
         """Test that charm-config.php is removed when SAML is configured but Redis is unavailable."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             with pytest.raises(MediaWikiBlockedStatusException):
-                mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+                mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
@@ -1753,7 +1774,7 @@ class TestSamlRequiresRedis:
         """Test that LateSettings.php is still written even when SAML blocks (deferred pattern)."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             with pytest.raises(MediaWikiBlockedStatusException):
-                mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+                mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
@@ -1770,7 +1791,7 @@ class TestSamlRequiresRedis:
         """Test that SimpleSAMLphp extension is NOT loaded when Redis is unavailable."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             with pytest.raises(MediaWikiBlockedStatusException):
-                mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+                mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
@@ -1790,7 +1811,7 @@ class TestSamlRequiresRedis:
         mock_redis.get_endpoint.return_value = "redis-host:6379"
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
@@ -1890,7 +1911,7 @@ class TestComposerLockSync:
     ) -> None:
         """Leader path: reconciliation returns the composer.lock content after a successful update."""
         with ctx(ctx.on.update_status(), configured_state) as mgr:
-            lock = mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            lock = mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
         assert lock == MOCK_COMPOSER_LOCK, (
             "reconciliation() should return lock content on the leader path"
@@ -1905,7 +1926,7 @@ class TestComposerLockSync:
         composer config is set, so that non-leaders can always sync from the peer relation.
         """
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            lock = mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            lock = mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
         assert lock == MOCK_COMPOSER_LOCK, (
             "reconciliation() should return lock content on the leader path even with no user composer config"
@@ -1920,25 +1941,59 @@ class TestComposerLockSync:
         state_in = dataclasses.replace(configured_state, leader=False)
         with (
             ctx(ctx.on.update_status(), state_in) as mgr,
-            pytest.raises(MediaWikiWaitingStatusException, match="composer configuration"),
+            pytest.raises(MediaWikiWaitingStatusException, match="local settings"),
         ):
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
-    def test_non_leader_waits_when_peer_json_provided_but_no_lock(
+    @pytest.mark.parametrize(
+        ("config_key", "stale_value"),
+        [
+            ("composer", '{"require": {"mediawiki/example": "^1.0"}}'),
+            ("local-settings", "<?php\n$wgSitename = 'Stale';\n?>"),
+        ],
+    )
+    def test_non_leader_waits_when_synchronised_config_is_stale(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        config_key: str,
+        stale_value: str,
+    ) -> None:
+        """Non-leader path: waits when Composer or local settings differ from the leader."""
+        leader_config = CharmConfig(
+            composer=configured_state.config["composer"],
+            local_settings=configured_state.config["local-settings"],
+        )
+        stale_config = {**configured_state.config, config_key: stale_value}
+        state_in = dataclasses.replace(configured_state, leader=False, config=stale_config)
+
+        with (
+            ctx(ctx.on.update_status(), state_in) as mgr,
+            pytest.raises(MediaWikiWaitingStatusException, match="local settings"),
+        ):
+            mgr.charm.mediawiki._reconcile_configuration(
+                make_mediawiki_peer_state(
+                    composer_lock=MOCK_COMPOSER_LOCK,
+                    leader_state_hash=leader_config.state_hash,
+                ),
+            )
+
+    def test_non_leader_waits_when_hash_provided_but_no_lock(
         self,
         ctx: testing.Context,
         configured_state: testing.State,
         populated_config: dict,
     ) -> None:
-        """Non-leader path: raises MediaWikiWaitingStatusException when peer json is present but lock is not."""
+        """Non-leader path: raises MediaWikiWaitingStatusException when hash is present but lock is not."""
         state_in = dataclasses.replace(configured_state, leader=False)
         with (
             ctx(ctx.on.update_status(), state_in) as mgr,
             pytest.raises(MediaWikiWaitingStatusException, match="composer lock"),
         ):
             mgr.charm.mediawiki._reconcile_configuration(
-                MediaWikiSecrets.generate(),
-                peer_composer_json=populated_config["composer"],
+                make_mediawiki_peer_state(
+                    leader_state_hash=mgr.charm.load_charm_config().state_hash,
+                ),
             )
 
     def test_non_leader_uses_composer_install(
@@ -1953,9 +2008,10 @@ class TestComposerLockSync:
         state_in = dataclasses.replace(configured_state, leader=False)
         with ctx(ctx.on.update_status(), state_in) as mgr:
             result = mgr.charm.mediawiki._reconcile_configuration(
-                MediaWikiSecrets.generate(),
-                composer_lock=new_lock,
-                peer_composer_json=populated_config["composer"],
+                make_mediawiki_peer_state(
+                    composer_lock=new_lock,
+                    leader_state_hash=mgr.charm.load_charm_config().state_hash,
+                ),
             )
 
         assert result is None, "reconciliation() should return None on the non-leader path"
@@ -1979,9 +2035,10 @@ class TestComposerLockSync:
         state_in = dataclasses.replace(configured_state, leader=False)
         with ctx(ctx.on.update_status(), state_in) as mgr:
             mgr.charm.mediawiki._reconcile_configuration(
-                MediaWikiSecrets.generate(),
-                composer_lock=new_lock,
-                peer_composer_json=populated_config["composer"],
+                make_mediawiki_peer_state(
+                    composer_lock=new_lock,
+                    leader_state_hash=mgr.charm.load_charm_config().state_hash,
+                ),
             )
             state_out = mgr.run()
 
@@ -2012,9 +2069,10 @@ class TestComposerLockSync:
         state_in = dataclasses.replace(configured_state, leader=False)
         with ctx(ctx.on.update_status(), state_in) as mgr:
             mgr.charm.mediawiki._reconcile_configuration(
-                MediaWikiSecrets.generate(),
-                composer_lock=MOCK_COMPOSER_LOCK,
-                peer_composer_json=populated_config["composer"],
+                make_mediawiki_peer_state(
+                    composer_lock=MOCK_COMPOSER_LOCK,
+                    leader_state_hash=mgr.charm.load_charm_config().state_hash,
+                ),
             )
 
         install_count = sum(
@@ -2057,9 +2115,10 @@ class TestComposerLockSync:
             pytest.raises(MediaWikiBlockedStatusException, match="Composer install failed"),
         ):
             mgr.charm.mediawiki._reconcile_configuration(
-                MediaWikiSecrets.generate(),
-                composer_lock=new_lock,
-                peer_composer_json=populated_config["composer"],
+                make_mediawiki_peer_state(
+                    composer_lock=new_lock,
+                    leader_state_hash=mgr.charm.load_charm_config().state_hash,
+                ),
             )
 
     def test_leader_update_failure_does_not_return_lock(
@@ -2088,7 +2147,7 @@ class TestComposerLockSync:
             ctx(ctx.on.update_status(), state_in) as mgr,
             pytest.raises(MediaWikiBlockedStatusException, match="Composer update failed"),
         ):
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
 
 class TestSmtpSettings:
@@ -2137,7 +2196,7 @@ class TestSmtpSettings:
         mock_smtp.has_relation.return_value = False
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = (
@@ -2156,7 +2215,7 @@ class TestSmtpSettings:
     ) -> None:
         """Test that STARTTLS transport does not add ssl:// prefix to host."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = (
@@ -2187,7 +2246,7 @@ class TestSmtpSettings:
     ) -> None:
         """Test that TLS transport adds ssl:// prefix to host."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = (
@@ -2213,7 +2272,7 @@ class TestSmtpSettings:
         )
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = (
@@ -2243,7 +2302,7 @@ class TestSmtpSettings:
         )
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = (
@@ -2269,7 +2328,7 @@ class TestSmtpSettings:
         )
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
 
         late_settings = (
@@ -2294,7 +2353,7 @@ class TestSmtpSettings:
             pytest.raises(MediaWikiBlockedStatusException),
             ctx(ctx.on.update_status(), active_state) as mgr,
         ):
-            mgr.charm.mediawiki._reconcile_configuration(MediaWikiSecrets.generate())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             mgr.run()
 
         late_settings = (

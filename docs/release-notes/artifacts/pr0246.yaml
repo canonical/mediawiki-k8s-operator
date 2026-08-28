@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Paused reconciliation when LocalSettings did not match the Composer lock
+    author: hk21702
+    type: bugfix
+    description: >
+      The charm now pauses reconciliation on non-leader units when the configured
+      LocalSettings.php or Composer dependencies do not match the state published
+      by the leader. This prevents units from temporarily becoming unhealthy while
+      waiting for the leader to publish a lock file for the new configuration.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/246"
+      related_doc: "https://documentation.ubuntu.com/mediawiki-k8s-charm/explanation/charm-design/"
+    visibility: public
+    highlight: true

@@ -19,6 +19,7 @@ from exceptions import (
 from mediawiki import MediaWiki as WorkloadMediaWiki
 from mediawiki import MediaWikiSecrets
 from mediawiki_api import SiteInfo
+from state import CharmConfig
 from tests.unit.conftest import MOCK_COMPOSER_LOCK
 
 
@@ -319,8 +320,8 @@ class TestMediaWikiReplicaChanged:
         replace_kwargs: dict = {
             "local_app_data": {
                 Charm._RO_DATABASE_FLAG: app_ro,
-                Charm._COMPOSER_JSON_KEY: "{}",
                 Charm._COMPOSER_LOCK_KEY: MOCK_COMPOSER_LOCK,
+                Charm._COMPOSER_CONFIG_HASH_KEY: CharmConfig().state_hash,
             },
             "peers_data": peers_data,
         }
@@ -729,8 +730,8 @@ class TestForceReconciliationAction:
         lock_rel = dataclasses.replace(
             mediawiki_replica_relation,
             local_app_data={
-                Charm._COMPOSER_JSON_KEY: "{}",
                 Charm._COMPOSER_LOCK_KEY: MOCK_COMPOSER_LOCK,
+                Charm._COMPOSER_CONFIG_HASH_KEY: CharmConfig().state_hash,
             },
         )
         relations_without_peer = [
@@ -966,7 +967,7 @@ class TestComposerLockPeerSync:
 
         replica_rel = state_out.get_relation(mediawiki_replica_relation.id)
         assert replica_rel.local_app_data.get(Charm._COMPOSER_LOCK_KEY) == MOCK_COMPOSER_LOCK
-        assert replica_rel.local_app_data.get(Charm._COMPOSER_JSON_KEY) is not None
+        assert replica_rel.local_app_data.get(Charm._COMPOSER_CONFIG_HASH_KEY) is not None
 
     def test_leader_does_not_publish_when_no_lock_returned(
         self,
@@ -983,7 +984,7 @@ class TestComposerLockPeerSync:
 
         replica_rel = state_out.get_relation(mediawiki_replica_relation.id)
         assert Charm._COMPOSER_LOCK_KEY not in replica_rel.local_app_data
-        assert Charm._COMPOSER_JSON_KEY not in replica_rel.local_app_data
+        assert Charm._COMPOSER_CONFIG_HASH_KEY not in replica_rel.local_app_data
 
     def test_non_leader_waits_when_lock_not_in_peer_data(
         self,
@@ -1013,8 +1014,8 @@ class TestComposerLockPeerSync:
         lock_rel = dataclasses.replace(
             mediawiki_replica_relation,
             local_app_data={
-                Charm._COMPOSER_JSON_KEY: json.dumps({"require": {}}),
                 Charm._COMPOSER_LOCK_KEY: MOCK_COMPOSER_LOCK,
+                Charm._COMPOSER_CONFIG_HASH_KEY: CharmConfig().state_hash,
             },
         )
         # Replace the existing peer relation in active_state with one containing lock data.
@@ -1031,7 +1032,7 @@ class TestComposerLockPeerSync:
         mock_mediawiki.reconciliation.assert_called_once()
         _, kwargs = mock_mediawiki.reconciliation.call_args
         assert "composer_lock" not in kwargs
-        assert "peer_composer_json" not in kwargs
+        assert "composer_config_hash" not in kwargs
 
 
 class TestMetricsEndpoint:
