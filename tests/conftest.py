@@ -10,7 +10,6 @@ def pytest_addoption(parser):
     Args:
         parser: Pytest parser.
     """
-    parser.addoption("--charm-file", action="store")
     parser.addoption(
         "--keep-models",
         action="store_true",
@@ -27,11 +26,6 @@ def pytest_addoption(parser):
         "--model",
         action="store",
         help="temporarily-created model name",
-    )
-    parser.addoption(
-        "--mediawiki-image",
-        action="store",
-        help="MediaWiki OCI image built for the MediaWiki charm",
     )
     parser.addoption(
         "--num-units",

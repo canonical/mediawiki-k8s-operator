@@ -1,0 +1,24 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+juju:
+  channel: 3/stable
+  model-defaults:
+    test-mode: "true"
+    automatically-retry-hooks: "false"
+
+providers:
+  microk8s:
+    enable: true
+    channel: 1.35-strict/stable
+    bootstrap: true
+    addons:
+      - hostpath-storage
+      - ingress
+      - dns
+      - rbac
+      - metallb:10.64.140.43-10.64.140.49
+
+host:
+  packages:
+    - skopeo

@@ -1,0 +1,21 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+version: 1
+rocks:
+  - name: mediawiki
+    rockcraft-yaml: mediawiki_rock/rockcraft.yaml
+    platforms:
+      - arch: amd64
+charms:
+  - name: mediawiki-k8s
+    charmcraft-yaml: charmcraft.yaml
+    resources:
+      git-sync-image:
+        type: oci-image
+      mediawiki-image:
+        type: oci-image
+        rock: mediawiki
+    platforms:
+      - arch: amd64
+snaps: []

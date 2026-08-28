@@ -1,0 +1,30 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+project: mediawiki-k8s-operator
+path: /home/ubuntu/proj
+kill-timeout: 60m
+warn-timeout: 1m
+backends:
+  integration-test:
+    type: integration-test
+    systems:
+      - ubuntu-24.04:
+          cpu: 4
+          memory: 16
+          disk: 50
+environment:
+  CONCIERGE: '$(HOST: echo "${CONCIERGE:-concierge.yaml}")'
+  OPCLI_GIT_REF: '$(HOST: echo "${OPCLI_GIT_REF:-main}")'
+exclude:
+  - .git
+  - .tox
+  - .venv
+  - .*_cache
+integration-suites:
+  tests/integration/:
+    summary: integration tests
+    working-dir: ./
+    backends:
+      - integration-test
+    pytest-arguments-template: "-x --tb=native --log-cli-level=INFO --keep-models --model testing"
