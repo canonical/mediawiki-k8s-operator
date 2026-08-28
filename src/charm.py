@@ -60,10 +60,6 @@ class Charm(StatefulCharmBase):
     _FRESHCLAM_SERVICE_NAME = "freshclam"
     _CLAMD_SERVICE_NAME = "clamd"
 
-    _MEDIAWIKI_API_READY_CHECK = "mediawiki-api-ready"
-    _APACHE_ALIVE_CHECK = "apache-alive"
-    _MEDIAWIKI_CHECKS = (_MEDIAWIKI_API_READY_CHECK, _APACHE_ALIVE_CHECK)
-
     _DATABASE_RELATION_NAME = "database"
     _DATABASE_NAME = "mediawiki"
 
