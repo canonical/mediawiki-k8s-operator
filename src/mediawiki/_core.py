@@ -144,17 +144,11 @@ class MediaWiki(
             self._reconcile_services(active=False)
             raise
 
-        new_lock, restart_required = self._reconcile_configuration(
+        restart_required = self._reconcile_configuration(
             peer_state,
             ssh_key=ssh_key,
             force=force,
         )
-        if new_lock is not None and self._charm.unit.is_leader():
-            self._peers.publish_state(new_lock)
-        elif new_lock is not None:
-            raise MediaWikiBlockedStatusException(
-                "Non-leader unit attempted to publish composer state"
-            )
 
         self._peers.acknowledge_database_mode(read_only=peer_state.ro_database)
         self._peers.reconcile_database(self.update_database_schema)
@@ -167,8 +161,12 @@ class MediaWiki(
         peer_state: MediaWikiPeerState,
         ssh_key: Optional[str] = None,
         force: bool = False,
-    ) -> tuple[Optional[str], bool]:
+    ) -> bool:
         """Reconcile MediaWiki files, installation, and workload configuration.
+
+        If this unit is the leader, the freshly reconciled Composer lock and state hash are
+        published to peers before the localisation cache is rebuilt, so that secondary units
+        aren't blocked on this potentially slow rebuild before they can start reconciling.
 
         Args:
             peer_state: The current state of the MediaWiki peer relation.
@@ -176,8 +174,7 @@ class MediaWiki(
             force: Whether to force a Composer update.
 
         Returns:
-            A tuple of the new composer lock content (if leader), and whether a restart is
-            required to apply configuration changes.
+            Whether a restart is required to apply configuration changes.
 
         Raises:
             MediaWikiWaitingStatusException: If we need to wait for the state to match the leader published state.
@@ -229,18 +226,21 @@ class MediaWiki(
             config, peer_state.secrets, ro_database=peer_state.ro_database
         )
 
+        if self._charm.unit.is_leader():
+            if not self._composer_lock_file.exists():
+                raise MediaWikiBlockedStatusException("Unable to fetch Composer lock file.")
+            self._peers.publish_state(self._composer_lock_file.read_text())
+
+        # Rebuild the localisation cache after the leader has published the Composer lock
+        # and state, so that secondary units are not blocked on this potentially slow
+        # rebuild before they can start their own reconciliation.
         self._localisation_cache_reconciliation(
             settings_changed,
             composer_ran,
             force=force,
         )
 
-        if self._charm.unit.is_leader():
-            if not self._composer_lock_file.exists():
-                raise MediaWikiBlockedStatusException("Unable to fetch Composer lock file.")
-            return self._composer_lock_file.read_text(), tls_changed
-
-        return None, tls_changed
+        return tls_changed
 
     def _pebble_layer(self) -> pebble.LayerDict:
         """Build the Pebble layer for the MediaWiki container."""

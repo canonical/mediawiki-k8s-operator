@@ -1933,28 +1933,37 @@ class TestComposerLockSync:
         self,
         ctx: testing.Context,
         configured_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
     ) -> None:
-        """Leader path: reconciliation returns the composer.lock content after a successful update."""
+        """Leader path: reconciliation publishes the composer.lock content after a successful update."""
         with ctx(ctx.on.update_status(), configured_state) as mgr:
-            lock, _ = mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            state_out = mgr.run()
 
-        assert lock == MOCK_COMPOSER_LOCK, (
-            "reconciliation() should return lock content on the leader path"
-        )
+        relation = state_out.get_relation(mediawiki_replica_relation.id)
+        assert relation.local_app_data[mediawiki_peers.MediaWikiPeers.COMPOSER_LOCK_KEY] == (
+            MOCK_COMPOSER_LOCK
+        ), "_reconcile_configuration() should publish lock content on the leader path"
 
     def test_leader_returns_lock_when_no_composer_config(
         self,
         ctx: testing.Context,
         active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
     ) -> None:
-        """Leader path: reconciliation returns the existing composer.lock even when no user
+        """Leader path: reconciliation publishes the existing composer.lock even when no user
         composer config is set, so that non-leaders can always sync from the peer relation.
         """
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            lock, _ = mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            state_out = mgr.run()
 
-        assert lock == MOCK_COMPOSER_LOCK, (
-            "reconciliation() should return lock content on the leader path even with no user composer config"
+        relation = state_out.get_relation(mediawiki_replica_relation.id)
+        assert relation.local_app_data[mediawiki_peers.MediaWikiPeers.COMPOSER_LOCK_KEY] == (
+            MOCK_COMPOSER_LOCK
+        ), (
+            "_reconcile_configuration() should publish the existing lock on the leader path "
+            "even with no user composer config"
         )
 
     def test_non_leader_waits_when_no_lock_provided(
@@ -2032,14 +2041,14 @@ class TestComposerLockSync:
         new_lock = '{"packages": [], "_readme": ["Different lock"]}'
         state_in = dataclasses.replace(configured_state, leader=False)
         with ctx(ctx.on.update_status(), state_in) as mgr:
-            result, _ = mgr.charm.mediawiki._reconcile_configuration(
+            result = mgr.charm.mediawiki._reconcile_configuration(
                 make_mediawiki_peer_state(
                     composer_lock=new_lock,
                     leader_state_hash=mgr.charm.load_charm_config().state_hash,
                 ),
             )
 
-        assert result is None, "reconciliation() should return None on the non-leader path"
+        assert result is False, "No TLS changes should require a restart on the non-leader path"
 
         history = ctx.exec_history[Charm._CONTAINER_NAME]
         assert ExecCmd.COMPOSER_INSTALL.ran_in(history), (
