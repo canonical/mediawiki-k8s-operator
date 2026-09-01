@@ -50,10 +50,8 @@ class Tls(Object):
 
         self._charm = charm
         self._relation_name = relation_name
-        service_hostname = f"{charm.app.name}-endpoints.{charm.model.name}.svc.cluster.local"
         self._certificate_request = CertificateRequestAttributes(
-            common_name=service_hostname,
-            sans_dns={service_hostname},
+            sans_dns={f"{charm.app.name}-endpoints.{charm.model.name}.svc.cluster.local"},
         )
         self.tls = TLSCertificatesRequiresV4(
             charm=charm,
