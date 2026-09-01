@@ -201,19 +201,19 @@ def traefik_lb_ip(juju: jubilant.Juju, traefik: App) -> Generator[str, None, Non
     yield result["status"]["loadBalancer"]["ingress"][0]["ip"]
 
 
-@pytest.fixture(scope="module", name="redis")
-def redis_fixture(juju: jubilant.Juju, pytestconfig: pytest.Config) -> Generator[App, None, None]:
-    """Deploy redis and return its app information."""
+@pytest.fixture(scope="module", name="valkey")
+def valkey_fixture(
+    juju: jubilant.Juju, pytestconfig: pytest.Config, ssc: App
+) -> Generator[App, None, None]:
+    """Deploy TLS-enabled Valkey and return its app information."""
     use_existing = pytestconfig.getoption("--use-existing", default=False)
     if use_existing:
-        yield App(name="redis-k8s")
+        yield App(name="valkey")
         return
 
-    juju.deploy(
-        "redis-k8s",
-        channel="latest/edge",
-    )
-    yield App(name="redis-k8s")
+    juju.deploy("valkey", channel="9/edge", trust=True)
+    juju.integrate("valkey:client-certificates", f"{ssc.name}:certificates")
+    yield App(name="valkey")
 
 
 @pytest.fixture(scope="module", name="early_app")
@@ -221,7 +221,8 @@ def early_app_fixture(
     juju: jubilant.Juju,
     db: App,
     traefik: App,
-    redis: App,
+    valkey: App,
+    ssc: App,
     model_config_override: dict[str, str],
     metadata: dict[str, Any],
     pytestconfig: pytest.Config,
@@ -266,7 +267,7 @@ def early_app_fixture(
                 status,
                 db.name,
                 traefik.name,
-                redis.name,
+                valkey.name,
             )
         ),
         timeout=20 * 60,
@@ -275,7 +276,8 @@ def early_app_fixture(
 
     juju.integrate(app_name, traefik.name)
     juju.integrate(app_name, db.name)
-    juju.integrate(app_name, redis.name)
+    juju.integrate(f"{app_name}:receive-ca-cert", f"{ssc.name}:send-ca-cert")
+    juju.integrate(f"{app_name}:valkey", f"{valkey.name}:valkey-client")
     juju.wait(
         jubilant.all_active,
         timeout=10 * 60,

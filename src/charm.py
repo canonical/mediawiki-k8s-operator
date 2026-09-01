@@ -28,6 +28,7 @@ from ops import (
 
 from auth import OAuth, Saml
 from cache import Cache
+from certificate_transfer import CertificateTransfer
 from database import Database
 from exceptions import (
     CharmConfigInvalidError,
@@ -67,6 +68,7 @@ class Charm(StatefulCharmBase):
     _DATABASE_NAME = "mediawiki"
 
     _CERTIFICATES_RELATION_NAME = "certificates"
+    _RECEIVE_CA_CERT_RELATION_NAME = "receive-ca-cert"
     _INGRESS_RELATION_NAME = "traefik-route"
 
     _OAUTH_RELATION_NAME = "oauth"
@@ -106,6 +108,11 @@ class Charm(StatefulCharmBase):
             secret_label=self._REPLICA_SECRET_LABEL,
         )
         self._tls = Tls(self, self._CERTIFICATES_RELATION_NAME)
+        self._certificate_transfer = CertificateTransfer(
+            self,
+            self._RECEIVE_CA_CERT_RELATION_NAME,
+            self.unit.get_container(self._CONTAINER_NAME),
+        )
         self._mediawiki = MediaWiki(
             self,
             self._database,
@@ -116,6 +123,7 @@ class Charm(StatefulCharmBase):
             self._smtp,
             self._peers,
             self._tls,
+            self._certificate_transfer,
         )
         self._git_sync = GitSync(self)
 
@@ -172,6 +180,9 @@ class Charm(StatefulCharmBase):
             self.on[self._CERTIFICATES_RELATION_NAME].relation_broken,
             self._tls.tls.on.certificate_available,
             self._tls.tls.on.certificate_denied,
+            self._certificate_transfer.on.certificate_set_updated,
+            self._certificate_transfer.on.certificates_removed,
+            self.on[self._RECEIVE_CA_CERT_RELATION_NAME].relation_created,
             self.on.traefik_route_relation_joined,
             self.on.traefik_route_relation_changed,
             self.on.traefik_route_relation_broken,

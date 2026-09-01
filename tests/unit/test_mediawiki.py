@@ -15,6 +15,7 @@ from pytest_mock import MockerFixture, MockType
 
 import auth
 import cache
+import certificate_transfer
 import database
 import mediawiki_peers
 import redis
@@ -52,6 +53,9 @@ class WrapperCharm(StatefulCharmBase):
         self.smtp = smtp.Smtp(self, "smtp")
         self.peers = mediawiki_peers.MediaWikiPeers(self)
         self.tls = tls.Tls(self, "certificates")
+        self.certificate_transfer = certificate_transfer.CertificateTransfer(
+            self, "receive-ca-cert", self.unit.get_container("mediawiki")
+        )
         self.mediawiki = MediaWiki(
             self,
             self.database,
@@ -62,6 +66,7 @@ class WrapperCharm(StatefulCharmBase):
             self.smtp,
             self.peers,
             self.tls,
+            self.certificate_transfer,
         )
 
 
@@ -240,6 +245,23 @@ def ctx(meta: dict) -> testing.Context:
 
 
 class TestReconciliation:
+    def test_certificate_transfer_change_requests_restart(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mocker: MockerFixture,
+    ) -> None:
+        """A changed workload trust store is included in the restart decision."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mocker.patch.object(
+                mgr.charm.mediawiki._certificate_transfer, "reconcile", return_value=True
+            )
+            restart_required = mgr.charm.mediawiki._reconcile_configuration(
+                make_mediawiki_peer_state()
+            )
+
+        assert restart_required is True
+
     def test_reconciliation_owns_services(
         self, ctx: testing.Context, active_state: testing.State
     ) -> None:
@@ -1736,9 +1758,38 @@ class TestSamlRequiresRedis:
         assert "$config['store.redis.port'] = 6379;" in config_content
         assert "$config['store.redis.prefix'] = 'SimpleSAMLphp';" in config_content
         assert "$config['application'] = [ 'baseURL' =>" in config_content
+        assert "store.redis.tls" not in config_content
+        assert "store.redis.ca_certificate" not in config_content
 
         metadata = container_fs / "etc/simplesamlphp/metadata/saml20-idp-remote.php"
         assert metadata.exists(), "saml20-idp-remote.php should be written"
+
+    def test_saml_with_tls_valkey_writes_ca_configuration(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_valkey: MockType,
+    ) -> None:
+        """Test that SimpleSAMLphp securely connects to a TLS-enabled Valkey store."""
+        mock_valkey.is_relation_available.return_value = True
+        mock_valkey.get_connection_info.return_value = ValkeyConnectionInfo(
+            host="valkey-primary",
+            port=6380,
+            username="valkey-user",
+            password="valkey-password",  # nosec: B106
+            tls=True,
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        config_content = (container_fs / "etc/simplesamlphp/charm-config.php").read_text()
+        assert "$config['store.redis.host'] = 'valkey-primary';" in config_content
+        assert "$config['store.redis.port'] = 6380;" in config_content
+        assert "$config['store.redis.tls'] = true;" in config_content
+        assert "$config['store.redis.insecure'] = true;" in config_content
 
     def test_saml_with_redis_available_loads_extension(
         self,

@@ -18,6 +18,7 @@ from mediawiki import constants
 if TYPE_CHECKING:
     from auth import OAuth, Saml
     from cache import Cache
+    from certificate_transfer import CertificateTransfer
     from database import Database
     from egress import TunnelServiceRegistry
     from mediawiki_peers import MediaWikiPeers
@@ -42,6 +43,7 @@ class _MediaWikiBase(ContainerService):
     # Collaborator objects (assigned by MediaWiki.__init__)
     _charm: StatefulCharmBase
     _cache: Cache
+    _certificate_transfer: CertificateTransfer
     _database: Database
     _oauth: OAuth
     _saml: Saml

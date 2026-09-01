@@ -15,6 +15,7 @@ from ops import pebble
 import utils
 from auth import OAuth, Saml
 from cache import Cache
+from certificate_transfer import CertificateTransfer
 from database import Database
 from egress import ProxyRouteResolver, TunnelServiceRegistry
 from exceptions import (
@@ -74,6 +75,7 @@ class MediaWiki(
         smtp: Smtp,
         peers: MediaWikiPeers,
         tls: Tls,
+        certificate_transfer: CertificateTransfer,
     ):
         super().__init__(charm.unit.get_container("mediawiki"))
         self._charm = charm
@@ -86,6 +88,7 @@ class MediaWiki(
         self._peers = peers
         self._tls = tls
         self._tunnel_services = TunnelServiceRegistry(ProxyRouteResolver(charm.state.proxy_config))
+        self._certificate_transfer = certificate_transfer
 
     @property
     def _logs_path(self) -> ContainerPath:
@@ -189,6 +192,7 @@ class MediaWiki(
             raise MediaWikiBlockedStatusException("Database relation is not ready")
         config = self._charm.load_charm_config()
         force = force or peer_state.force_reconciliation
+        certificate_transfer_changed = self._certificate_transfer.reconcile()
         tls_changed = self._tls_reconciliation()
         self._logs_path.mkdir(
             exist_ok=True,
@@ -247,7 +251,7 @@ class MediaWiki(
             force=force,
         )
 
-        return tls_changed or settings_changed
+        return certificate_transfer_changed or tls_changed or settings_changed
 
     def _pebble_layer(self) -> pebble.LayerDict:
         """Build the Pebble layer for the MediaWiki container."""

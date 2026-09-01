@@ -239,24 +239,24 @@ def test_saml_login(
 
 
 @pytest.mark.abort_on_fail
-def test_saml_requires_redis(app: App, juju: jubilant.Juju, redis: App):
-    """Test that removing Redis while SAML is integrated causes blocked status.
+def test_saml_requires_valkey(app: App, juju: jubilant.Juju, valkey: App):
+    """Test that removing Valkey while SAML is integrated causes blocked status.
 
-    arrange: MediaWiki is deployed with SAML and Redis integrated.
-    act: Remove the Redis relation.
-    assert: The charm enters blocked status. Re-adding Redis restores active.
+    arrange: MediaWiki is deployed with SAML and Valkey integrated.
+    act: Remove the Valkey relation.
+    assert: The charm enters blocked status. Re-adding Valkey restores active.
     """
-    # Remove Redis relation; the charm should enter blocked status
-    juju.remove_relation(app.name, redis.name)
+    # Remove Valkey relation; the charm should enter blocked status
+    juju.remove_relation(app.name, valkey.name)
     juju.wait(
         lambda status: (
             jubilant.all_blocked(status, app.name)
-            and "redis" not in status.apps[app.name].relations
+            and "valkey" not in status.apps[app.name].relations
         ),
     )
 
-    # Re-add Redis; the charm should return to active
-    juju.integrate(app.name, redis.name)
+    # Re-add Valkey; the charm should return to active
+    juju.integrate(f"{app.name}:valkey", f"{valkey.name}:valkey-client")
     juju.wait(
         lambda status: jubilant.all_active(status, app.name),
     )

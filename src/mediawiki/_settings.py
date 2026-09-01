@@ -703,10 +703,11 @@ class _SettingsMixin(_MediaWikiBase):
             "store.redis.prefix": "'SimpleSAMLphp'",
         }
 
-        if connection.username and connection.password:
+        if connection.username:
             config_entries["store.redis.username"] = (
                 f"'{utils.escape_php_string(connection.username)}'"
             )
+        if connection.password:
             config_entries["store.redis.password"] = (
                 f"'{utils.escape_php_string(connection.password)}'"
             )

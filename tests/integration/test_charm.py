@@ -120,6 +120,88 @@ def test_tls_certificate_lifecycle(
 
 
 @pytest.mark.abort_on_fail
+def test_valkey_tls_certificate_transfer(
+    juju: jubilant.Juju,
+    app: App,
+    ssc: App,
+    valkey: App,
+):
+    """Check MediaWiki-to-Valkey TLS and its plaintext fallback lifecycle."""
+
+    def _cache_roundtrip() -> str:
+        """Perform a MediaWiki cache read/write against the configured Valkey."""
+        return juju_exec(
+            juju,
+            app,
+            "printf '%s\\n' '"
+            '$cache = ObjectCache::getInstance( "redis" ); '
+            '$key = "certificate-transfer-test"; '
+            '$cache->set( $key, "certificate-transfer-ok", 60 ); '
+            "echo $cache->get( $key );' | "
+            "/usr/bin/php /var/www/html/w/maintenance/run.php eval",
+        )
+
+    def _cache_uses_tls() -> bool:
+        """Return whether MediaWiki's configured cache endpoint uses TLS."""
+        return "tls://" in juju_exec(
+            juju,
+            app,
+            "cat /etc/mediawiki/LateSettings.php",
+        )
+
+    def _cache_tls_protocol() -> str:
+        """Return the TLS protocol or handshake error for the configured Valkey endpoint."""
+        return juju_exec(
+            juju,
+            app,
+            "printf '%s\\n' '"
+            '$server = $wgObjectCaches["redis"]["servers"][0]; '
+            '$context = stream_context_create( [ "ssl" => [ "verify_peer" => true, '
+            '"verify_peer_name" => false ] ] ); '
+            "$socket = @stream_socket_client( $server, $errno, $errstr, 10, "
+            "STREAM_CLIENT_CONNECT, $context ); "
+            'if ( !$socket ) { echo "ERROR endpoint=$server errno=$errno error=$errstr"; exit; } '
+            "$metadata = stream_get_meta_data( $socket ); "
+            'echo $metadata["crypto"]["protocol"];'
+            "' | /usr/bin/php /var/www/html/w/maintenance/run.php eval",
+        ).strip()
+
+    def _cache_tls_ready(status: jubilant.Status) -> bool:
+        """Return whether the cache uses TLS and a TLS handshake succeeds."""
+        if not jubilant.all_active(status) or not _cache_uses_tls():
+            return False
+        protocol = _cache_tls_protocol()
+        if not protocol.startswith("TLSv"):
+            logger.info("Valkey TLS probe result: %s", protocol)
+            return False
+        return True
+
+    juju.wait(
+        _cache_tls_ready,
+        error=jubilant.any_error,
+    )
+    assert "certificate-transfer-ok" in _cache_roundtrip()
+
+    juju.remove_relation(f"{valkey.name}:client-certificates", f"{ssc.name}:certificates")
+    juju.remove_relation(f"{app.name}:receive-ca-cert", f"{ssc.name}:send-ca-cert")
+    juju.wait(
+        lambda status: jubilant.all_active(status) and not _cache_uses_tls(),
+        error=jubilant.any_error,
+        timeout=5 * 60,
+    )
+    assert "certificate-transfer-ok" in _cache_roundtrip()
+
+    juju.integrate(f"{valkey.name}:client-certificates", f"{ssc.name}:certificates")
+    juju.integrate(f"{app.name}:receive-ca-cert", f"{ssc.name}:send-ca-cert")
+    juju.wait(
+        _cache_tls_ready,
+        error=jubilant.any_error,
+        timeout=5 * 60,
+    )
+    assert "certificate-transfer-ok" in _cache_roundtrip()
+
+
+@pytest.mark.abort_on_fail
 def test_ssh_key_secret(
     juju: jubilant.Juju, app: App, app_config: dict[str, Any], ssh_key_secret: str
 ):
@@ -282,7 +364,7 @@ def test_relations(
     app: App,
     db: App,
     traefik: App,
-    redis: App,
+    valkey: App,
     ingress_address: str,
     requests_timeout: int,
 ):
@@ -332,23 +414,23 @@ def test_relations(
         )
     )
 
-    # Removing Redis does not block
-    juju.remove_relation(app.name, redis.name)
+    # Removing Valkey does not block
+    juju.remove_relation(app.name, valkey.name)
     juju.wait(
         lambda status: (
             jubilant.all_active(status)
             and is_reachable()
-            and "redis" not in status.apps[app.name].relations
+            and "valkey" not in status.apps[app.name].relations
         ),
         successes=5,
     )
 
-    juju.integrate(app.name, redis.name)
+    juju.integrate(f"{app.name}:valkey", f"{valkey.name}:valkey-client")
     juju.wait(
         lambda status: (
             jubilant.all_active(status)
             and is_reachable()
-            and "redis" in status.apps[app.name].relations
+            and "valkey" in status.apps[app.name].relations
         ),
         successes=5,
     )
