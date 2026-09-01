@@ -4,11 +4,10 @@
 """Fixtures for charm integration tests."""
 
 import json
-import os
 import subprocess  # nosec: B404 # We control inputs in integration tests
 import typing
 from pathlib import Path
-from typing import Any, Dict, Generator
+from typing import Any, Generator
 
 import jubilant
 import pytest
@@ -20,55 +19,17 @@ from .types_ import App
 from .utils import kubectl, req_okay
 
 
-@pytest.fixture(scope="module", name="charm")
-def charm_fixture(pytestconfig: pytest.Config, metadata: Dict[str, Any]) -> str:
-    """Get value from parameter charm-file, otherwise packing the charm and returning the filename."""
-    charm = pytestconfig.getoption("--charm-file")
-    use_existing = pytestconfig.getoption("--use-existing", default=False)
-
-    if charm or use_existing:
-        return charm
-
-    try:
-        subprocess.run(["charmcraft", "pack"], check=True, capture_output=True, text=True)  # nosec B603, B607
-    except subprocess.CalledProcessError as exc:
-        raise OSError(f"Error packing charm: {exc}; Stderr:\n{exc.stderr}") from None
-
-    app_name = metadata["name"]
-    charm_path = Path(__file__).parent.parent.parent
-    charms = [p.absolute() for p in charm_path.glob(f"{app_name}_*.charm")]
-    assert charms, f"{app_name} .charm file not found"
-    assert len(charms) == 1, f"{app_name} has more than one .charm file, unsure which to use"
-    return str(charms[0])
-
-
-@pytest.fixture(scope="module")
-def charm_resources(pytestconfig: pytest.Config, metadata: Dict[str, Any]) -> dict[str, str]:
-    """The OCI resources for the charm, read from option or env vars."""
-    resources = {"git-sync-image": metadata["resources"]["git-sync-image"]["upstream-source"]}
-
-    mediawiki_image = pytestconfig.getoption("--mediawiki-image")
-    if mediawiki_image:
-        resources["mediawiki-image"] = mediawiki_image
-        return resources
-
-    resource_name = os.environ.get("OCI_RESOURCE_NAME")
-    rock_image_uri = os.environ.get("ROCK_IMAGE")
-
-    if not resource_name or not rock_image_uri:
-        pytest.fail(
-            "Environment variables OCI_RESOURCE_NAME and/or ROCK_IMAGE are not set. "
-            "Please set '--mediawiki-image' or run tests via 'make integration'."
-        )
-
-    resources[resource_name] = rock_image_uri
-    return resources
-
-
 @pytest.fixture(scope="session")
 def metadata():
     """Pytest fixture to load charm metadata."""
     return yaml.safe_load(Path("./charmcraft.yaml").read_text())
+
+
+@pytest.fixture(scope="session")
+def resource_images(resource_images: dict[str, str], metadata: dict[str, Any]) -> dict[str, str]:
+    """Update resource_images fixture from opcli with upstream sources."""
+    resource_images["git-sync-image"] = metadata["resources"]["git-sync-image"]["upstream-source"]
+    return resource_images
 
 
 @pytest.fixture(scope="session")
@@ -255,10 +216,10 @@ def early_app_fixture(
     db: App,
     traefik: App,
     redis: App,
-    metadata: Dict[str, Any],
+    metadata: dict[str, Any],
     pytestconfig: pytest.Config,
-    charm: str,
-    charm_resources: Dict[str, str],
+    charm_path: str,
+    resource_images: dict[str, str],
 ) -> Generator[App, None, None]:
     """Early MediaWiki charm used for integration testing.
     Builds the charm and deploys it and the relations it depends on.
@@ -274,9 +235,9 @@ def early_app_fixture(
 
     num_units = pytestconfig.getoption("--num-units")
     juju.deploy(
-        charm=charm,
+        charm=charm_path,
         app=app_name,
-        resources=charm_resources,
+        resources=resource_images,
         num_units=num_units,
         base="ubuntu@24.04",
     )
@@ -311,7 +272,7 @@ def early_app_fixture(
 def app_fixture(
     juju: jubilant.Juju,
     early_app: App,
-    app_config: Dict[str, Any],
+    app_config: dict[str, Any],
     ingress_address: str,
     requests_timeout: int,
 ) -> Generator[App, None, None]:

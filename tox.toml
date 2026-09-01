@@ -126,7 +126,7 @@ commands = [
     "-v",
     "--tb",
     "native",
-    "{[vars]tst_path}integration",
+    "--ignore={[vars]tst_path}unit",
     "--log-cli-level=INFO",
     "-s",
     { replace = "posargs", extend = true },

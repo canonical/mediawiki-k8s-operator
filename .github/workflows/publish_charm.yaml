@@ -7,11 +7,14 @@ on:
       - main
 
 jobs:
-  publish-to-edge:
-    uses: canonical/operator-workflows/.github/workflows/publish_charm.yaml@main
-    secrets: inherit
+  publish:
+    uses: canonical/charm-ci/.github/workflows/publish-artifacts.yml@58ae6614a3b143d4e57eff0fd1770e97d8c30fab # v1.0.1
     permissions:
+      actions: read
       contents: write
-      packages: read
+      packages: write
     with:
       channel: 1.46/edge
+      integration-workflow-name: integration_test.yaml
+    secrets:
+      CHARMHUB_TOKEN: ${{ secrets.CHARMHUB_TOKEN }}
