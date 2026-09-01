@@ -16,3 +16,6 @@ $wgSimpleSAMLphp_InstallDir = '/usr/share/simplesamlphp';
 
 # Remove $charmStaticAssets to prevent conflicts
 unset($charmStaticAssets);
+
+$wgCacheDirectory = '/mnt/cache/mediawiki';
+$wgLocalisationCacheConf['manualRecache'] = true;

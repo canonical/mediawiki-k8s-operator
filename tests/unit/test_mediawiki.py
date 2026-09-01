@@ -8,6 +8,7 @@ import logging
 
 import mysql.connector
 import pytest
+from charmlibs.pathops import ensure_contents
 from charms.smtp_integrator.v0.smtp import AuthType, SmtpRelationData, TransportSecurity
 from ops import pebble, testing
 from pytest_mock import MockerFixture, MockType
@@ -193,6 +194,24 @@ def mock_database_cursor(mock_database: MockType) -> MockType:
     return mock_cursor
 
 
+@pytest.fixture(autouse=True)
+def mock_ensure_contents(mocker: MockerFixture) -> MockType:
+    """Wrap pathops.ensure_contents, dropping the ownership check.
+
+    The mocked ops.testing container ignores user/group on push, so files always read
+    back with host ownership and the real ownership comparison would never settle.
+    Everything else (content, mode, parent creation, bytes conversion) is delegated to
+    the real implementation; ownership is still passed through on writes.
+    """
+    real_ensure_contents = ensure_contents
+
+    def without_ownership_check(path, source, *, mode=0o644, user=None, group=None) -> bool:
+        """Delegate to the real ensure_contents without checking ownership."""
+        return real_ensure_contents(path, source, mode=mode)
+
+    return mocker.patch("mediawiki._settings.ensure_contents", side_effect=without_ownership_check)
+
+
 @pytest.fixture
 def ctx(meta: dict) -> testing.Context:
     """Provide a Context with the charm root set."""
@@ -318,8 +337,11 @@ class TestReconciliation:
             state_out = mgr.run()
 
         ln_cmd = list(ExecCmd.SYMLINK_STATIC_ASSETS.value)
+        rebuild_cmd = list(ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.value)
         executed = [e.command for e in ctx.exec_history.get(Charm._CONTAINER_NAME, [])]
-        assert executed == [ln_cmd], "Only the webroot symlink command should have run"
+        assert executed == [ln_cmd, rebuild_cmd], (
+            "Only the webroot symlink and localisation cache rebuild commands should have run"
+        )
 
         validate_container(ctx, state_out, meta=meta)
 
@@ -1911,28 +1933,37 @@ class TestComposerLockSync:
         self,
         ctx: testing.Context,
         configured_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
     ) -> None:
-        """Leader path: reconciliation returns the composer.lock content after a successful update."""
+        """Leader path: reconciliation publishes the composer.lock content after a successful update."""
         with ctx(ctx.on.update_status(), configured_state) as mgr:
-            lock, _ = mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            state_out = mgr.run()
 
-        assert lock == MOCK_COMPOSER_LOCK, (
-            "reconciliation() should return lock content on the leader path"
-        )
+        relation = state_out.get_relation(mediawiki_replica_relation.id)
+        assert relation.local_app_data[mediawiki_peers.MediaWikiPeers.COMPOSER_LOCK_KEY] == (
+            MOCK_COMPOSER_LOCK
+        ), "_reconcile_configuration() should publish lock content on the leader path"
 
     def test_leader_returns_lock_when_no_composer_config(
         self,
         ctx: testing.Context,
         active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
     ) -> None:
-        """Leader path: reconciliation returns the existing composer.lock even when no user
+        """Leader path: reconciliation publishes the existing composer.lock even when no user
         composer config is set, so that non-leaders can always sync from the peer relation.
         """
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            lock, _ = mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            state_out = mgr.run()
 
-        assert lock == MOCK_COMPOSER_LOCK, (
-            "reconciliation() should return lock content on the leader path even with no user composer config"
+        relation = state_out.get_relation(mediawiki_replica_relation.id)
+        assert relation.local_app_data[mediawiki_peers.MediaWikiPeers.COMPOSER_LOCK_KEY] == (
+            MOCK_COMPOSER_LOCK
+        ), (
+            "_reconcile_configuration() should publish the existing lock on the leader path "
+            "even with no user composer config"
         )
 
     def test_non_leader_waits_when_no_lock_provided(
@@ -2010,14 +2041,14 @@ class TestComposerLockSync:
         new_lock = '{"packages": [], "_readme": ["Different lock"]}'
         state_in = dataclasses.replace(configured_state, leader=False)
         with ctx(ctx.on.update_status(), state_in) as mgr:
-            result, _ = mgr.charm.mediawiki._reconcile_configuration(
+            result = mgr.charm.mediawiki._reconcile_configuration(
                 make_mediawiki_peer_state(
                     composer_lock=new_lock,
                     leader_state_hash=mgr.charm.load_charm_config().state_hash,
                 ),
             )
 
-        assert result is None, "reconciliation() should return None on the non-leader path"
+        assert result is False, "No TLS changes should require a restart on the non-leader path"
 
         history = ctx.exec_history[Charm._CONTAINER_NAME]
         assert ExecCmd.COMPOSER_INSTALL.ran_in(history), (
@@ -2441,3 +2472,307 @@ class TestMediaWikiVersion:
             pytest.raises(MediaWikiInstallError),
         ):
             mgr.charm.mediawiki.version()
+
+
+class TestSettingsChangeDetection:
+    """Tests for the change indicator returned by settings reconciliation."""
+
+    def test_first_run_reports_change_second_run_does_not(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Test that the first settings write reports a change and a repeat run does not."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            config = mgr.charm.load_charm_config()
+            secrets = MediaWikiSecrets.generate()
+            first = mgr.charm.mediawiki._settings_reconciliation(config, secrets)
+            second = mgr.charm.mediawiki._settings_reconciliation(config, secrets)
+
+        assert first is True
+        assert second is False
+
+    def test_user_settings_change_detected(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Test that a local settings change is reported by settings reconciliation."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            config = mgr.charm.load_charm_config()
+            secrets = MediaWikiSecrets.generate()
+            mgr.charm.mediawiki._settings_reconciliation(config, secrets)
+
+            new_config = config.model_copy(
+                update={"local_settings": "$wgDummySettingForTesting = true;"}
+            )
+            changed = mgr.charm.mediawiki._settings_reconciliation(new_config, secrets)
+
+        assert changed is True
+
+
+class TestComposerChangeDetection:
+    """Tests for the "composer ran" indicator returned by composer reconciliation."""
+
+    def test_leader_reports_run_when_config_changes(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Test that a leader composer run (new composer config) is reported."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            ran = mgr.charm.mediawiki._composer_reconciliation(
+                {"require": {"mediawiki/semantic-media-wiki": "^3.2"}}
+            )
+
+        assert ran is True
+
+    def test_leader_skip_reports_no_run(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Test that a repeated leader composer reconciliation is skipped and not reported."""
+        composer_json = {"require": {"mediawiki/semantic-media-wiki": "^3.2"}}
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            first = mgr.charm.mediawiki._composer_reconciliation(composer_json)
+            second = mgr.charm.mediawiki._composer_reconciliation(composer_json)
+
+        assert first is True
+        assert second is False
+        composer_runs = sum(
+            1
+            for exec_event in ctx.exec_history[Charm._CONTAINER_NAME]
+            if set(ExecCmd.COMPOSER_UPDATE.value) <= set(exec_event.command)
+        )
+        assert composer_runs == 1, "Expected the second reconciliation to skip composer update"
+
+    def test_non_leader_reports_run_on_new_lock(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Test that a non-leader composer install on a new lock is reported."""
+        state_in = dataclasses.replace(active_state, leader=False)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            ran = mgr.charm.mediawiki._composer_reconciliation(
+                {"require": {"mediawiki/semantic-media-wiki": "^3.2"}},
+                lock_content='{"changed": "lock"}',
+            )
+
+        assert ran is True
+
+    def test_non_leader_skip_reports_no_run(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Test that a repeated non-leader reconciliation with an unchanged lock is skipped."""
+        composer_json = {"require": {"mediawiki/semantic-media-wiki": "^3.2"}}
+        state_in = dataclasses.replace(active_state, leader=False)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            first = mgr.charm.mediawiki._composer_reconciliation(
+                composer_json, lock_content=MOCK_COMPOSER_LOCK
+            )
+            second = mgr.charm.mediawiki._composer_reconciliation(
+                composer_json, lock_content=MOCK_COMPOSER_LOCK
+            )
+
+        assert first is True
+        assert second is False
+
+
+class TestCacheDirectory:
+    """Tests for cache directory provisioning and the cache storage readiness guard."""
+
+    def test_cache_dir_created(self, ctx: testing.Context, active_state: testing.State) -> None:
+        """Test that configuration reconciliation creates the cache directory."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            state_out = mgr.run()
+
+        filesystem = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        assert (filesystem / "mnt/cache/mediawiki").is_dir()
+
+    def test_reconciliation_waits_for_cache_storage(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Test that reconciliation waits when the cache storage is not attached."""
+        state_in = dataclasses.replace(
+            active_state,
+            storages=[
+                storage
+                for storage in active_state.storages
+                if storage.name != constants.CACHE_STORAGE_NAME
+            ],
+        )
+        with (
+            ctx(ctx.on.update_status(), state_in) as mgr,
+            pytest.raises(MediaWikiWaitingStatusException, match="cache storage"),
+        ):
+            mgr.charm.mediawiki.reconciliation()
+
+
+class TestLocalisationCacheRebuild:
+    """Tests for the localisation cache rebuild trigger."""
+
+    @staticmethod
+    def _state_with_l10n_version(
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        version: str,
+    ) -> testing.State:
+        """Return a state with the peer unit databag recording the given rebuild version."""
+        peer = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_unit_data={mediawiki_peers.MediaWikiPeers.L10N_CACHE_VERSION_KEY: version},
+        )
+        return dataclasses.replace(
+            active_state,
+            relations=[
+                relation
+                for relation in active_state.relations
+                if relation.endpoint != "mediawiki-replica"
+            ]
+            + [peer],
+        )
+
+    def test_rebuilds_when_no_version_recorded(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+    ) -> None:
+        """Test that the cache rebuilds and records the version when none was recorded."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._localisation_cache_reconciliation(False, False)
+            state_out = mgr.run()
+
+        history = ctx.exec_history[Charm._CONTAINER_NAME]
+        assert ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.ran_in(history)
+        relation = state_out.get_relation(mediawiki_replica_relation.id)
+        assert (
+            relation.local_unit_data[mediawiki_peers.MediaWikiPeers.L10N_CACHE_VERSION_KEY]
+            == "1.46.0"
+        )
+
+    def test_skips_when_version_matches_and_nothing_changed(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+    ) -> None:
+        """Test that the rebuild is skipped when the version matches and nothing changed."""
+        state_in = self._state_with_l10n_version(
+            active_state, mediawiki_replica_relation, "1.46.0"
+        )
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mgr.charm.mediawiki._localisation_cache_reconciliation(False, False)
+            mgr.run()
+
+        history = ctx.exec_history.get(Charm._CONTAINER_NAME, [])
+        assert not ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.ran_in(history)
+
+    def test_rebuilds_on_version_mismatch(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+    ) -> None:
+        """Test that the cache rebuilds when the recorded version differs."""
+        state_in = self._state_with_l10n_version(
+            active_state, mediawiki_replica_relation, "1.45.0"
+        )
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mgr.charm.mediawiki._localisation_cache_reconciliation(False, False)
+            state_out = mgr.run()
+
+        history = ctx.exec_history[Charm._CONTAINER_NAME]
+        assert ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.ran_in(history)
+        relation = state_out.get_relation(mediawiki_replica_relation.id)
+        assert (
+            relation.local_unit_data[mediawiki_peers.MediaWikiPeers.L10N_CACHE_VERSION_KEY]
+            == "1.46.0"
+        )
+
+    @pytest.mark.parametrize(
+        ("settings_changed", "composer_lock_changed", "force"),
+        [
+            pytest.param(True, False, False, id="settings-changed"),
+            pytest.param(False, True, False, id="composer-lock-changed"),
+            pytest.param(False, False, True, id="forced"),
+        ],
+    )
+    def test_rebuilds_on_change_indicators(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        settings_changed: bool,
+        composer_lock_changed: bool,
+        force: bool,
+    ) -> None:
+        """Test that settings, composer lock changes, or a forced run trigger a rebuild."""
+        state_in = self._state_with_l10n_version(
+            active_state, mediawiki_replica_relation, "1.46.0"
+        )
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mgr.charm.mediawiki._localisation_cache_reconciliation(
+                settings_changed, composer_lock_changed, force=force
+            )
+            state_out = mgr.run()
+
+        history = ctx.exec_history[Charm._CONTAINER_NAME]
+        assert ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.ran_in(history)
+        relation = state_out.get_relation(mediawiki_replica_relation.id)
+        assert (
+            relation.local_unit_data[mediawiki_peers.MediaWikiPeers.L10N_CACHE_VERSION_KEY]
+            == "1.46.0"
+        )
+
+    def test_rebuild_failure_raises_blocked_without_marking(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_container: testing.Container,
+        execs: set[testing.Exec],
+        mocker: MockerFixture,
+    ) -> None:
+        """Test that a failed rebuild blocks and does not record the version."""
+        failing_execs = {
+            exec_mock
+            for exec_mock in execs
+            if "rebuildLocalisationCache" not in exec_mock.command_prefix
+        }
+        failing_execs.add(
+            testing.Exec(
+                ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.value,
+                return_code=1,
+                stdout="",
+                stderr="boom",
+            )
+        )
+        container = dataclasses.replace(mediawiki_container, execs=failing_execs)
+        state_in = dataclasses.replace(active_state, containers=[container])
+        mark_spy = mocker.spy(mediawiki_peers.MediaWikiPeers, "mark_localisation_cache_rebuilt")
+
+        with (
+            ctx(ctx.on.update_status(), state_in) as mgr,
+            pytest.raises(MediaWikiBlockedStatusException),
+        ):
+            mgr.charm.mediawiki._localisation_cache_reconciliation(False, False)
+
+        mark_spy.assert_not_called()
+
+    def test_rebuild_runs_once_across_reconciliations(
+        self, ctx: testing.Context, configured_state: testing.State, mocker: MockerFixture
+    ) -> None:
+        """Test that a steady-state second reconciliation does not rebuild the cache."""
+        # Skip the installation path: its pre-install read-only settings push would
+        # legitimately count as a settings change on every run.
+        mocker.patch.object(
+            MediaWiki, "_is_database_initialized", autospec=True, return_value=True
+        )
+
+        # Both reconciliations run within a single event: ops.testing wipes unmounted
+        # container filesystems between events, so cross-event state cannot be used here.
+        with ctx(ctx.on.update_status(), configured_state) as mgr:
+            peer_state = make_mediawiki_peer_state()
+            mgr.charm.mediawiki._reconcile_configuration(peer_state)
+            mgr.charm.mediawiki._reconcile_configuration(peer_state)
+            mgr.run()
+
+        rebuild_runs = sum(
+            1
+            for exec_event in ctx.exec_history[Charm._CONTAINER_NAME]
+            if set(ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.value) <= set(exec_event.command)
+        )
+        assert rebuild_runs == 1, "Expected the localisation cache rebuild to run only once"

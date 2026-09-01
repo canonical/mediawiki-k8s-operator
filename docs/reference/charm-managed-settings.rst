@@ -36,6 +36,9 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
    * - `$wgArticlePath <https://www.mediawiki.org/wiki/Manual:$wgArticlePath>`__
      - .. centered:: :bdg-success:`Yes`
      - 
+   * - `$wgCacheDirectory <https://www.mediawiki.org/wiki/Manual:$wgCacheDirectory>`__
+     - .. centered:: :bdg-danger:`No`
+     - 
    * - `$wgDBname <https://www.mediawiki.org/wiki/Manual:$wgDBname>`__
      - .. centered:: :bdg-danger:`No`
      - This is based on the relation data from the :ref:`database relation <reference_relation_endpoints_database>`.
@@ -75,6 +78,9 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
    * - `$wgJobTypeConf['default'] <https://www.mediawiki.org/wiki/Manual:$wgJobTypeConf>`__
      - .. centered:: :bdg-warning:`Partially`
      - This is only set when the :ref:`redis relation <reference_relation_endpoints_redis>` is in use.
+   * - `$wgLocalisationCacheConf['manualRecache'] <https://www.mediawiki.org/wiki/Manual:$wgLocalisationCacheConf>`__
+     - .. centered:: :bdg-danger:`No`
+     - Set to ``true``. The localisation cache is automatically rebuilt asynchronously when required.
    * - `$wgLogos <https://www.mediawiki.org/wiki/Manual:$wgLogos>`__
      - .. centered:: :bdg-success:`Yes`
      - 

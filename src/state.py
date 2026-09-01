@@ -15,6 +15,7 @@ from typing import Any, Literal, Optional, TypeVar, overload
 from urllib.parse import urlparse
 
 import ops
+from charmlibs.pathops import ContainerPath
 
 # pylint: disable=no-name-in-module
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, ValidationError, field_validator
@@ -269,3 +270,22 @@ class StatefulCharmBase(ops.CharmBase):
         except ValueError as e:
             logger.error("Charm configuration error: %s", e)
             raise CharmConfigInvalidError("Invalid charm configuration.") from e
+
+    def storage_is_ready(self, storage_name: str, mount_path: ContainerPath) -> bool:
+        """Check whether a Juju storage is attached and mounted in a container.
+
+        Args:
+            storage_name: The name of the storage as declared in charmcraft.yaml.
+            mount_path: The path where the storage is expected to be mounted in the container.
+
+        Returns:
+            True if the storage is attached, its location is available, and the
+            mount path exists in the container.
+        """
+        if not self.model.storages[storage_name]:
+            return False
+        try:
+            _ = self.model.storages[storage_name][0].location
+        except ops.ModelError:
+            return False
+        return mount_path.exists()

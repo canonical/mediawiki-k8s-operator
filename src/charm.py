@@ -260,7 +260,7 @@ class Charm(StatefulCharmBase):
             raise CharmConfigInvalidError(f"The ssh-key secret field '{field}' must not be empty.")
         return value
 
-    def _reconciliation(self, _event: EventBase, *, force_composer_update: bool = False) -> None:
+    def _reconciliation(self, _event: EventBase, *, force: bool = False) -> None:
         """Reconcile the charm state.
 
         This method will move the charm towards an active and correct state.
@@ -281,7 +281,7 @@ class Charm(StatefulCharmBase):
 
         Args:
             _event: The event that triggered the reconciliation.
-            force_composer_update: Whether to force a composer update regardless of config changes.
+            force: Whether to force updates and rebuilds regardless of state.
         """
         self.unit.status = MaintenanceStatus("Reconciling charm state")
         logger.info("Starting reconciliation due to event: %s", _event)
@@ -298,7 +298,7 @@ class Charm(StatefulCharmBase):
 
             set_ro_database = self._mediawiki.reconciliation(
                 ssh_key=self._ssh_key(self._SSH_KEY_MEDIAWIKI_FIELD),
-                force_composer_update=force_composer_update,
+                force=force,
             )
 
         except MediaWikiStatusException as e:
@@ -444,7 +444,7 @@ class Charm(StatefulCharmBase):
             event.log("Force reconciliation requested for all units")
             return
 
-        self._reconciliation(event, force_composer_update=True)
+        self._reconciliation(event, force=True)
         event.log("Force reconciliation completed on this unit")
 
 

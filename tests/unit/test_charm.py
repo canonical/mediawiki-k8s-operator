@@ -44,7 +44,7 @@ def mock_mediawiki(mocker: MockerFixture) -> MockType:
     mock_instance.reconciliation.side_effect = reconcile_with_workload
     mock_instance.create_and_promote_user.return_value = "mocked-password"  # nosec: B105
     mock_instance.update_database_schema.return_value = None
-    mock_instance._reconcile_configuration.return_value = (None, False)
+    mock_instance._reconcile_configuration.return_value = False
     mock_instance.runner_queue_service_is_ready.return_value = False
     mock_instance.version.return_value = "1.46.0"
 
@@ -754,7 +754,7 @@ class TestForceReconciliationAction:
         ctx.run(ctx.on.action("force-reconciliation"), active_state)
         mock_mediawiki.reconciliation.assert_called_once()
         call_kwargs = mock_mediawiki.reconciliation.call_args.kwargs
-        assert call_kwargs.get("force_composer_update") is True
+        assert call_kwargs.get("force") is True
 
     def test_non_leader_runs_forced_reconciliation(
         self,
@@ -783,7 +783,7 @@ class TestForceReconciliationAction:
         ctx.run(ctx.on.action("force-reconciliation"), state_in)
         mock_mediawiki.reconciliation.assert_called_once()
         call_kwargs = mock_mediawiki.reconciliation.call_args.kwargs
-        assert call_kwargs.get("force_composer_update") is True
+        assert call_kwargs.get("force") is True
 
     def test_all_units_sets_app_flag(
         self,
@@ -988,41 +988,14 @@ class TestPebbleLayer:
 
 
 class TestComposerLockPeerSync:
-    """Tests for the charm-level composer lock coordination between leader and non-leader units."""
+    """Tests for the charm-level composer lock coordination between leader and non-leader units.
 
-    def test_leader_publishes_lock_to_peer_relation(
-        self,
-        ctx: testing.Context,
-        configured_state: testing.State,
-        mediawiki_replica_relation: testing.PeerRelation,
-        mock_mediawiki: MockType,
-    ) -> None:
-        """Leader Composer state is published within MediaWiki reconciliation."""
-        mock_mediawiki._reconcile_configuration.return_value = (MOCK_COMPOSER_LOCK, False)
-
-        # configured_state already contains mediawiki_replica_relation; use it directly.
-        state_out = ctx.run(ctx.on.config_changed(), configured_state)
-
-        replica_rel = state_out.get_relation(mediawiki_replica_relation.id)
-        assert replica_rel.local_app_data.get(Charm._COMPOSER_LOCK_KEY) == MOCK_COMPOSER_LOCK
-        assert replica_rel.local_app_data.get(Charm._COMPOSER_CONFIG_HASH_KEY) is not None
-
-    def test_leader_does_not_publish_when_no_lock_returned(
-        self,
-        ctx: testing.Context,
-        active_state: testing.State,
-        mediawiki_replica_relation: testing.PeerRelation,
-        mock_mediawiki: MockType,
-    ) -> None:
-        """Leader leaves peer data unchanged when configuration returns no lock."""
-        mock_mediawiki._reconcile_configuration.return_value = (None, False)
-
-        # active_state already contains mediawiki_replica_relation; use it directly.
-        state_out = ctx.run(ctx.on.config_changed(), active_state)
-
-        replica_rel = state_out.get_relation(mediawiki_replica_relation.id)
-        assert Charm._COMPOSER_LOCK_KEY not in replica_rel.local_app_data
-        assert Charm._COMPOSER_CONFIG_HASH_KEY not in replica_rel.local_app_data
+    Note: The actual leader-publishes/non-leader-consumes composer lock logic lives entirely
+    inside `MediaWiki._reconcile_configuration`, and is exercised with the real (non-mocked)
+    workload in `tests/unit/test_mediawiki.py::TestComposerLockSync`. The tests here only cover
+    the charm's boundary behaviour: how `MediaWikiWaitingStatusException` from reconciliation
+    surfaces as unit status, and that the charm does not itself pass Composer state as kwargs.
+    """
 
     def test_non_leader_waits_when_lock_not_in_peer_data(
         self,

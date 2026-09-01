@@ -22,6 +22,7 @@ from exceptions import (
 )
 from mediawiki import constants
 from mediawiki._base import _MediaWikiBase
+from mediawiki._cache import _CacheMixin
 from mediawiki._composer import _ComposerMixin
 from mediawiki._database import _DatabaseMixin
 from mediawiki._settings import _SettingsMixin
@@ -39,7 +40,14 @@ from tls import Tls
 logger = logging.getLogger(__name__)
 
 
-class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _MediaWikiBase):
+class MediaWiki(
+    _ComposerMixin,
+    _DatabaseMixin,
+    _CacheMixin,
+    _SettingsMixin,
+    _TlsMixin,
+    _MediaWikiBase,
+):
     """Class to manage MediaWiki."""
 
     _SERVICE_NAME = "mediawiki"
@@ -103,14 +111,13 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _Medi
     def reconciliation(
         self,
         ssh_key: Optional[str] = None,
-        force_composer_update: bool = False,
+        force: bool = False,
     ) -> bool:
         """Reconcile MediaWiki configuration, peer state, database, and services.
 
         Args:
             ssh_key: Optional SSH private key content to write into the container for git access.
-            force_composer_update: Whether to force a composer update regardless of config
-                changes. Defaults to False.
+            force: Whether to force updates and rebuilds regardless of state. Defaults to False.
 
         Returns:
             Whether MediaWiki remains in database read-only mode.
@@ -124,6 +131,9 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _Medi
         if not self._container.can_connect():
             raise MediaWikiWaitingStatusException("Waiting for pebble")
 
+        if not self._charm.storage_is_ready(constants.CACHE_STORAGE_NAME, self._cache_dir.parent):
+            raise MediaWikiWaitingStatusException("Waiting for cache storage to be attached")
+
         try:
             if not self._database.has_relation():
                 raise MediaWikiBlockedStatusException(
@@ -134,17 +144,11 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _Medi
             self._reconcile_services(active=False)
             raise
 
-        new_lock, restart_required = self._reconcile_configuration(
+        restart_required = self._reconcile_configuration(
             peer_state,
             ssh_key=ssh_key,
-            force=force_composer_update,
+            force=force,
         )
-        if new_lock is not None and self._charm.unit.is_leader():
-            self._peers.publish_state(new_lock)
-        elif new_lock is not None:
-            raise MediaWikiBlockedStatusException(
-                "Non-leader unit attempted to publish composer state"
-            )
 
         self._peers.acknowledge_database_mode(read_only=peer_state.ro_database)
         self._peers.reconcile_database(self.update_database_schema)
@@ -157,8 +161,12 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _Medi
         peer_state: MediaWikiPeerState,
         ssh_key: Optional[str] = None,
         force: bool = False,
-    ) -> tuple[Optional[str], bool]:
+    ) -> bool:
         """Reconcile MediaWiki files, installation, and workload configuration.
+
+        If this unit is the leader, the freshly reconciled Composer lock and state hash are
+        published to peers before the localisation cache is rebuilt, so that secondary units
+        aren't blocked on this potentially slow rebuild before they can start reconciling.
 
         Args:
             peer_state: The current state of the MediaWiki peer relation.
@@ -166,8 +174,7 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _Medi
             force: Whether to force a Composer update.
 
         Returns:
-            A tuple of the new composer lock content (if leader), and whether a restart is
-            required to apply configuration changes.
+            Whether a restart is required to apply configuration changes.
 
         Raises:
             MediaWikiWaitingStatusException: If we need to wait for the state to match the leader published state.
@@ -186,6 +193,13 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _Medi
             user=constants.DAEMON_USER,
             group=constants.DAEMON_GROUP,
         )
+        self._cache_dir.mkdir(
+            exist_ok=True,
+            parents=True,
+            mode=0o750,
+            user=constants.DAEMON_USER,
+            group=constants.DAEMON_GROUP,
+        )
         self._ensure_static_assets_symlink()
         self._ssh_config_reconciliation(config, ssh_key)
 
@@ -197,7 +211,7 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _Medi
                 "Waiting for leader to reconcile Composer and local settings"
             )
 
-        self._composer_reconciliation(
+        composer_ran = self._composer_reconciliation(
             config.composer,
             lock_content=peer_state.composer_lock,
             force=force,
@@ -208,16 +222,25 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _Medi
             self._settings_reconciliation(config, peer_state.secrets, ro_database=True)
             self._install(config)
 
-        self._settings_reconciliation(
+        settings_changed = self._settings_reconciliation(
             config, peer_state.secrets, ro_database=peer_state.ro_database
         )
 
         if self._charm.unit.is_leader():
             if not self._composer_lock_file.exists():
                 raise MediaWikiBlockedStatusException("Unable to fetch Composer lock file.")
-            return self._composer_lock_file.read_text(), tls_changed
+            self._peers.publish_state(self._composer_lock_file.read_text())
 
-        return None, tls_changed
+        # Rebuild the localisation cache after the leader has published the Composer lock
+        # and state, so that secondary units are not blocked on this potentially slow
+        # rebuild before they can start their own reconciliation.
+        self._localisation_cache_reconciliation(
+            settings_changed,
+            composer_ran,
+            force=force,
+        )
+
+        return tls_changed
 
     def _pebble_layer(self) -> pebble.LayerDict:
         """Build the Pebble layer for the MediaWiki container."""
@@ -510,6 +533,10 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _Medi
             "", mode=0o640, user=constants.ROOT_USER_NAME, group=constants.DAEMON_GROUP
         )
         logger.debug("User settings cleared for installation.")
+
+        # The i18n cache needs to be at least initialized before installation
+        # It can be updated later with the user settings if required
+        self._localisation_cache_reconciliation()
 
         for attempt in range(1, constants.INSTALL_MAX_ATTEMPTS + 1):
             result = self._run_maintenance_script(["installPreConfigured"])

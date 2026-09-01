@@ -264,8 +264,10 @@ actions:
 
   force-reconciliation:
     description: |
-      Force a reconciliation run including a composer update regardless of
-      whether the composer configuration has changed.
+      Force a reconciliation run, bypassing redundancy checks.
+
+       - composer update regardless of whether the composer configuration has changed
+       - rebuild of the localisation cache
     params:
       all-units:
         type: boolean
@@ -348,6 +350,8 @@ containers:
   mediawiki:
     resource: mediawiki-image
     mounts:
+      - storage: cache
+        location: /mnt/cache
       - storage: static-assets-repo
         location: /mnt/static-assets
 
@@ -361,6 +365,10 @@ resources:
     description: OCI image for MediaWiki
 
 storage:
+  cache:
+    type: filesystem
+    description: |
+      File cache.
   static-assets-repo:
     type: filesystem
     description: |
