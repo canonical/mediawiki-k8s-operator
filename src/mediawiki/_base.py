@@ -17,10 +17,10 @@ from mediawiki import constants
 
 if TYPE_CHECKING:
     from auth import OAuth, Saml
+    from cache import Cache
     from database import Database
     from egress import TunnelServiceRegistry
     from mediawiki_peers import MediaWikiPeers
-    from redis import Redis
     from s3 import S3
     from smtp import Smtp
     from state import StatefulCharmBase
@@ -41,10 +41,10 @@ class _MediaWikiBase(ContainerService):
 
     # Collaborator objects (assigned by MediaWiki.__init__)
     _charm: StatefulCharmBase
+    _cache: Cache
     _database: Database
     _oauth: OAuth
     _saml: Saml
-    _redis: Redis
     _s3: S3
     _smtp: Smtp
     _peers: MediaWikiPeers

@@ -702,15 +702,6 @@ wheels = [
 ]
 
 [[package]]
-name = "diskcache"
-version = "5.6.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/3f/21/1c1ffc1a039ddcc459db43cc108658f32c57d271d7289a2794e401d0fdb6/diskcache-5.6.3.tar.gz", hash = "sha256:2c3a3fa2743d8535d832ec61c2054a1641f41775aa7c556758a109941e33e4fc", size = 67916, upload-time = "2023-08-31T06:12:00.316Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3f/27/4570e78fc0bf5ea0ca45eb1de3818a23787af9b390c0b0a0033a1b8236f9/diskcache-5.6.3-py3-none-any.whl", hash = "sha256:5e31b2d5fbad117cc363ebaf6b689474db18a1f6438bc82358b024abd4c2ca19", size = 45550, upload-time = "2023-08-31T06:11:58.822Z" },
-]
-
-[[package]]
 name = "cryptography"
 version = "49.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -761,12 +752,35 @@ wheels = [
 ]
 
 [[package]]
+name = "diskcache"
+version = "5.6.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/21/1c1ffc1a039ddcc459db43cc108658f32c57d271d7289a2794e401d0fdb6/diskcache-5.6.3.tar.gz", hash = "sha256:2c3a3fa2743d8535d832ec61c2054a1641f41775aa7c556758a109941e33e4fc", size = 67916, upload-time = "2023-08-31T06:12:00.316Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/27/4570e78fc0bf5ea0ca45eb1de3818a23787af9b390c0b0a0033a1b8236f9/diskcache-5.6.3-py3-none-any.whl", hash = "sha256:5e31b2d5fbad117cc363ebaf6b689474db18a1f6438bc82358b024abd4c2ca19", size = 45550, upload-time = "2023-08-31T06:11:58.822Z" },
+]
+
+[[package]]
 name = "dnspython"
 version = "2.8.0"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/8c/8b/57666417c0f90f08bcafa776861060426765fdb422eb10212086fb811d26/dnspython-2.8.0.tar.gz", hash = "sha256:181d3c6996452cb1189c4046c61599b84a5a86e099562ffde77d26984ff26d0f", size = 368251, upload-time = "2025-09-07T18:58:00.022Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ba/5a/18ad964b0086c6e62e2e7500f7edc89e3faa45033c71c1893d34eed2b2de/dnspython-2.8.0-py3-none-any.whl", hash = "sha256:01d9bbc4a2d76bf0db7c1f729812ded6d912bd318d3b1cf81d30c0f845dbf3af", size = 331094, upload-time = "2025-09-07T18:57:58.071Z" },
+]
+
+[[package]]
+name = "dpcharmlibs-interfaces"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "ops" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2d/a7/3b3153ab6f393f2cab80f26b7be09fde3483c0f7d2e1ec975b1d3bb63376/dpcharmlibs_interfaces-1.1.0.tar.gz", hash = "sha256:a8a4644b8eadebf8cb1da933022cf81ed7c697eda86b5fbfffafc5e8c769d02d", size = 205952, upload-time = "2026-06-16T07:37:12.806Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b5/47/630a652680a24dd2ba064dd35f14eba10c8af149fc4e0c8d50261140d058/dpcharmlibs_interfaces-1.1.0-py3-none-any.whl", hash = "sha256:9f74df4a9e254237d2614e1a1efb342492fcb5b2da066d6d5633e72838ed4d57", size = 39165, upload-time = "2026-06-16T07:37:11.516Z" },
 ]
 
 [[package]]
@@ -1111,6 +1125,7 @@ dependencies = [
     { name = "charmlibs-interfaces-tls-certificates" },
     { name = "charmlibs-pathops" },
     { name = "cosl" },
+    { name = "dpcharmlibs-interfaces" },
     { name = "email-validator" },
     { name = "jsonschema" },
     { name = "mysql-connector-python" },
@@ -1164,6 +1179,7 @@ requires-dist = [
     { name = "charmlibs-interfaces-tls-certificates", specifier = ">=1.10.0" },
     { name = "charmlibs-pathops", specifier = "==1.3.0.post0" },
     { name = "cosl", specifier = ">=1.9.1" },
+    { name = "dpcharmlibs-interfaces", specifier = "==1.1.0" },
     { name = "email-validator", specifier = ">=2.0" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "mysql-connector-python", specifier = ">=9.6.0" },

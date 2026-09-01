@@ -27,6 +27,7 @@ from ops import (
 )
 
 from auth import OAuth, Saml
+from cache import Cache
 from database import Database
 from exceptions import (
     CharmConfigInvalidError,
@@ -43,6 +44,7 @@ from smtp import Smtp
 from state import StatefulCharmBase
 from tls import Tls
 from types_ import ForceReconciliationAction
+from valkey import Valkey
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -70,6 +72,7 @@ class Charm(StatefulCharmBase):
     _OAUTH_RELATION_NAME = "oauth"
     _SAML_RELATION_NAME = "saml"
     _REDIS_RELATION_NAME = "redis"
+    _VALKEY_RELATION_NAME = "valkey"
     _S3_RELATION_NAME = "s3-parameters"
     _SMTP_RELATION_NAME = "smtp"
 
@@ -93,6 +96,8 @@ class Charm(StatefulCharmBase):
         self._oauth = OAuth(self, self._OAUTH_RELATION_NAME)
         self._saml = Saml(self, self._SAML_RELATION_NAME)
         self._redis = Redis(self, self._REDIS_RELATION_NAME)
+        self._valkey = Valkey(self, self._VALKEY_RELATION_NAME)
+        self._cache = Cache(self, self._redis, self._valkey)
         self._s3 = S3(self, self._S3_RELATION_NAME)
         self._smtp = Smtp(self, self._SMTP_RELATION_NAME)
         self._peers = MediaWikiPeers(
@@ -106,7 +111,7 @@ class Charm(StatefulCharmBase):
             self._database,
             self._oauth,
             self._saml,
-            self._redis,
+            self._cache,
             self._s3,
             self._smtp,
             self._peers,
@@ -154,6 +159,11 @@ class Charm(StatefulCharmBase):
             self._saml.saml.on.saml_data_available,
             self.on[self._SAML_RELATION_NAME].relation_broken,
             self.on.redis_relation_updated,
+            self._valkey.on.resource_created,
+            self._valkey.on.endpoints_changed,
+            self._valkey.on.authentication_updated,
+            self.on[self._VALKEY_RELATION_NAME].relation_changed,
+            self.on[self._VALKEY_RELATION_NAME].relation_broken,
             self._s3.s3.on.credentials_changed,
             self._s3.s3.on.credentials_gone,
             self.on[self._SMTP_RELATION_NAME].relation_broken,
@@ -196,7 +206,6 @@ class Charm(StatefulCharmBase):
             traefik_hostname = urlparse(config.url_origin).hostname or self.app.name
             backend_scheme = "https" if tls_enabled else "http"
             backend_port = 443 if tls_enabled else 80
-
             self._ingress_requirer.submit_to_traefik(
                 config={
                     "http": {

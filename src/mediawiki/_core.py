@@ -14,6 +14,7 @@ from ops import pebble
 
 import utils
 from auth import OAuth, Saml
+from cache import Cache
 from database import Database
 from egress import ProxyRouteResolver, TunnelServiceRegistry
 from exceptions import (
@@ -32,7 +33,6 @@ from mediawiki_peers import (
     MediaWikiPeers,
     MediaWikiPeerState,
 )
-from redis import Redis
 from s3 import S3
 from smtp import Smtp
 from state import CharmConfig, StatefulCharmBase
@@ -69,7 +69,7 @@ class MediaWiki(
         database: Database,
         oauth: OAuth,
         saml: Saml,
-        redis: Redis,
+        cache: Cache,
         s3: S3,
         smtp: Smtp,
         peers: MediaWikiPeers,
@@ -80,7 +80,7 @@ class MediaWiki(
         self._database = database
         self._oauth = oauth
         self._saml = saml
-        self._redis = redis
+        self._cache = cache
         self._s3 = s3
         self._smtp = smtp
         self._peers = peers
@@ -139,6 +139,7 @@ class MediaWiki(
             raise MediaWikiWaitingStatusException("Waiting for cache storage to be attached")
 
         try:
+            self._cache.validate()
             if not self._database.has_relation():
                 raise MediaWikiBlockedStatusException(
                     f"Waiting for relation {self._database.db.relation_name}."
@@ -189,7 +190,6 @@ class MediaWiki(
         config = self._charm.load_charm_config()
         force = force or peer_state.force_reconciliation
         tls_changed = self._tls_reconciliation()
-
         self._logs_path.mkdir(
             exist_ok=True,
             parents=True,
@@ -222,11 +222,14 @@ class MediaWiki(
         )
         self._robots_txt_reconciliation(config)
 
+        settings_changed = False
         if not self._is_database_initialized():
-            self._settings_reconciliation(config, peer_state.secrets, ro_database=True)
+            settings_changed = self._settings_reconciliation(
+                config, peer_state.secrets, ro_database=True
+            )
             self._install(config)
 
-        settings_changed = self._settings_reconciliation(
+        settings_changed |= self._settings_reconciliation(
             config, peer_state.secrets, ro_database=peer_state.ro_database
         )
 
@@ -244,7 +247,7 @@ class MediaWiki(
             force=force,
         )
 
-        return tls_changed
+        return tls_changed or settings_changed
 
     def _pebble_layer(self) -> pebble.LayerDict:
         """Build the Pebble layer for the MediaWiki container."""
@@ -350,7 +353,12 @@ class MediaWiki(
 
         all_conditional_services = {self._SERVICE_NAME, *self._REDIS_JOB_SERVICES}
         services_to_run = {self._SERVICE_NAME}
-        mediawiki_is_running = self._container.get_service(self._SERVICE_NAME).is_running()
+        previously_running = {
+            service
+            for service in all_conditional_services
+            if service in self._container.get_plan().services
+            and self._container.get_service(service).is_running()
+        }
         if not active:
             services_to_run.clear()
             self._reconcile_checks(active=False)
@@ -366,14 +374,17 @@ class MediaWiki(
             if service in services and not self._container.get_service(service).is_running():
                 self._container.start(service)
         if active:
-            self._finish_active_service_reconciliation(restart_required, mediawiki_is_running)
+            self._finish_active_service_reconciliation(
+                restart_required, services_to_run & previously_running
+            )
 
     def _finish_active_service_reconciliation(
-        self, restart_required: bool, mediawiki_is_running: bool
+        self, restart_required: bool, previously_running: set[str]
     ) -> None:
         """Apply active-only service actions after the Pebble plan is reconciled."""
-        if restart_required and mediawiki_is_running:
-            self._container.restart(self._SERVICE_NAME)
+        if restart_required:
+            for service in previously_running:
+                self._container.restart(service)
         self._reconcile_checks(active=True)
 
     def create_and_promote_user(
@@ -450,7 +461,7 @@ class MediaWiki(
 
     def runner_queue_service_is_ready(self) -> bool:
         """Returns whether or not the runner queue services should be enabled."""
-        if (not self._redis.is_relation_available()) or (not self._redis.get_endpoint()):
+        if not self._cache.get_connection_info():
             return False
 
         return self._job_runner_config.exists()

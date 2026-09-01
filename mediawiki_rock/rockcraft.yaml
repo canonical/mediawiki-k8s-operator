@@ -175,6 +175,10 @@ parts:
     override-build: |
       craftctl default
 
+      # Add TLS transport support to the pinned job-runner source.
+      git -C "${CRAFT_PART_BUILD}" apply \
+        "${CRAFT_PROJECT_DIR}/files/patches/jobrunner-tls-options.patch"
+
       COMPOSER_ALLOW_SUPERUSER=1 \
       composer update --no-dev -n -d "${CRAFT_PART_BUILD}"
 
