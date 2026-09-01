@@ -148,6 +148,22 @@ Example ``redis`` integrate command:
 
    Read more about how MediaWiki uses Redis as an object cache backend: `Redis <https://www.mediawiki.org/wiki/Redis>`__
 
+.. _reference_relation_endpoints_valkey:
+
+Valkey
+------
+
+* **Interface**: `valkey_client <https://charmhub.io/integrations/valkey_client>`_
+* **Supported charms**: `valkey <https://charmhub.io/valkey>`_
+
+The ``valkey`` relation connects MediaWiki to a Valkey instance for caching and asynchronous job execution. Redis and Valkey are mutually exclusive.
+
+Example ``valkey`` integrate command:
+
+.. code-block:: bash
+
+   juju integrate mediawiki-k8s valkey:valkey-client
+
 .. _reference_relation_endpoints_saml:
 
 SAML
@@ -164,7 +180,7 @@ This is accomplished using the `SimpleSAMLphp MediaWiki extension <https://www.m
    While the ``saml`` relation will function while configuring MediaWiki to use a HTTP or protocol-relative URL, it is **highly** recommended to explicitly allow only HTTPS in a production environment.
 
 .. important::
-   The :ref:`Redis <reference_relation_endpoints_redis>` relation is **required** when using SAML, as SimpleSAMLphp uses Redis as its session store.
+   The :ref:`Redis <reference_relation_endpoints_redis>` or :ref:`Valkey <reference_relation_endpoints_valkey>` relation is **required** when using SAML, as SimpleSAMLphp uses the cache relation as its session store.
 
 Example ``saml`` integrate command:
 
