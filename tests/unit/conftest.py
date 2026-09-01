@@ -128,6 +128,12 @@ def active_state(
 
 
 @pytest.fixture
+def certificates_relation() -> testing.Relation:
+    """Return a TLS certificates relation for testing."""
+    return testing.Relation(endpoint="certificates", interface="tls-certificates")
+
+
+@pytest.fixture
 def configured_state(
     active_state: testing.State, populated_config: dict[str, bool | float | int | str]
 ) -> testing.State:

@@ -25,6 +25,7 @@ from mediawiki._base import _MediaWikiBase
 from mediawiki._composer import _ComposerMixin
 from mediawiki._database import _DatabaseMixin
 from mediawiki._settings import _SettingsMixin
+from mediawiki._tls import _TlsMixin
 from mediawiki_peers import (
     MediaWikiPeers,
     MediaWikiPeerState,
@@ -33,11 +34,12 @@ from redis import Redis
 from s3 import S3
 from smtp import Smtp
 from state import CharmConfig, StatefulCharmBase
+from tls import Tls
 
 logger = logging.getLogger(__name__)
 
 
-class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
+class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _TlsMixin, _MediaWikiBase):
     """Class to manage MediaWiki."""
 
     _SERVICE_NAME = "mediawiki"
@@ -60,6 +62,7 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
         s3: S3,
         smtp: Smtp,
         peers: MediaWikiPeers,
+        tls: Tls,
     ):
         super().__init__(charm.unit.get_container("mediawiki"))
         self._charm = charm
@@ -70,6 +73,7 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
         self._s3 = s3
         self._smtp = smtp
         self._peers = peers
+        self._tls = tls
 
     @property
     def _logs_path(self) -> ContainerPath:
@@ -130,7 +134,7 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
             self._reconcile_services(active=False)
             raise
 
-        new_lock = self._reconcile_configuration(
+        new_lock, restart_required = self._reconcile_configuration(
             peer_state,
             ssh_key=ssh_key,
             force=force_composer_update,
@@ -144,7 +148,7 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
 
         self._peers.acknowledge_database_mode(read_only=peer_state.ro_database)
         self._peers.reconcile_database(self.update_database_schema)
-        self._reconcile_services()
+        self._reconcile_services(restart_required=restart_required)
         self._oauth.update_client_config()
         return peer_state.ro_database
 
@@ -153,13 +157,17 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
         peer_state: MediaWikiPeerState,
         ssh_key: Optional[str] = None,
         force: bool = False,
-    ) -> Optional[str]:
+    ) -> tuple[Optional[str], bool]:
         """Reconcile MediaWiki files, installation, and workload configuration.
 
         Args:
             peer_state: The current state of the MediaWiki peer relation.
             ssh_key: An optional SSH key for accessing private repositories.
             force: Whether to force a Composer update.
+
+        Returns:
+            A tuple of the new composer lock content (if leader), and whether a restart is
+            required to apply configuration changes.
 
         Raises:
             MediaWikiWaitingStatusException: If we need to wait for the state to match the leader published state.
@@ -169,6 +177,7 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
             raise MediaWikiBlockedStatusException("Database relation is not ready")
         config = self._charm.load_charm_config()
         force = force or peer_state.force_reconciliation
+        tls_changed = self._tls_reconciliation()
 
         self._logs_path.mkdir(
             exist_ok=True,
@@ -206,9 +215,9 @@ class MediaWiki(_ComposerMixin, _DatabaseMixin, _SettingsMixin, _MediaWikiBase):
         if self._charm.unit.is_leader():
             if not self._composer_lock_file.exists():
                 raise MediaWikiBlockedStatusException("Unable to fetch Composer lock file.")
-            return self._composer_lock_file.read_text()
+            return self._composer_lock_file.read_text(), tls_changed
 
-        return None
+        return None, tls_changed
 
     def _pebble_layer(self) -> pebble.LayerDict:
         """Build the Pebble layer for the MediaWiki container."""
