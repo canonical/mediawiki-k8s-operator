@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Dropped the common name from certificate requests
+    author: hk21702
+    type: bugfix
+    description: >
+      The charm removed the common name from certificate requests, preventing TLS
+      certificate issuance failures when application or model names produced an
+      overlong common name. The service was identified through its Kubernetes DNS
+      SAN.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/259"
+    visibility: public
+    highlight: false
