@@ -106,10 +106,10 @@ parts:
   apache-exporter:
     plugin: go
     build-snaps:
-      - go/1.24/stable
+      - go/1.25/stable
     source: https://github.com/Lusitaniae/apache_exporter.git
     source-type: git
-    source-tag: v1.0.12
+    source-tag: v1.1.1
     source-depth: 1
 
   mediawiki:
