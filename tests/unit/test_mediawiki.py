@@ -1764,13 +1764,13 @@ class TestSamlRequiresRedis:
         metadata = container_fs / "etc/simplesamlphp/metadata/saml20-idp-remote.php"
         assert metadata.exists(), "saml20-idp-remote.php should be written"
 
-    def test_saml_with_tls_valkey_writes_ca_configuration(
+    def test_saml_with_tls_valkey_writes_verified_tls_configuration(
         self,
         ctx: testing.Context,
         active_state: testing.State,
         mock_valkey: MockType,
     ) -> None:
-        """Test that SimpleSAMLphp securely connects to a TLS-enabled Valkey store."""
+        """Test that SimpleSAMLphp verifies a TLS-enabled Valkey store."""
         mock_valkey.is_relation_available.return_value = True
         mock_valkey.get_connection_info.return_value = ValkeyConnectionInfo(
             host="valkey-primary",
@@ -1788,8 +1788,9 @@ class TestSamlRequiresRedis:
         config_content = (container_fs / "etc/simplesamlphp/charm-config.php").read_text()
         assert "$config['store.redis.host'] = 'valkey-primary';" in config_content
         assert "$config['store.redis.port'] = 6380;" in config_content
+        assert "$config['store.redis.username'] = 'valkey-user';" in config_content
+        assert "$config['store.redis.password'] = 'valkey-password';" in config_content
         assert "$config['store.redis.tls'] = true;" in config_content
-        assert "$config['store.redis.insecure'] = true;" in config_content
 
     def test_saml_with_redis_available_loads_extension(
         self,

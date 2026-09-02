@@ -1,0 +1,54 @@
+--- a/usr/share/simplesamlphp/lib/SimpleSAML/Store/Redis.php
++++ b/usr/share/simplesamlphp/lib/SimpleSAML/Store/Redis.php
+@@ -4,6 +4,7 @@ declare(strict_types=1);
+ 
+ namespace SimpleSAML\Store;
+ 
++use SimpleSAML\Utils;
+ use Predis\Client;
+ use SimpleSAML\Configuration;
+ use SimpleSAML\Error;
+@@ -38,15 +39,41 @@ class Redis extends Store
+             $port = $config->getInteger('store.redis.port', 6379);
+             $prefix = $config->getString('store.redis.prefix', 'SimpleSAMLphp');
+             $password = $config->getString('store.redis.password', '');
++            $username = $config->getString('store.redis.username', '');
+             $database = $config->getInteger('store.redis.database', 0);
++            $tls = $config->getBoolean('store.redis.tls', false);
++            $scheme = $tls ? 'tls' : 'tcp';
++            $ssl = [];
++
++            if ($tls) {
++                if ($config->getBoolean('store.redis.insecure', false)) {
++                    $ssl['verify_peer'] = false;
++                    $ssl['verify_peer_name'] = false;
++                } else {
++                    $ca = $config->getString('store.redis.ca_certificate', '');
++                    if ($ca !== '') {
++                        $ssl['cafile'] = Utils\Config::getCertPath($ca);
++                    }
++                }
++
++                $cert = $config->getString('store.redis.certificate', '');
++                $key = $config->getString('store.redis.privatekey', '');
++                if ($cert !== '' && $key !== '') {
++                    $ssl['local_cert'] = Utils\Config::getCertPath($cert);
++                    $ssl['local_pk'] = Utils\Config::getCertPath($key);
++                }
++            }
+ 
+             $redis = new Client(
+                 [
+-                    'scheme' => 'tcp',
++                    'scheme' => $scheme,
+                     'host' => $host,
+                     'port' => $port,
+                     'database' => $database,
+-                ] + (!empty($password) ? ['password' => $password] : []),
++                ]
++                + (!empty($ssl) ? ['ssl' => $ssl] : [])
++                + (!empty($username) ? ['username' => $username] : [])
++                + (!empty($password) ? ['password' => $password] : []),
+                 [
+                     'prefix' => $prefix,
+                 ]

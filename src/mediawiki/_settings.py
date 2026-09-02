@@ -712,12 +712,7 @@ class _SettingsMixin(_MediaWikiBase):
                 f"'{utils.escape_php_string(connection.password)}'"
             )
         if connection.tls:
-            config_entries.update(
-                {
-                    "store.redis.tls": "true",
-                    "store.redis.insecure": "true",
-                }
-            )
+            config_entries["store.redis.tls"] = "true"
 
         proxy_config = self._charm.state.proxy_config
         if proxy_config and proxy_config.https_proxy_string:
