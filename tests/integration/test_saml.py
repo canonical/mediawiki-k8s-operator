@@ -215,7 +215,7 @@ def test_saml_login(
     user_page_url = f"{ingress_address}/w/index.php?title=User:{canonical_username}"
     user_page_response = session.get(user_page_url, timeout=requests_timeout)
     assert user_page_response.status_code == 200, (
-        f"Failed to access user page after SAML login: {user_page_response.status_code}"
+        f"Failed to access user page after SAML login: {user_page_response.status_code}, response: {user_page_response.text}"
     )
     assert f"User:{canonical_username}" in user_page_response.text, (
         f"User page for '{canonical_username}' not found after SAML login. "
