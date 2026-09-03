@@ -147,7 +147,7 @@ def mock_s3(mocker: MockerFixture) -> MockType:
         {
             "endpoint": "mocked-s3-endpoint:9000",
             "access-key": "mocked-access-key",
-            "secret-key": "mocked-secret-key",  # nosec: B106
+            "secret-key": "mocked-secret-key",
             "bucket": "mocked-bucket",
         }
     )
@@ -1303,7 +1303,7 @@ class TestS3Settings:
             {
                 "endpoint": "mocked-s3-endpoint:9000",
                 "access-key": "mocked-access-key",
-                "secret-key": "mocked-secret-key",  # nosec: B106
+                "secret-key": "mocked-secret-key",
                 "bucket": "mocked-bucket",
             }
         )
@@ -1330,7 +1330,7 @@ class TestS3Settings:
             {
                 "endpoint": "mocked-s3-endpoint:9000",
                 "access-key": "mocked-access-key",
-                "secret-key": "mocked-secret-key",  # nosec: B106
+                "secret-key": "mocked-secret-key",
                 "bucket": "mocked-bucket",
                 "region": "us-east-1",
             }
@@ -1359,7 +1359,7 @@ class TestS3Settings:
             {
                 "endpoint": "mocked-s3-endpoint:9000",
                 "access-key": "mocked-access-key",
-                "secret-key": "mocked-secret-key",  # nosec: B106
+                "secret-key": "mocked-secret-key",
                 "bucket": "mocked-bucket",
                 "s3-uri-style": "path",
             }
@@ -1387,7 +1387,7 @@ class TestS3Settings:
             {
                 "endpoint": "mocked-s3-endpoint:9000",
                 "access-key": "mocked-access-key",
-                "secret-key": "mocked-secret-key",  # nosec: B106
+                "secret-key": "mocked-secret-key",
                 "bucket": "mocked-bucket",
                 "s3-uri-style": "host",
             }
