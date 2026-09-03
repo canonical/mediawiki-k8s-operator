@@ -10,6 +10,8 @@ import re
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
+from egress import ProxyRouteResolver
+
 if TYPE_CHECKING:
     from charmlibs.pathops import ContainerPath
 
@@ -70,17 +72,9 @@ def ssh_reconcile_config(
     if ssh_key:
         ssh_config_lines.append(f"    IdentityFile {key_file}")
 
-    if proxy_config and proxy_config.http_proxy:
-        proxy_host = str(proxy_config.http_proxy.host)
-        if not proxy_config.http_proxy.port:
-            logger.debug(
-                "Using fallback proxy port 3128 for SSH ProxyCommand "
-                "because proxy configuration did not include a port."
-            )
-        proxy_port = str(proxy_config.http_proxy.port) if proxy_config.http_proxy.port else "3128"
-        ssh_config_lines.append(
-            f"    ProxyCommand socat - PROXY:{proxy_host}:%h:%p,proxyport={proxy_port}"
-        )
+    proxy_command = ProxyRouteResolver(proxy_config).ssh_proxy_command()
+    if proxy_command:
+        ssh_config_lines.append(f"    ProxyCommand {proxy_command}")
     ssh_config = "\n".join(ssh_config_lines) + "\n"
 
     config_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True, **ownership)

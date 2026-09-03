@@ -206,3 +206,16 @@ class TestTunnelServiceRegistry:
         assert resolver.proxy_command("other.example.com", 22) == (
             "socat - PROXY:proxy.example.com:other.example.com:22,proxyport=3128"
         )
+
+    def test_ssh_proxy_command_uses_ssh_placeholders(self) -> None:
+        proxy = ProxyConfig(
+            http_proxy="http://proxy.example.com:3128",  # type: ignore[arg-type]
+            https_proxy=None,
+            no_proxy="git.example.com",
+        )
+
+        resolver = ProxyRouteResolver(proxy)
+
+        assert resolver.ssh_proxy_command() == (
+            "socat - PROXY:proxy.example.com:%h:%p,proxyport=3128"
+        )

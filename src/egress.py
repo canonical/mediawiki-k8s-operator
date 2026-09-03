@@ -62,6 +62,16 @@ class ProxyRouteResolver:
             return None
         return self._connect_command(host, port)
 
+    def ssh_proxy_command(self) -> str | None:
+        """Return an SSH ProxyCommand using SSH's destination placeholders.
+
+        SSH expands ``%h`` and ``%p`` when it invokes the command, so this
+        method cannot apply destination-specific ``no_proxy`` rules.
+        """
+        if self._proxy() is None:
+            return None
+        return self._connect_command("%h", "%p")
+
     def _should_proxy(self, host: str, port: int, prefer_http_proxy: bool = False) -> bool:
         """Return whether a TCP destination should use the HTTP proxy.
 
@@ -123,7 +133,7 @@ class ProxyRouteResolver:
             )
         )
 
-    def _connect_command(self, host: str, port: int) -> str:
+    def _connect_command(self, host: str, port: int | str) -> str:
         """Build a standalone socat HTTP CONNECT command."""
         proxy_host, proxy_port = self._proxy_endpoint()
         return (
