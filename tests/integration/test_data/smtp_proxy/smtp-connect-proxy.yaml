@@ -1,0 +1,78 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+# Ephemeral HTTP CONNECT proxy for SMTP integration testing.
+# It logs each successfully opened tunnel as `CONNECT <host>:<port>` to stdout.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smtp-connect-proxy-script
+data:
+  proxy.py: |
+    import select
+    import socket
+    import socketserver
+
+    class ConnectHandler(socketserver.StreamRequestHandler):
+        def handle(self):
+            request = self.rfile.readline().decode().strip().split()
+            if len(request) != 3 or request[0] != "CONNECT":
+                self.wfile.write(b"HTTP/1.1 405 Method Not Allowed\r\n\r\n")
+                return
+            host, port = request[1].rsplit(":", 1)
+            while self.rfile.readline() not in (b"\r\n", b"\n", b""):
+                pass
+            try:
+                upstream = socket.create_connection((host, int(port)), timeout=10)
+            except OSError:
+                self.wfile.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
+                return
+            print(f"CONNECT {host}:{port}", flush=True)
+            self.wfile.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+            sockets = [self.connection, upstream]
+            while True:
+                readable, _, _ = select.select(sockets, [], [])
+                for source in readable:
+                    data = source.recv(65536)
+                    if not data:
+                        return
+                    (upstream if source is self.connection else self.connection).sendall(data)
+
+    class Server(socketserver.ThreadingTCPServer):
+        allow_reuse_address = True
+
+    Server(("0.0.0.0", 3128), ConnectHandler).serve_forever()
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: smtp-connect-proxy
+  labels:
+    app: smtp-connect-proxy
+spec:
+  containers:
+    - name: proxy
+      image: docker.io/python:3-slim
+      command: [python, /opt/proxy/proxy.py]
+      ports:
+        - containerPort: 3128
+          name: proxy
+      volumeMounts:
+        - name: proxy-script
+          mountPath: /opt/proxy
+  volumes:
+    - name: proxy-script
+      configMap:
+        name: smtp-connect-proxy-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smtp-connect-proxy
+spec:
+  selector:
+    app: smtp-connect-proxy
+  ports:
+    - name: proxy
+      port: 3128
+      targetPort: proxy

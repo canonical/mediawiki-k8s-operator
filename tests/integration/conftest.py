@@ -62,6 +62,12 @@ def app_config(local_settings, ingress_address) -> Generator[dict[str, Any], Non
     }
 
 
+@pytest.fixture(scope="module")
+def model_config_override() -> dict[str, str]:
+    """Return model configuration to apply before deploying MediaWiki."""
+    return {}
+
+
 @pytest.fixture(scope="session", name="juju")
 def juju_fixture(request: pytest.FixtureRequest) -> Generator[jubilant.Juju, None, None]:
     """Pytest fixture that wraps :meth:`jubilant.with_model`."""
@@ -216,6 +222,7 @@ def early_app_fixture(
     db: App,
     traefik: App,
     redis: App,
+    model_config_override: dict[str, str],
     metadata: dict[str, Any],
     pytestconfig: pytest.Config,
     charm_path: str,
@@ -230,10 +237,21 @@ def early_app_fixture(
 
     use_existing = pytestconfig.getoption("--use-existing", default=False)
     if use_existing:
+        if model_config_override:
+            pytest.skip("Model configuration overrides require a fresh MediaWiki deployment")
         yield App(name=app_name)
         return
 
     num_units = pytestconfig.getoption("--num-units")
+    previous_model_config = None
+    if model_config_override:
+        current_model_config = juju.model_config()
+        previous_model_config = {
+            key: current_model_config[key]
+            for key in model_config_override
+            if key in current_model_config
+        }
+        juju.model_config(model_config_override)
     juju.deploy(
         charm=charm_path,
         app=app_name,
@@ -265,6 +283,9 @@ def early_app_fixture(
     )
 
     yield App(name=app_name)
+
+    if previous_model_config is not None:
+        juju.model_config(previous_model_config)
 
 
 @pytest.fixture(scope="module", name="app")

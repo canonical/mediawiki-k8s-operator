@@ -212,5 +212,8 @@ class TunnelServiceRegistry:
         return {
             "override": "replace",
             "summary": "Disabled HTTP CONNECT proxy tunnel",
+            "command": "sleep 60",  # Exiting too early will cause Pebble to consider it a failure that ignores even `on-failure` directives.
             "startup": "disabled",
+            "on-success": "ignore",
+            "on-failure": "ignore",
         }
