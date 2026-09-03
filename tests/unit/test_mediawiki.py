@@ -2291,6 +2291,130 @@ class TestSmtpSettings:
         assert "'host' => 'ssl://mail.example.com'" in late_settings
         assert "'port' => 465" in late_settings
 
+    @pytest.mark.usefixtures("smtp_data_tls")
+    def test_smtp_uses_proxy_tunnel_and_preserves_tls_peer_name(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test that proxied SMTP uses a loopback tunnel and the relay TLS name."""
+        proxy_url = "http://proxy.internal:3128"
+        monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", proxy_url)
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            layer = mgr.charm.mediawiki._pebble_layer()
+
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "'host' => 'ssl://127.0.0.1'" in late_settings
+        assert "'port' => 8125" in late_settings
+        assert "'peer_name' => 'mail.example.com'" in late_settings
+        assert layer["services"]["smtp-proxy"] == {
+            "override": "replace",
+            "summary": "HTTP CONNECT proxy tunnel",
+            "command": (
+                "socat TCP-LISTEN:8125,bind=127.0.0.1,reuseaddr,fork,keepalive "
+                "PROXY:proxy.internal:mail.example.com:465,proxyport=3128,keepalive"
+            ),
+            "startup": "enabled",
+        }
+
+    @pytest.mark.usefixtures("smtp_data_starttls")
+    def test_smtp_bypasses_proxy_for_no_proxy_relay(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test that a relay in no_proxy keeps the direct SMTP endpoint."""
+        monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "http://proxy.internal:3128")
+        monkeypatch.setenv("JUJU_CHARM_NO_PROXY", "mail.example.com")
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            layer = mgr.charm.mediawiki._pebble_layer()
+            state_out = mgr.run()
+
+        late_settings = (
+            state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+            / "etc/mediawiki/LateSettings.php"
+        ).read_text()
+
+        assert "'host' => 'mail.example.com'" in late_settings
+        assert "'port' => 587" in late_settings
+        assert layer["services"]["smtp-proxy"]["startup"] == "disabled"
+
+    def test_running_tunnel_remains_active_when_relation_goes_away(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_container: testing.Container,
+        mock_smtp: MockType,
+    ) -> None:
+        """Test that losing the SMTP relation replaces a running tunnel service definition."""
+        mock_smtp.has_relation.return_value = False
+        tunnel_command = (
+            "socat TCP-LISTEN:8125,bind=127.0.0.1,reuseaddr,fork PROXY:proxy:relay:465"
+        )
+        running_tunnel = dataclasses.replace(
+            mediawiki_container,
+            layers={
+                "mediawiki": pebble.Layer(
+                    {
+                        "services": {
+                            "smtp-proxy": {
+                                "override": "replace",
+                                "command": tunnel_command,
+                                "startup": "enabled",
+                            }
+                        }
+                    }
+                )
+            },
+            service_statuses={"smtp-proxy": pebble.ServiceStatus.ACTIVE},
+        )
+        state_in = dataclasses.replace(
+            active_state,
+            containers=[running_tunnel, active_state.get_container("git-sync")],
+        )
+
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mgr.charm.mediawiki._get_smtp_settings()
+            mgr.charm.mediawiki._reconcile_services()
+            plan = mgr.charm.unit.get_container(Charm._CONTAINER_NAME).get_plan()
+            is_running = (
+                mgr.charm.unit.get_container(Charm._CONTAINER_NAME)
+                .get_service("smtp-proxy")
+                .is_running()
+            )
+
+        assert is_running
+        assert plan.services["smtp-proxy"].command != tunnel_command
+        assert plan.services["smtp-proxy"].startup == "disabled"
+
+    def test_inactive_reconciliation_does_not_read_smtp_data(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_smtp: MockType,
+    ) -> None:
+        """Test that malformed SMTP data cannot prevent service shutdown."""
+        mock_smtp.get_relation_data.side_effect = MediaWikiBlockedStatusException(
+            "Error fetching smtp relation data."
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_services(active=False)
+
+        mock_smtp.get_relation_data.assert_not_called()
+
     def test_smtp_no_auth(
         self,
         ctx: testing.Context,

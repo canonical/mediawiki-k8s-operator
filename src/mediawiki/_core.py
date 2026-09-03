@@ -15,6 +15,7 @@ from ops import pebble
 import utils
 from auth import OAuth, Saml
 from database import Database
+from egress import ProxyRouteResolver, TunnelServiceRegistry
 from exceptions import (
     MediaWikiBlockedStatusException,
     MediaWikiInstallError,
@@ -59,6 +60,8 @@ class MediaWiki(
     _CLAMD_SERVICE_NAME = "clamd"
     _MEDIAWIKI_API_READY_CHECK = "mediawiki-api-ready"
     _MEDIAWIKI_CHECKS = (_MEDIAWIKI_API_READY_CHECK,)
+    _SMTP_PROXY_SERVICE_NAME = "smtp-proxy"
+    _SMTP_PROXY_PORT = 8125
 
     def __init__(
         self,
@@ -82,6 +85,7 @@ class MediaWiki(
         self._smtp = smtp
         self._peers = peers
         self._tls = tls
+        self._tunnel_services = TunnelServiceRegistry(ProxyRouteResolver(charm.state.proxy_config))
 
     @property
     def _logs_path(self) -> ContainerPath:
@@ -251,6 +255,7 @@ class MediaWiki(
             "summary": "mediawiki layer",
             "description": "Pebble layer configuration for MediaWiki",
             "services": {
+                **self._tunnel_services.pebble_services(),
                 self._SERVICE_NAME: {
                     "override": "replace",
                     "summary": "MediaWiki service (apache)",
@@ -338,6 +343,8 @@ class MediaWiki(
         """Privately reconcile MediaWiki services and checks."""
         if not self._container.can_connect():
             raise MediaWikiWaitingStatusException("Waiting for pebble")
+        if not active:
+            self._tunnel_services.register(self._SMTP_PROXY_SERVICE_NAME, self._SMTP_PROXY_PORT)
         self._container.add_layer(self._SERVICE_NAME, self._pebble_layer(), combine=True)
         self._container.replan()
 
@@ -358,10 +365,16 @@ class MediaWiki(
         for service in services_to_run:
             if service in services and not self._container.get_service(service).is_running():
                 self._container.start(service)
-        if active and restart_required and mediawiki_is_running:
-            self._container.restart(self._SERVICE_NAME)
         if active:
-            self._reconcile_checks(active=True)
+            self._finish_active_service_reconciliation(restart_required, mediawiki_is_running)
+
+    def _finish_active_service_reconciliation(
+        self, restart_required: bool, mediawiki_is_running: bool
+    ) -> None:
+        """Apply active-only service actions after the Pebble plan is reconciled."""
+        if restart_required and mediawiki_is_running:
+            self._container.restart(self._SERVICE_NAME)
+        self._reconcile_checks(active=True)
 
     def create_and_promote_user(
         self,
