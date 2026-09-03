@@ -8,7 +8,7 @@
  use Predis\Client;
  use SimpleSAML\Configuration;
  use SimpleSAML\Error;
-@@ -38,15 +39,41 @@ class Redis extends Store
+@@ -38,15 +39,40 @@ class Redis extends Store
              $port = $config->getInteger('store.redis.port', 6379);
              $prefix = $config->getString('store.redis.prefix', 'SimpleSAMLphp');
              $password = $config->getString('store.redis.password', '');
@@ -43,7 +43,7 @@
 +                    'scheme' => $scheme,
                      'host' => $host,
                      'port' => $port,
-                     'database' => $database,
+-                    'database' => $database,
 -                ] + (!empty($password) ? ['password' => $password] : []),
 +                ]
 +                + (!empty($ssl) ? ['ssl' => $ssl] : [])
