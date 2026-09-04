@@ -2320,7 +2320,7 @@ class TestSmtpSettings:
             "override": "replace",
             "summary": "HTTP CONNECT proxy tunnel",
             "command": (
-                "socat TCP-LISTEN:8125,bind=127.0.0.1,reuseaddr,fork,keepalive "
+                "/usr/bin/socat TCP-LISTEN:8125,bind=127.0.0.1,reuseaddr,fork,keepalive "
                 "PROXY:proxy.internal:mail.example.com:465,proxyport=3128,keepalive"
             ),
             "startup": "enabled",
@@ -2361,7 +2361,7 @@ class TestSmtpSettings:
         """Test that losing the SMTP relation replaces a running tunnel service definition."""
         mock_smtp.has_relation.return_value = False
         tunnel_command = (
-            "socat TCP-LISTEN:8125,bind=127.0.0.1,reuseaddr,fork PROXY:proxy:relay:465"
+            "/usr/bin/socat TCP-LISTEN:8125,bind=127.0.0.1,reuseaddr,fork PROXY:proxy:relay:465"
         )
         running_tunnel = dataclasses.replace(
             mediawiki_container,

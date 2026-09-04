@@ -127,7 +127,7 @@ class ProxyRouteResolver:
         proxy_target = f"PROXY:{proxy_host}:{host}:{port},proxyport={proxy_port},keepalive"
         return " ".join(
             (
-                "socat",
+                "/usr/bin/socat",
                 f"TCP-LISTEN:{local_port},bind=127.0.0.1,reuseaddr,fork,keepalive",
                 shlex.quote(proxy_target),
             )
@@ -137,7 +137,7 @@ class ProxyRouteResolver:
         """Build a standalone socat HTTP CONNECT command."""
         proxy_host, proxy_port = self._proxy_endpoint()
         return (
-            f"socat - PROXY:{shlex.quote(proxy_host)}:{shlex.quote(host)}:{port},"
+            f"/usr/bin/socat - PROXY:{shlex.quote(proxy_host)}:{shlex.quote(host)}:{port},"
             f"proxyport={proxy_port}"
         )
 

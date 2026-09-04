@@ -77,7 +77,7 @@ class TestTunnelServiceRegistry:
 
         assert registry.register("smtp-proxy", 8125, "mail.example.com", 587)
         assert registry.pebble_services()["smtp-proxy"].get("command") == (
-            "socat TCP-LISTEN:8125,bind=127.0.0.1,reuseaddr,fork,keepalive "
+            "/usr/bin/socat TCP-LISTEN:8125,bind=127.0.0.1,reuseaddr,fork,keepalive "
             "PROXY:proxy.example.com:mail.example.com:587,proxyport=3128,keepalive"
         )
 
@@ -92,7 +92,7 @@ class TestTunnelServiceRegistry:
 
         assert registry.register("smtp-proxy", 8125, "mail.example.com", 587)
         assert registry.pebble_services()["smtp-proxy"].get("command") == (
-            "socat TCP-LISTEN:8125,bind=127.0.0.1,reuseaddr,fork,keepalive "
+            "/usr/bin/socat TCP-LISTEN:8125,bind=127.0.0.1,reuseaddr,fork,keepalive "
             "PROXY:secure-proxy.example.com:mail.example.com:587,proxyport=8443,keepalive"
         )
 
@@ -204,7 +204,7 @@ class TestTunnelServiceRegistry:
 
         assert resolver.proxy_command("git.example.com", 22) is None
         assert resolver.proxy_command("other.example.com", 22) == (
-            "socat - PROXY:proxy.example.com:other.example.com:22,proxyport=3128"
+            "/usr/bin/socat - PROXY:proxy.example.com:other.example.com:22,proxyport=3128"
         )
 
     def test_ssh_proxy_command_uses_ssh_placeholders(self) -> None:
@@ -217,5 +217,5 @@ class TestTunnelServiceRegistry:
         resolver = ProxyRouteResolver(proxy)
 
         assert resolver.ssh_proxy_command() == (
-            "socat - PROXY:proxy.example.com:%h:%p,proxyport=3128"
+            "/usr/bin/socat - PROXY:proxy.example.com:%h:%p,proxyport=3128"
         )
