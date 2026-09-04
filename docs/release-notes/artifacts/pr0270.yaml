@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Added Valkey TLS CA certificate support
+    author: hk21702
+    type: minor
+    description: >
+      The charm now installs the CA certificate provided through the Valkey
+      relation when configuring a TLS-enabled Valkey cache. This removes the
+      need to configure a separate certificate-transfer relation when Valkey
+      provides TLS client certificates, while preserving certificates from that
+      relation.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/270"
+    visibility: public
+    highlight: false

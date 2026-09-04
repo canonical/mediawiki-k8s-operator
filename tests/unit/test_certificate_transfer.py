@@ -55,6 +55,52 @@ def test_reconcile_writes_bundle_and_refreshes_trust_store(mocker) -> None:
     )
 
 
+def test_reconcile_merges_additional_certificates(mocker) -> None:
+    """Additional certificates are included in the managed trust bundle."""
+    path = mocker.Mock()
+    path.exists.return_value = False
+    mocker.patch("certificate_transfer.ContainerPath", return_value=path)
+    ensure_contents = mocker.patch("certificate_transfer.ensure_contents", return_value=True)
+    reconciler = _reconciler(mocker, {"receive-ca"})
+
+    assert reconciler.reconcile(additional_certificates=["valkey-ca"]) is True
+
+    ensure_contents.assert_called_once_with(
+        path,
+        "receive-ca\nvalkey-ca\n",
+        mode=0o644,
+        user="root",
+        group="root",
+    )
+
+
+def test_reconcile_deduplicates_additional_certificates(mocker) -> None:
+    """A certificate supplied by both sources appears only once in the bundle."""
+    path = mocker.Mock()
+    path.exists.return_value = False
+    mocker.patch("certificate_transfer.ContainerPath", return_value=path)
+    ensure_contents = mocker.patch("certificate_transfer.ensure_contents", return_value=True)
+    reconciler = _reconciler(mocker, {"certificate"})
+
+    assert reconciler.reconcile(additional_certificates=["certificate"]) is True
+
+    assert ensure_contents.call_args.args[1] == "certificate\n"
+
+
+def test_reconcile_removes_valkey_certificate_but_keeps_transferred(mocker) -> None:
+    """Removing an additional certificate preserves transferred certificates."""
+    path = mocker.Mock()
+    path.exists.return_value = True
+    path.read_text.return_value = "receive-ca\nvalkey-ca\n"
+    mocker.patch("certificate_transfer.ContainerPath", return_value=path)
+    ensure_contents = mocker.patch("certificate_transfer.ensure_contents", return_value=True)
+    reconciler = _reconciler(mocker, {"receive-ca"})
+
+    assert reconciler.reconcile() is True
+
+    assert ensure_contents.call_args.args[1] == "receive-ca\n"
+
+
 def test_reconcile_does_not_refresh_unchanged_bundle(mocker) -> None:
     """An unchanged bundle does not trigger a trust-store refresh."""
     path = mocker.Mock()
