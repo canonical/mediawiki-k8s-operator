@@ -42,7 +42,7 @@ def mock_mediawiki(mocker: MockerFixture) -> MockType:
 
     # Setup default return values or side effects
     mock_instance.reconciliation.side_effect = reconcile_with_workload
-    mock_instance.create_and_promote_user.return_value = "mocked-password"  # nosec: B105
+    mock_instance.create_and_promote_user.return_value = "mocked-password"
     mock_instance.update_database_schema.return_value = None
     mock_instance._reconcile_configuration.return_value = False
     mock_instance.runner_queue_service_is_ready.return_value = False

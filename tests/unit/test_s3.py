@@ -136,7 +136,7 @@ class TestGetRelationData:
             assert data.endpoint == valid_s3_data["endpoint"]
             assert data.bucket == valid_s3_data["bucket"]
             assert data.access_key == valid_s3_data["access-key"]
-            assert data.secret_key == valid_s3_data["secret-key"]  # nosec: B105
+            assert data.secret_key == valid_s3_data["secret-key"]
             assert data.region == valid_s3_data["region"]
             assert data.s3_uri_style == valid_s3_data["s3-uri-style"]
 
@@ -183,7 +183,7 @@ class TestGetRelationData:
             assert data.endpoint == minimal_data["endpoint"]
             assert data.bucket == minimal_data["bucket"]
             assert data.access_key == minimal_data["access-key"]
-            assert data.secret_key == minimal_data["secret-key"]  # nosec: B105
+            assert data.secret_key == minimal_data["secret-key"]
             assert data.region is None
             assert data.s3_uri_style is None
 

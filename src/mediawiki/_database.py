@@ -450,7 +450,7 @@ class _DatabaseMixin(_MediaWikiBase):
         to it are rejected), so a non-empty table is surfaced rather than corrupted. The table name
         comes from trusted constants, so interpolation is safe.
         """
-        cursor.execute(f"SELECT 1 FROM `{table}` LIMIT 1;")  # noqa: S608  # nosec: B608
+        cursor.execute(f"SELECT 1 FROM `{table}` LIMIT 1;")  # noqa: S608 # nosec
         return cursor.fetchone() is not None
 
     @staticmethod
