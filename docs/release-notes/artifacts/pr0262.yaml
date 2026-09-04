@@ -1,0 +1,14 @@
+version_schema: 2
+
+changes:
+  - title: Routed SMTP traffic through an egress proxy
+    author: hk21702
+    type: bugfix
+    description: >
+      The charm passed SMTP traffic through an HTTP CONNECT proxy when required,
+      allowing deployments with restricted egress to send email successfully.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/262"
+    visibility: public
+    highlight: false

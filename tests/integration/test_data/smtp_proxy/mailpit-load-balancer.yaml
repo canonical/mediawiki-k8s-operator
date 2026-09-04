@@ -1,0 +1,58 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+# Ephemeral Mailpit SMTP relay exposed through a MetalLB LoadBalancer service.
+# Used by the SMTP proxy integration test. The load balancer address is outside
+# the model's cluster-local no-proxy configuration, forcing the HTTP CONNECT
+# tunnel path.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mailpit-proxy-test
+  labels:
+    app: mailpit-proxy-test
+spec:
+  initContainers:
+    - name: cert-gen
+      image: docker.io/ubuntu:latest
+      command: [sh, -c]
+      args:
+        - >-
+          apt-get update -qq && apt-get install -y -qq openssl &&
+          openssl req -x509 -newkey rsa:2048 -keyout /certs/tls.key
+          -out /certs/tls.crt -days 1 -nodes -subj /CN=mailpit
+      volumeMounts:
+        - name: certs
+          mountPath: /certs
+  containers:
+    - name: mailpit
+      image: docker.io/axllent/mailpit:latest
+      args:
+        - --smtp-tls-cert=/certs/tls.crt
+        - --smtp-tls-key=/certs/tls.key
+        - --smtp-require-tls
+        - --smtp-auth-accept-any
+      ports:
+        - containerPort: 1025
+          name: smtp
+        - containerPort: 8025
+          name: http
+      volumeMounts:
+        - name: certs
+          mountPath: /certs
+  volumes:
+    - name: certs
+      emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailpit-smtp-proxy-test
+spec:
+  type: LoadBalancer
+  selector:
+    app: mailpit-proxy-test
+  ports:
+    - name: smtp
+      port: 1025
+      targetPort: smtp

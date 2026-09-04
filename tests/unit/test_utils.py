@@ -253,8 +253,7 @@ class TestSshReconcileConfig:
 
         written = config_file.write_text.call_args[0][0]
         assert "ProxyCommand" in written
-        assert "proxy.example.com" in written
-        assert "8080" in written
+        assert "/usr/bin/socat - PROXY:proxy.example.com:%h:%p,proxyport=8080" in written
 
     def test_owner_passed_through(self) -> None:
         """Test that owner is passed to mkdir and write_text calls."""

@@ -213,6 +213,8 @@ The ``smtp`` relation connects MediaWiki to SMTP relay configuration through the
 
 When available, the charm configures MediaWiki's SMTP settings including relay host, port, authentication, and optional sender address. If relation data is incomplete or malformed, outgoing email is disabled until valid data is provided.
 
+When the Juju model has an HTTP proxy configured, SMTP traffic uses that proxy unless the relay host matches ``JUJU_CHARM_NO_PROXY``.
+
 Example ``smtp`` integrate command:
 
 .. code-block:: bash

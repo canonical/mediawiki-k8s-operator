@@ -392,19 +392,28 @@ class _SettingsMixin(_MediaWikiBase):
             MediaWikiWaitingStatusException: If the SMTP relation is not yet available.
         """
         if not self._smtp.has_relation():
+            self._tunnel_services.register(self._SMTP_PROXY_SERVICE_NAME, self._SMTP_PROXY_PORT)
             return ""
 
         smtp_data = self._smtp.get_relation_data()
+        smtp_uses_tunnel = self._tunnel_services.register(
+            self._SMTP_PROXY_SERVICE_NAME,
+            self._SMTP_PROXY_PORT,
+            smtp_data.host,
+            smtp_data.port,
+        )
+        smtp_host = "127.0.0.1" if smtp_uses_tunnel else smtp_data.host
+        smtp_port = self._SMTP_PROXY_PORT if smtp_uses_tunnel else smtp_data.port
 
         host = (
-            f"ssl://{smtp_data.host}"
+            f"ssl://{smtp_host}"
             if smtp_data.transport_security == smtp.TransportSecurity.TLS
-            else smtp_data.host
+            else smtp_host
         )
 
         wg_smtp_entries = [
             f"'host' => '{utils.escape_php_string(host)}'",
-            f"'port' => {smtp_data.port}",
+            f"'port' => {smtp_port}",
             f"'auth' => {str(smtp_data.auth_type == smtp.AuthType.PLAIN).lower()}",
         ]
 
@@ -416,10 +425,17 @@ class _SettingsMixin(_MediaWikiBase):
                 f"'password' => '{utils.escape_php_string(smtp_data.password)}'"
             )
 
+        ssl_options: list[str] = []
         if smtp_data.skip_ssl_verify:
             # https://github.com/pear/Net_SMTP/blob/68420118ac8f9dfe5c4b8cac1bdb955efcd4be21/docs/guide.txt#id3
+            ssl_options.extend(["'verify_peer' => false", "'verify_peer_name' => false"])
+
+        if smtp_uses_tunnel and smtp_data.transport_security != smtp.TransportSecurity.NONE:
+            ssl_options.append(f"'peer_name' => '{utils.escape_php_string(smtp_data.host)}'")
+
+        if ssl_options:
             wg_smtp_entries.append(
-                "'socket_options' => array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false))"
+                "'socket_options' => array('ssl' => array(" + ", ".join(ssl_options) + "))"
             )
 
         entries_str = textwrap.indent(
