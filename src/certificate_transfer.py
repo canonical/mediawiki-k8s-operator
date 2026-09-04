@@ -60,8 +60,12 @@ class CertificateTransfer(ContainerService, Object):
             raise MediaWikiWaitingStatusException("Certificate transfer relation is not ready")
         return self._transfer.get_all_certificates()
 
-    def reconcile(self) -> bool:
+    def reconcile(self, additional_certificates: Iterable[str] = ()) -> bool:
         """Install received CA certificates and refresh the system trust store.
+
+        Args:
+            additional_certificates: Certificates from sources other than the certificate
+                transfer relation.
 
         Returns:
             Whether the managed trust bundle changed.
@@ -72,7 +76,7 @@ class CertificateTransfer(ContainerService, Object):
                 refreshed.
             MediaWikiWaitingStatusException: If an active relation is not ready.
         """
-        desired_bundle = self._build_bundle(self._get_certificates())
+        desired_bundle = self._build_bundle([*self._get_certificates(), *additional_certificates])
 
         try:
             path = ContainerPath(self.CA_CERTIFICATE_PATH, container=self._container)

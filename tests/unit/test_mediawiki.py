@@ -1606,6 +1606,7 @@ class TestCacheSettings:
             username="valkey-user",
             password="valkey-password",  # nosec: B106
             tls=True,
+            tls_ca="valkey-ca",
         )
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
@@ -1617,6 +1618,11 @@ class TestCacheSettings:
         assert "tls://valkey-primary:6380" in late_settings
         assert "'password'             => [ 'valkey-user', 'valkey-password' ]" in late_settings
         assert "'username'" not in late_settings
+
+        ca_path = (
+            container_fs / certificate_transfer.CertificateTransfer.CA_CERTIFICATE_PATH.lstrip("/")
+        )
+        assert ca_path.read_text() == "valkey-ca\n"
 
         runner_config = json.loads(
             (container_fs / constants.JOB_RUNNER_CONFIG_PATH.lstrip("/")).read_text()

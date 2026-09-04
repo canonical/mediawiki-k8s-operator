@@ -222,7 +222,6 @@ def early_app_fixture(
     db: App,
     traefik: App,
     valkey: App,
-    ssc: App,
     model_config_override: dict[str, str],
     metadata: dict[str, Any],
     pytestconfig: pytest.Config,
@@ -276,7 +275,6 @@ def early_app_fixture(
 
     juju.integrate(app_name, traefik.name)
     juju.integrate(app_name, db.name)
-    juju.integrate(f"{app_name}:receive-ca-cert", f"{ssc.name}:send-ca-cert")
     juju.integrate(f"{app_name}:valkey", f"{valkey.name}:valkey-client")
     juju.wait(
         jubilant.all_active,

@@ -62,6 +62,7 @@ class ExecCmd(enum.Enum):
         constants.STATIC_ASSETS_REPO_PATH,
         constants.WEBROOT_STATIC_PATH,
     )
+    UPDATE_CA_CERTIFICATES = ("update-ca-certificates",)
 
     def ran_in(self, exec_history: list) -> bool:
         """Return True if this command was executed (all tokens present in some command)."""
@@ -231,6 +232,10 @@ def execs() -> Generator[set[testing.Exec], None, None]:
         ),
         testing.Exec(
             ExecCmd.SYMLINK_STATIC_ASSETS.value,
+            return_code=0,
+        ),
+        testing.Exec(
+            ExecCmd.UPDATE_CA_CERTIFICATES.value,
             return_code=0,
         ),
     }

@@ -192,7 +192,15 @@ class MediaWiki(
             raise MediaWikiBlockedStatusException("Database relation is not ready")
         config = self._charm.load_charm_config()
         force = force or peer_state.force_reconciliation
-        certificate_transfer_changed = self._certificate_transfer.reconcile()
+        cache_connection = self._cache.get_connection_info()
+        additional_certificates = (
+            [cache_connection.tls_ca]
+            if cache_connection is not None and cache_connection.tls_ca
+            else []
+        )
+        certificate_transfer_changed = self._certificate_transfer.reconcile(
+            additional_certificates=additional_certificates
+        )
         tls_changed = self._tls_reconciliation()
         self._logs_path.mkdir(
             exist_ok=True,
