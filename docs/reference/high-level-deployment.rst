@@ -45,13 +45,13 @@ The following diagram shows a typical, fully featured deployment of the MediaWik
          IngressConfig["ingress-configurator"]
          MediaWiki["mediawiki-k8s"]
          MySQLRouter["mysql-router-k8s"]
-         Redis["redis-k8s"]
+         Valkey["valkey"]
          S3Int["s3-integrator"]
          SMTPInt["smtp-integrator"]
          OtelCol["opentelemetry-<br/>collector-k8s"]
 
          IngressConfig ---|"upstream-ingress<br/>(ingress)"| Traefik ---|"traefik-route<br/>(traefik_route)"| MediaWiki
-         Redis ---|"redis"| MediaWiki
+         Valkey ---|"valkey"| MediaWiki
          MediaWiki ---|"database<br/>(mysql_client)"| MySQLRouter
          MediaWiki ---|"s3-parameters<br/>(s3)"| S3Int
          MediaWiki ---|"smtp<br/>(smtp)"| SMTPInt
@@ -89,7 +89,7 @@ Components
      - Bridges Traefik to an external HAProxy deployment via ``haproxy-route``
    * - **mysql-router-k8s**
      - Routes database queries to an external MySQL cluster
-   * - **redis-k8s**
+   * - **valkey**
      - Provides caching and asynchronous job execution
    * - **s3-integrator**
      - Supplies S3 credentials for user file uploads

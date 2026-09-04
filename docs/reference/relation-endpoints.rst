@@ -51,6 +51,24 @@ Example ``certificates`` integrate command:
 
    juju integrate mediawiki-k8s:certificates self-signed-certificates:certificates
 
+.. _reference_relation_endpoints_certificate_transfer:
+
+Certificate transfer
+--------------------
+
+* **Interface**: `certificate_transfer <https://charmhub.io/integrations/certificate_transfer>`_
+* **Supported charms**: `self-signed-certificates <https://charmhub.io/self-signed-certificates>`_
+
+The optional ``receive-ca-cert`` relation receives CA certificates from an external certificate authority and installs them in MediaWiki's system-wide workload trust store. The certificates are available to all TLS clients in the workload, including PHP and the Redis-compatible cache clients. The charm assumes that certificates supplied by the provider are valid CA certificates and applies them through the system trust-store update.
+
+The charm accepts multiple ``receive-ca-cert`` relations. Certificates are combined into a charm-managed bundle at ``/usr/local/share/ca-certificates/certificate-transfer-ca.crt`` and the system trust store is refreshed when that bundle changes.
+
+Example ``receive-ca-cert`` integrate command:
+
+.. code-block:: bash
+
+   juju integrate mediawiki-k8s:receive-ca-cert self-signed-certificates:send-ca-cert
+
 .. _reference_relation_endpoints_grafana_dashboard:
 
 Grafana dashboard
@@ -136,7 +154,7 @@ Redis
 * **Interface**: `redis <https://charmhub.io/integrations/redis>`_
 * **Supported charms**: `redis-k8s <https://charmhub.io/redis-k8s>`_
 
-The ``redis`` relation connects MediaWiki to a Redis instance, allowing for caching of MediaWiki data in Redis. This can improve the performance of your MediaWiki instance.
+The ``redis`` relation connects MediaWiki to a Redis instance, allowing for caching of MediaWiki data in Redis. This can improve the performance of your MediaWiki instance. Use the :ref:`Valkey <reference_relation_endpoints_valkey>` relation for new deployments.
 
 Example ``redis`` integrate command:
 
@@ -147,6 +165,22 @@ Example ``redis`` integrate command:
 .. seealso::
 
    Read more about how MediaWiki uses Redis as an object cache backend: `Redis <https://www.mediawiki.org/wiki/Redis>`__
+
+.. _reference_relation_endpoints_valkey:
+
+Valkey
+------
+
+* **Interface**: `valkey_client <https://charmhub.io/integrations/valkey_client>`_
+* **Supported charms**: `valkey <https://charmhub.io/valkey>`_
+
+The ``valkey`` relation connects MediaWiki to a Valkey instance for caching and asynchronous job execution. Redis and Valkey are mutually exclusive.
+
+Example ``valkey`` integrate command:
+
+.. code-block:: bash
+
+   juju integrate mediawiki-k8s valkey:valkey-client
 
 .. _reference_relation_endpoints_saml:
 
@@ -164,7 +198,7 @@ This is accomplished using the `SimpleSAMLphp MediaWiki extension <https://www.m
    While the ``saml`` relation will function while configuring MediaWiki to use a HTTP or protocol-relative URL, it is **highly** recommended to explicitly allow only HTTPS in a production environment.
 
 .. important::
-   The :ref:`Redis <reference_relation_endpoints_redis>` relation is **required** when using SAML, as SimpleSAMLphp uses Redis as its session store.
+   The :ref:`Redis <reference_relation_endpoints_redis>` or :ref:`Valkey <reference_relation_endpoints_valkey>` relation is **required** when using SAML, as SimpleSAMLphp uses the cache relation as its session store.
 
 Example ``saml`` integrate command:
 

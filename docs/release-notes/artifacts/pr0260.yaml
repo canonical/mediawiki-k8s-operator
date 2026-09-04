@@ -1,0 +1,18 @@
+version_schema: 2
+
+changes:
+  - title: Added Valkey cache support
+    author: hk21702
+    type: major
+    description: >
+      The charm now supports Valkey for MediaWiki caching and asynchronous job
+      execution through the new `valkey` relation. Valkey and Redis relations are
+      mutually exclusive. The charm also accepts CA certificates through the
+      optional `receive-ca-cert` relation, enabling secure TLS connections to
+      Valkey and other workload clients.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/260"
+      related_doc: "https://documentation.ubuntu.com/mediawiki-k8s-charm/reference/relation-endpoints/"
+    visibility: public
+    highlight: true

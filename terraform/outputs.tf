@@ -21,6 +21,7 @@ output "requires" {
     database      = "database"
     logging       = "logging"
     oauth         = "oauth"
+    valkey        = "valkey"
     redis         = "redis"
     s3_parameters = "s3-parameters"
     saml          = "saml"

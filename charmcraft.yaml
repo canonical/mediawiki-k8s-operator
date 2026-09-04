@@ -23,6 +23,8 @@ platforms:
 charm-libs:
   - lib: data_platform_libs.data_interfaces
     version: "0"
+  - lib: certificate_transfer_interface.certificate_transfer
+    version: "1"
   - lib: data_platform_libs.s3
     version: "0"
   - lib: grafana_k8s.grafana_dashboard
@@ -283,11 +285,13 @@ provides:
   metrics-endpoint:
     interface: prometheus_scrape
     optional: true
-
 requires:
   certificates:
     interface: tls-certificates
     limit: 1
+    optional: true
+  receive-ca-cert:
+    interface: certificate_transfer
     optional: true
   #TODO: Switch to ingress once gateway-api-integrator supports an upstream ingress, or once we can connect to HAProxy more directly.
   traefik-route:
@@ -302,6 +306,10 @@ requires:
     optional: true
   oauth:
     interface: oauth
+    limit: 1
+    optional: true
+  valkey:
+    interface: valkey_client
     limit: 1
     optional: true
   redis:

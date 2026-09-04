@@ -102,6 +102,8 @@ parts:
       # Add charm-config include to config.php so the charm can override specific
       # keys without replacing the entire default configuration.
       git -C "$CRAFT_OVERLAY" apply "$CRAFT_PART_SRC/simplesamlphp-charm-config-include.patch"
+      # Backport Redis TLS and ACL authentication support from SimpleSAMLphp 2.1.
+      git -C "$CRAFT_OVERLAY" apply "$CRAFT_PART_SRC/simplesamlphp-redis-tls.patch"
 
   apache-exporter:
     plugin: go
@@ -174,6 +176,10 @@ parts:
       - php-xml
     override-build: |
       craftctl default
+
+      # Add TLS transport support to the pinned job-runner source.
+      git -C "${CRAFT_PART_BUILD}" apply \
+        "${CRAFT_PROJECT_DIR}/files/patches/jobrunner-tls-options.patch"
 
       COMPOSER_ALLOW_SUPERUSER=1 \
       composer update --no-dev -n -d "${CRAFT_PART_BUILD}"

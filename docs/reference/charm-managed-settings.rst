@@ -74,10 +74,10 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
      - 
    * - `$wgJobRunRate <https://www.mediawiki.org/wiki/Manual:$wgJobRunRate>`__
      - .. centered:: :bdg-warning:`Partially`
-     - This is set to 0 when the :ref:`redis relation <reference_relation_endpoints_redis>` is in use, disabling web request triggered job runs. Instead, jobs are handled by an asynchronous job runner.
+     - This is set to 0 when the :ref:`Redis <reference_relation_endpoints_redis>` or :ref:`Valkey <reference_relation_endpoints_valkey>` relation is in use, disabling web request triggered job runs. Instead, jobs are handled by an asynchronous job runner.
    * - `$wgJobTypeConf['default'] <https://www.mediawiki.org/wiki/Manual:$wgJobTypeConf>`__
      - .. centered:: :bdg-warning:`Partially`
-     - This is only set when the :ref:`redis relation <reference_relation_endpoints_redis>` is in use.
+     - This is only set when the :ref:`Redis <reference_relation_endpoints_redis>` or :ref:`Valkey <reference_relation_endpoints_valkey>` relation is in use.
    * - `$wgLocalisationCacheConf['manualRecache'] <https://www.mediawiki.org/wiki/Manual:$wgLocalisationCacheConf>`__
      - .. centered:: :bdg-danger:`No`
      - Set to ``true``. The localisation cache is automatically rebuilt asynchronously when required.
@@ -89,7 +89,7 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
      - 
    * - `$wgObjectCaches['redis'] <https://www.mediawiki.org/wiki/Manual:$wgObjectCaches>`__
      - .. centered:: :bdg-warning:`Partially`
-     - This is only set when the :ref:`redis relation <reference_relation_endpoints_redis>` is in use.
+     - This is only set when the :ref:`Redis <reference_relation_endpoints_redis>` or :ref:`Valkey <reference_relation_endpoints_valkey>` relation is in use.
    * - `$wgPasswordSender <https://www.mediawiki.org/wiki/Manual:$wgPasswordSender>`__
      - .. centered:: :bdg-warning:`Partially`
      - This is set when the :ref:`smtp relation <reference_relation_endpoints_smtp>` includes a sender address.

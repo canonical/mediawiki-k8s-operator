@@ -167,7 +167,6 @@ class _SettingsMixin(_MediaWikiBase):
         # the config file is always in a consistent state
         if deferred_error:
             raise deferred_error
-
         return changed
 
     def _push_local_settings(self, config: CharmConfig) -> bool:
@@ -257,11 +256,10 @@ class _SettingsMixin(_MediaWikiBase):
         Returns:
             str: The cache settings formatted as a PHP string.
         """
-        if (not self._redis.is_relation_available()) or (
-            not (endpoint := self._redis.get_endpoint())
-        ):
+        connection = self._cache.get_connection_info()
+        if connection is None:
             logger.debug(
-                "Redis relation is not available or incomplete, using default cache settings."
+                "Key-value store relation is not available or incomplete, using default cache settings."
             )
             self._job_runner_config.unlink(missing_ok=True)
             return (
@@ -271,6 +269,30 @@ class _SettingsMixin(_MediaWikiBase):
                 """)
                 + "\n"
             )
+
+        endpoint = connection.endpoint
+        redis_server = f"tls://{endpoint}" if connection.tls else endpoint
+        password_entry = ""  # nosec: B105
+        redis_config_php = "[]"
+        if connection.username and connection.password:
+            escaped_username = utils.escape_php_string(connection.username)
+            escaped_password = utils.escape_php_string(connection.password)
+            password_php = f"[ '{escaped_username}', '{escaped_password}' ]"
+            password_entry = f"\n                'password'             => {password_php},"
+            redis_config_php = f"[ 'password' => {password_php} ]"
+
+        redis_config: dict[str, object] = {
+            "aggregators": [endpoint],
+            "queues": [endpoint],
+        }
+        if connection.username and connection.password:
+            redis_config.update(
+                {
+                    "password": [connection.username, connection.password],
+                }
+            )
+        if connection.tls:
+            redis_config["tls"] = {}
 
         job_runner_config = {
             "groups": {
@@ -307,10 +329,7 @@ class _SettingsMixin(_MediaWikiBase):
                 },
                 "memory": {"*": "300M"},
             },
-            "redis": {
-                "aggregators": [endpoint],
-                "queues": [endpoint],
-            },
+            "redis": redis_config,
             "dispatcher": f"{self._php_cli_path} {self._maintenance_scripts_base_path / 'run.php'} runJobs --wiki=%(db)x --type=%(type)x --maxtime=%(maxtime)x --memory-limit=%(maxmem)x --result=json",
         }
         self._job_runner_config.write_text(
@@ -325,7 +344,8 @@ class _SettingsMixin(_MediaWikiBase):
             f"""
             $wgObjectCaches['redis'] = [
                 'class'                => 'RedisBagOStuff',
-                'servers'              => [ '{utils.escape_php_string(endpoint)}' ],
+                'servers'              => [ '{utils.escape_php_string(redis_server)}' ],
+                {password_entry}
             ];
 
             $wgMainCacheType = 'redis';
@@ -333,8 +353,8 @@ class _SettingsMixin(_MediaWikiBase):
 
             $wgJobTypeConf['default'] = [
                 'class'          => 'JobQueueRedis',
-                'redisServer'    => '{utils.escape_php_string(endpoint)}',
-                'redisConfig'    => [],
+                'redisServer'    => '{utils.escape_php_string(redis_server)}',
+                'redisConfig'    => {redis_config_php},
                 'daemonized'     => true
             ];
 
@@ -592,7 +612,7 @@ class _SettingsMixin(_MediaWikiBase):
             ]"""
         )
 
-    def _push_simplesamlphp_config(
+    def _push_simplesamlphp_config(  # noqa: C901
         self,
         saml_data: SamlRelationData,
         secrets: MediaWikiSecrets,
@@ -662,15 +682,15 @@ class _SettingsMixin(_MediaWikiBase):
 
         # charm-config.php — charm-managed overrides merged into the package's config.php at
         # runtime via the include appended during the rock build. Depends on Redis.
-        redis_endpoint = self._redis.get_endpoint()
-        if not redis_endpoint:
+        connection = self._cache.get_connection_info()
+        if not connection:
             ssp_config_file.unlink(missing_ok=True)
             raise MediaWikiBlockedStatusException(
-                "SAML requires a Redis relation for SimpleSAMLphp session storage"
+                "SAML requires a Redis or Valkey relation for SimpleSAMLphp session storage"
             )
 
         secret_salt = utils.escape_php_string(secrets.saml_secret_salt)
-        redis_host, redis_port = redis_endpoint.rsplit(":", 1)
+        redis_host, redis_port = connection.endpoint.rsplit(":", 1)
         baseurlpath = f"{escaped_url_origin}/w/simplesaml/"
 
         config_entries: dict[str, str] = {
@@ -682,6 +702,17 @@ class _SettingsMixin(_MediaWikiBase):
             "store.redis.port": redis_port,
             "store.redis.prefix": "'SimpleSAMLphp'",
         }
+
+        if connection.username:
+            config_entries["store.redis.username"] = (
+                f"'{utils.escape_php_string(connection.username)}'"
+            )
+        if connection.password:
+            config_entries["store.redis.password"] = (
+                f"'{utils.escape_php_string(connection.password)}'"
+            )
+        if connection.tls:
+            config_entries["store.redis.tls"] = "true"
 
         proxy_config = self._charm.state.proxy_config
         if proxy_config and proxy_config.https_proxy_string:

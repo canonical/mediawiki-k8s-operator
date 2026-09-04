@@ -14,12 +14,15 @@ from ops import pebble, testing
 from pytest_mock import MockerFixture, MockType
 
 import auth
+import cache
+import certificate_transfer
 import database
 import mediawiki_peers
 import redis
 import s3
 import smtp
 import tls
+import valkey
 from charm import Charm
 from exceptions import (
     MediaWikiBlockedStatusException,
@@ -32,6 +35,7 @@ from mediawiki_peers import MediaWikiPeerState
 from state import CharmConfig, CharmConfigInvalidError, StatefulCharmBase
 from tests.unit.conftest import MOCK_COMPOSER_LOCK, ExecCmd
 from types_ import CommandExecResult, DatabaseConfig, DatabaseEndpoint, S3ConnectionInfo
+from valkey import ValkeyConnectionInfo
 
 
 class WrapperCharm(StatefulCharmBase):
@@ -43,20 +47,26 @@ class WrapperCharm(StatefulCharmBase):
         self.oauth = auth.OAuth(self, "oauth")
         self.saml = auth.Saml(self, "saml")
         self.redis = redis.Redis(self, "redis")
+        self.valkey = valkey.Valkey(self, "valkey")
+        self.cache = cache.Cache(self, self.redis, self.valkey)
         self.s3 = s3.S3(self, "s3-parameters")
         self.smtp = smtp.Smtp(self, "smtp")
         self.peers = mediawiki_peers.MediaWikiPeers(self)
         self.tls = tls.Tls(self, "certificates")
+        self.certificate_transfer = certificate_transfer.CertificateTransfer(
+            self, "receive-ca-cert", self.unit.get_container("mediawiki")
+        )
         self.mediawiki = MediaWiki(
             self,
             self.database,
             self.oauth,
             self.saml,
-            self.redis,
+            self.cache,
             self.s3,
             self.smtp,
             self.peers,
             self.tls,
+            self.certificate_transfer,
         )
 
 
@@ -172,6 +182,19 @@ def mock_redis(mocker: MockerFixture) -> MockType:
 
 
 @pytest.fixture(autouse=True)
+def mock_valkey(mocker: MockerFixture) -> MockType:
+    """Base Valkey class mock.
+
+    By default, Valkey is unavailable (no relation or response).
+    """
+    mock_valkey_cls = mocker.patch("valkey.Valkey", autospec=True)
+    mock_instance = mock_valkey_cls.return_value
+    mock_instance.is_relation_available.return_value = False
+    mock_instance.get_connection_info.return_value = None
+    return mock_instance
+
+
+@pytest.fixture(autouse=True)
 def mock_smtp(mocker: MockerFixture) -> MockType:
     """Base SMTP class mock.
 
@@ -222,6 +245,23 @@ def ctx(meta: dict) -> testing.Context:
 
 
 class TestReconciliation:
+    def test_certificate_transfer_change_requests_restart(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mocker: MockerFixture,
+    ) -> None:
+        """A changed workload trust store is included in the restart decision."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mocker.patch.object(
+                mgr.charm.mediawiki._certificate_transfer, "reconcile", return_value=True
+            )
+            restart_required = mgr.charm.mediawiki._reconcile_configuration(
+                make_mediawiki_peer_state()
+            )
+
+        assert restart_required is True
+
     def test_reconciliation_owns_services(
         self, ctx: testing.Context, active_state: testing.State
     ) -> None:
@@ -1552,6 +1592,62 @@ class TestCacheSettings:
         assert "$wgMainCacheType = CACHE_NONE;" in late_settings
         assert "JobQueueRedis" not in late_settings
 
+    def test_valkey_available_sets_authenticated_tls_cache(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_valkey: MockType,
+    ) -> None:
+        """Valkey credentials and TLS transport are rendered for every consumer."""
+        mock_valkey.is_relation_available.return_value = True
+        mock_valkey.get_connection_info.return_value = ValkeyConnectionInfo(
+            host="valkey-primary",
+            port=6380,
+            username="valkey-user",
+            password="valkey-password",  # nosec: B106
+            tls=True,
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        late_settings = self._get_late_settings(ctx, state_out)
+        assert "tls://valkey-primary:6380" in late_settings
+        assert "'password'             => [ 'valkey-user', 'valkey-password' ]" in late_settings
+        assert "'username'" not in late_settings
+
+        runner_config = json.loads(
+            (container_fs / constants.JOB_RUNNER_CONFIG_PATH.lstrip("/")).read_text()
+        )
+        assert runner_config["redis"]["aggregators"] == ["valkey-primary:6380"]
+        assert runner_config["redis"]["password"] == ["valkey-user", "valkey-password"]
+
+    def test_valkey_credentials_are_escaped(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_valkey: MockType,
+    ) -> None:
+        """Valkey credentials are escaped before entering PHP settings."""
+        mock_valkey.is_relation_available.return_value = True
+        mock_valkey.get_connection_info.return_value = ValkeyConnectionInfo(
+            host="valkey-primary",
+            port=6379,
+            username="user'\\name",
+            password="pass'\\word",  # nosec: B106
+            tls=False,
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            state_out = mgr.run()
+
+        late_settings = self._get_late_settings(ctx, state_out)
+        assert "user\\'\\\\name" in late_settings
+        assert "pass\\'\\\\word" in late_settings
+
 
 class TestRunnerQueueServiceIsReady:
     """Tests for the runner_queue_service_is_ready method."""
@@ -1662,9 +1758,39 @@ class TestSamlRequiresRedis:
         assert "$config['store.redis.port'] = 6379;" in config_content
         assert "$config['store.redis.prefix'] = 'SimpleSAMLphp';" in config_content
         assert "$config['application'] = [ 'baseURL' =>" in config_content
+        assert "store.redis.tls" not in config_content
+        assert "store.redis.ca_certificate" not in config_content
 
         metadata = container_fs / "etc/simplesamlphp/metadata/saml20-idp-remote.php"
         assert metadata.exists(), "saml20-idp-remote.php should be written"
+
+    def test_saml_with_tls_valkey_writes_verified_tls_configuration(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_valkey: MockType,
+    ) -> None:
+        """Test that SimpleSAMLphp verifies a TLS-enabled Valkey store."""
+        mock_valkey.is_relation_available.return_value = True
+        mock_valkey.get_connection_info.return_value = ValkeyConnectionInfo(
+            host="valkey-primary",
+            port=6380,
+            username="valkey-user",
+            password="valkey-password",  # nosec: B106
+            tls=True,
+        )
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        config_content = (container_fs / "etc/simplesamlphp/charm-config.php").read_text()
+        assert "$config['store.redis.host'] = 'valkey-primary';" in config_content
+        assert "$config['store.redis.port'] = 6380;" in config_content
+        assert "$config['store.redis.username'] = 'valkey-user';" in config_content
+        assert "$config['store.redis.password'] = 'valkey-password';" in config_content
+        assert "$config['store.redis.tls'] = true;" in config_content
 
     def test_saml_with_redis_available_loads_extension(
         self,
@@ -1769,7 +1895,7 @@ class TestSamlRequiresRedis:
             ctx(ctx.on.update_status(), active_state) as mgr,
             pytest.raises(
                 MediaWikiBlockedStatusException,
-                match="SAML requires a Redis relation",
+                match="SAML requires a Redis or Valkey relation",
             ),
         ):
             mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
@@ -2048,7 +2174,7 @@ class TestComposerLockSync:
                 ),
             )
 
-        assert result is False, "No TLS changes should require a restart on the non-leader path"
+        assert result is True, "Composer changes should require a restart on the non-leader path"
 
         history = ctx.exec_history[Charm._CONTAINER_NAME]
         assert ExecCmd.COMPOSER_INSTALL.ran_in(history), (
