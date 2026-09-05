@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Preserved pending restarts and localisation rebuilds
+    author: hk21702
+    type: bugfix
+    description: >
+      The charm preserved required service restarts and localisation cache rebuilds
+      when a reconciliation was interrupted, ensuring configuration changes were
+      eventually applied instead of being lost after the next reconciliation.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/266"
+    visibility: public
+    highlight: false
