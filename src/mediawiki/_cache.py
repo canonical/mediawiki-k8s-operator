@@ -5,10 +5,7 @@
 
 import logging
 
-from charmlibs.pathops import ContainerPath
-
 from exceptions import MediaWikiBlockedStatusException
-from mediawiki import constants
 from mediawiki._base import _MediaWikiBase
 
 logger = logging.getLogger(__name__)
@@ -22,12 +19,13 @@ class _CacheMixin(_MediaWikiBase):
     script. The rebuild is triggered when the MediaWiki version changed since the last
     successful rebuild (tracked per unit in the peer relation databag), when the settings
     files or composer.lock changed, or when a forced reconciliation is requested.
-    """
 
-    @property
-    def _cache_dir(self) -> ContainerPath:
-        """The MediaWiki cache directory inside the cache storage mount."""
-        return ContainerPath(constants.CACHE_DIR, container=self._container)
+    Every trigger other than the version is a one-off event, so it is recorded in a marker
+    beside the cache itself and only cleared once a rebuild succeeds. Without it a cycle that
+    aborts between the change and the rebuild would leave the cache permanently stale: the
+    settings are already written, so the next cycle observes no change, and the recorded
+    version still matches, so the version check does not stand in for the missed rebuild.
+    """
 
     def _localisation_cache_reconciliation(
         self, settings_changed: bool = False, composer_ran: bool = False, *, force: bool = False
@@ -40,17 +38,15 @@ class _CacheMixin(_MediaWikiBase):
             force: Whether to do a force rebuild all localisation cache entries.
 
         Raises:
-            MediaWikiBlockedStatusException: If the rebuild fails. The peer databag is left
-                untouched so the rebuild is retried on the next reconciliation.
+            MediaWikiBlockedStatusException: If the rebuild fails. The pending rebuild marker
+                is left in place so the rebuild is retried on the next reconciliation.
         """
         current_version = self.version()
         stored_version = self._peers.localisation_cache_version()
-        if (
-            not force
-            and stored_version == current_version
-            and not settings_changed
-            and not composer_ran
-        ):
+        if settings_changed or composer_ran or force or stored_version != current_version:
+            self.request_localisation_rebuild()
+
+        if not self.localisation_rebuild_pending():
             logger.debug("Localisation cache is up to date, skipping rebuild.")
             return
 
@@ -70,3 +66,4 @@ class _CacheMixin(_MediaWikiBase):
         logger.debug("Localisation cache rebuild output:\n%s", result.stdout)
 
         self._peers.mark_localisation_cache_rebuilt(current_version)
+        self.clear_localisation_rebuild()

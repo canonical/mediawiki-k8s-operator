@@ -63,6 +63,18 @@ CACHE_STORAGE_NAME = "cache"
 CACHE_STORAGE_MOUNT = "/mnt/cache"
 CACHE_DIR = CACHE_STORAGE_MOUNT + "/mediawiki"
 
+# Pending work markers
+#
+# Each marker records that the workload is behind the state the charm has already written,
+# so the work survives a reconciliation cycle that aborts before it could be applied. A
+# marker lives for exactly as long as the staleness it records: the pending restart tracks
+# running processes and belongs on the container's ephemeral filesystem, whereas the pending
+# localisation cache rebuild tracks an artefact in the cache storage and must outlive the
+# container alongside it.
+CHARM_RUNTIME_DIR = "/run/mediawiki-charm"
+RESTART_REQUIRED_MARKER = CHARM_RUNTIME_DIR + "/restart-required"
+LOCALISATION_REBUILD_MARKER = CACHE_DIR + "/.localisation-rebuild-required"
+
 # Composer
 USER_COMPOSER_FILE = MEDIAWIKI_PATH + "/composer.user.json"
 COMPOSER_LOCK_FILE = MEDIAWIKI_PATH + "/composer.lock"
