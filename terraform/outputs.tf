@@ -17,15 +17,16 @@ output "provides" {
 output "requires" {
   description = "Requires endpoints"
   value = {
-    certificates  = "certificates"
-    database      = "database"
-    logging       = "logging"
-    oauth         = "oauth"
-    valkey        = "valkey"
-    redis         = "redis"
-    s3_parameters = "s3-parameters"
-    saml          = "saml"
-    smtp          = "smtp"
-    traefik_route = "traefik-route"
+    certificates    = "certificates"
+    receive_ca_cert = "receive-ca-cert"
+    database        = "database"
+    logging         = "logging"
+    oauth           = "oauth"
+    valkey          = "valkey"
+    redis           = "redis"
+    s3_parameters   = "s3-parameters"
+    saml            = "saml"
+    smtp            = "smtp"
+    traefik_route   = "traefik-route"
   }
 }
