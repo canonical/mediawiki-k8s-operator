@@ -23,6 +23,7 @@ class CacheConnectionInfo:
     username: str | None = None
     password: str | None = None
     tls: bool = False
+    tls_ca: str | None = None
 
 
 class Cache(Object):
@@ -60,6 +61,7 @@ class Cache(Object):
                 username=connection.username,
                 password=connection.password,
                 tls=connection.tls,
+                tls_ca=connection.tls_ca,
             )
 
         if self._redis.is_relation_available():

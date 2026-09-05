@@ -25,6 +25,7 @@ def _response(**kwargs: object) -> Mock:
     response.username = kwargs.get("username", "relation-user")
     response.password = kwargs.get("password", "relation-password")
     response.tls = kwargs.get("tls", True)
+    response.tls_ca = kwargs.get("tls_ca")
     return response
 
 
@@ -56,6 +57,18 @@ def test_connection_info_uses_first_endpoint() -> None:
     assert connection is not None
     assert connection.host == "valkey-primary"
     assert connection.port == 6380
+
+
+def test_connection_info_includes_tls_ca() -> None:
+    """The provider TLS CA is included with the normalized connection details."""
+    valkey, relation_handler = _handler()
+    relation_handler.relations = [Mock()]
+    valkey._get_response = Mock(return_value=_response(tls_ca="valkey-ca"))
+
+    connection = valkey.get_connection_info()
+
+    assert connection is not None
+    assert connection.tls_ca == "valkey-ca"
 
 
 @pytest.mark.parametrize(

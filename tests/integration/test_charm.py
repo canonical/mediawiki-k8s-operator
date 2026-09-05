@@ -123,8 +123,18 @@ def test_tls_certificate_lifecycle(
 def test_valkey_tls_certificate_transfer(
     juju: jubilant.Juju,
     app: App,
+    ssc: App,
 ):
-    """Check MediaWiki-to-Valkey TLS."""
+    """Check MediaWiki-to-Valkey TLS with and without certificate transfer."""
+    ca_bundle_path = "/usr/local/share/ca-certificates/certificate-transfer-ca.crt"
+
+    def _ca_bundle() -> str:
+        """Return the charm-owned CA bundle, or an empty string if it is absent."""
+        return juju_exec(
+            juju,
+            app,
+            f"test -f {ca_bundle_path} && cat {ca_bundle_path} || true",
+        )
 
     def _cache_roundtrip() -> str:
         """Perform a MediaWiki cache read/write against the configured Valkey."""
@@ -176,6 +186,19 @@ def test_valkey_tls_certificate_transfer(
 
     juju.wait(
         _cache_tls_ready,
+        error=jubilant.any_error,
+    )
+    bundle_without_certificate_transfer = _ca_bundle()
+    assert "certificate-transfer-ok" in _cache_roundtrip()
+
+    juju.integrate(f"{app.name}:receive-ca-cert", f"{ssc.name}:send-ca-cert")
+    juju.wait(
+        lambda status: (
+            jubilant.all_agents_idle(status)
+            and _cache_tls_ready(status)
+            and "receive-ca-cert" in status.apps[app.name].relations
+            and _ca_bundle() == bundle_without_certificate_transfer
+        ),
         error=jubilant.any_error,
     )
     assert "certificate-transfer-ok" in _cache_roundtrip()
