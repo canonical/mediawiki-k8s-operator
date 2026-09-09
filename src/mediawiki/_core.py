@@ -193,7 +193,11 @@ class MediaWiki(
         config = self._charm.load_charm_config()
         force = force or peer_state.force_reconciliation
         certificate_transfer_changed = self._certificate_transfer.reconcile()
+        if certificate_transfer_changed:
+            self.request_service_restart()
         tls_changed = self._tls_reconciliation()
+        if tls_changed:
+            self.request_service_restart()
         self._logs_path.mkdir(
             exist_ok=True,
             parents=True,
@@ -201,13 +205,7 @@ class MediaWiki(
             user=constants.DAEMON_USER,
             group=constants.DAEMON_GROUP,
         )
-        self._cache_dir.mkdir(
-            exist_ok=True,
-            parents=True,
-            mode=0o750,
-            user=constants.DAEMON_USER,
-            group=constants.DAEMON_GROUP,
-        )
+        self._ensure_cache_dir()
         self._ensure_static_assets_symlink()
         self._ssh_config_reconciliation(config, ssh_key)
 
@@ -224,6 +222,8 @@ class MediaWiki(
             lock_content=peer_state.composer_lock,
             force=force,
         )
+        if composer_ran:
+            self.request_localisation_rebuild()
         self._robots_txt_reconciliation(config)
 
         settings_changed = False
@@ -379,16 +379,23 @@ class MediaWiki(
                 self._container.start(service)
         if active:
             self._finish_active_service_reconciliation(
-                restart_required, services_to_run & previously_running
+                restart_required or self.service_restart_pending(),
+                services_to_run & previously_running,
             )
 
     def _finish_active_service_reconciliation(
         self, restart_required: bool, previously_running: set[str]
     ) -> None:
-        """Apply active-only service actions after the Pebble plan is reconciled."""
+        """Apply active-only service actions after the Pebble plan is reconciled.
+
+        Services outside ``previously_running`` were either started fresh by this cycle or
+        deliberately stopped, so both are already up to date with the workload state and the
+        pending restart marker is cleared once the running ones have been restarted.
+        """
         if restart_required:
             for service in previously_running:
                 self._container.restart(service)
+        self.clear_service_restart()
         self._reconcile_checks(active=True)
 
     def create_and_promote_user(
@@ -594,7 +601,10 @@ class MediaWiki(
         logger.info("Completed MediaWiki install script")
 
         # Restore user settings and run the database upgrade to finish setting up user enabled extensions.
+        # The localisation cache rebuilt above was built against the blanked settings, so it is
+        # owed another rebuild once the real ones are back.
         self._push_user_settings(config)
+        self._record_settings_change()
         logger.debug("User settings restored after installation.")
         self.update_database_schema()
         logger.info("Database schema updated after installation.")

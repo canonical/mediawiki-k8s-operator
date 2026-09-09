@@ -81,10 +81,28 @@ class _SettingsMixin(_MediaWikiBase):
         self._secure_settings_base_path.mkdir(exist_ok=True, parents=True)
 
         changed = self._push_user_settings(config)
-        changed |= self._push_late_settings(secrets, ro_database=ro_database)
-        changed |= self._push_local_settings(config)
+        if changed:
+            self._record_settings_change()
+        late_settings_changed = self._push_late_settings(secrets, ro_database=ro_database)
+        changed |= late_settings_changed
+        if late_settings_changed:
+            self._record_settings_change()
+        local_settings_changed = self._push_local_settings(config)
+        changed |= local_settings_changed
+        if local_settings_changed:
+            self._record_settings_change()
         logger.debug("Settings reconciliation completed successfully.")
         return changed
+
+    def _record_settings_change(self) -> None:
+        """Record the work owed to the workload by a settings change.
+
+        The settings files are already on disk by the time this is called, so a later step
+        aborting the cycle would otherwise leave the running services and the localisation
+        cache permanently behind: the next cycle sees unchanged files and skips both.
+        """
+        self.request_service_restart()
+        self.request_localisation_rebuild()
 
     def _push_user_settings(self, config: CharmConfig) -> bool:
         """Push the user editable settings to the container.
@@ -164,8 +182,12 @@ class _SettingsMixin(_MediaWikiBase):
         )
 
         # Raise any deferred configuration error after settings have been written to ensure
-        # the config file is always in a consistent state
+        # the config file is always in a consistent state. The change is recorded first so
+        # that it is still applied once the deferred error clears, since this raise skips
+        # the bookkeeping _settings_reconciliation would otherwise do.
         if deferred_error:
+            if changed:
+                self._record_settings_change()
             raise deferred_error
         return changed
 

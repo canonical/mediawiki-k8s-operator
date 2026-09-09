@@ -75,6 +75,68 @@ class _MediaWikiBase(ContainerService):
         return ContainerPath(constants.JOB_RUNNER_CONFIG_PATH, container=self._container)
 
     @property
+    def _cache_dir(self) -> ContainerPath:
+        """The MediaWiki cache directory inside the cache storage mount."""
+        return ContainerPath(constants.CACHE_DIR, container=self._container)
+
+    @property
+    def _restart_required_marker(self) -> ContainerPath:
+        """The marker recording that the running services are behind the workload state."""
+        return ContainerPath(constants.RESTART_REQUIRED_MARKER, container=self._container)
+
+    @property
+    def _localisation_rebuild_marker(self) -> ContainerPath:
+        """The marker recording that the localisation cache is behind the workload state."""
+        return ContainerPath(constants.LOCALISATION_REBUILD_MARKER, container=self._container)
+
+    def request_service_restart(self) -> None:
+        """Record that the MediaWiki services must be restarted to pick up new state.
+
+        The marker is written as soon as the change is made so that the restart is not lost
+        when a later reconciliation step aborts the cycle: the change itself is already on
+        disk, so the next cycle would otherwise see no change and never restart.
+        """
+        if self._restart_required_marker.exists():
+            return
+        ContainerPath(constants.CHARM_RUNTIME_DIR, container=self._container).mkdir(
+            parents=True, exist_ok=True
+        )
+        self._restart_required_marker.write_text("")
+
+    def service_restart_pending(self) -> bool:
+        """Return whether a service restart is still owed to the workload."""
+        return self._restart_required_marker.exists()
+
+    def clear_service_restart(self) -> None:
+        """Record that the running services are up to date with the workload state."""
+        self._restart_required_marker.unlink(missing_ok=True)
+
+    def request_localisation_rebuild(self) -> None:
+        """Record that the localisation cache must be rebuilt to pick up new state."""
+        if self._localisation_rebuild_marker.exists():
+            return
+        self._ensure_cache_dir()
+        self._localisation_rebuild_marker.write_text("")
+
+    def localisation_rebuild_pending(self) -> bool:
+        """Return whether a localisation cache rebuild is still owed to the workload."""
+        return self._localisation_rebuild_marker.exists()
+
+    def clear_localisation_rebuild(self) -> None:
+        """Record that the localisation cache is up to date with the workload state."""
+        self._localisation_rebuild_marker.unlink(missing_ok=True)
+
+    def _ensure_cache_dir(self) -> None:
+        """Create the MediaWiki cache directory with the ownership the workload needs."""
+        self._cache_dir.mkdir(
+            exist_ok=True,
+            parents=True,
+            mode=0o750,
+            user=constants.DAEMON_USER,
+            group=constants.DAEMON_GROUP,
+        )
+
+    @property
     def _php_cli_path(self) -> ContainerPath:
         """The PHP CLI binary (shared by the settings mixin and core)."""
         return ContainerPath(constants.PHP_CLI_PATH, container=self._container)

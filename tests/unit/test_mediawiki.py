@@ -262,6 +262,79 @@ class TestReconciliation:
 
         assert restart_required is True
 
+    def test_pending_restart_survives_tls_reconciliation_failure(
+        self, ctx: testing.Context, configured_state: testing.State, mocker: MockerFixture
+    ) -> None:
+        """A trust store installed before failed TLS reconciliation still restarts services."""
+        mocker.patch.object(
+            MediaWiki, "_is_database_initialized", autospec=True, return_value=True
+        )
+
+        with ctx(ctx.on.update_status(), configured_state) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            peer_state = make_mediawiki_peer_state()
+            mediawiki._reconcile_services()
+            restart = mocker.spy(mediawiki._container, "restart")
+
+            mocker.patch.object(mediawiki._certificate_transfer, "reconcile", return_value=True)
+            mocker.patch.object(
+                mediawiki,
+                "_tls_reconciliation",
+                side_effect=MediaWikiBlockedStatusException("TLS relation data is unavailable"),
+            )
+            with pytest.raises(MediaWikiBlockedStatusException):
+                mediawiki._reconcile_configuration(peer_state)
+            assert mediawiki.service_restart_pending()
+            restart.assert_not_called()
+
+            mocker.patch.object(mediawiki._certificate_transfer, "reconcile", return_value=False)
+            mocker.patch.object(mediawiki, "_tls_reconciliation", return_value=False)
+            mocker.patch.object(mediawiki, "_settings_reconciliation", return_value=False)
+            restart_required = mediawiki._reconcile_configuration(peer_state)
+            mediawiki._reconcile_services(restart_required=restart_required)
+
+            assert restart_required is False
+            restart.assert_called_once_with(MediaWiki._SERVICE_NAME)
+            assert not mediawiki.service_restart_pending()
+
+    def test_pending_restart_survives_an_aborted_reconciliation(
+        self, ctx: testing.Context, configured_state: testing.State, mocker: MockerFixture
+    ) -> None:
+        """A trust store installed by an aborted cycle still restarts the services later."""
+        mocker.patch.object(
+            MediaWiki, "_is_database_initialized", autospec=True, return_value=True
+        )
+
+        # All cycles run within a single event: ops.testing wipes unmounted container
+        # filesystems between events, so cross-event marker state cannot be used here.
+        with ctx(ctx.on.update_status(), configured_state) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            peer_state = make_mediawiki_peer_state()
+            mediawiki._reconcile_services()
+            restart = mocker.spy(mediawiki._container, "restart")
+
+            # The cycle that installs the CA bundle aborts before it can restart anything.
+            mocker.patch.object(mediawiki._certificate_transfer, "reconcile", return_value=True)
+            mocker.patch.object(
+                mediawiki,
+                "_settings_reconciliation",
+                side_effect=MediaWikiBlockedStatusException("Waiting on an unrelated relation"),
+            )
+            with pytest.raises(MediaWikiBlockedStatusException):
+                mediawiki._reconcile_configuration(peer_state)
+            assert mediawiki.service_restart_pending()
+            restart.assert_not_called()
+
+            # The next cycle sees an unchanged bundle but still owes the restart.
+            mocker.patch.object(mediawiki._certificate_transfer, "reconcile", return_value=False)
+            mocker.patch.object(mediawiki, "_settings_reconciliation", return_value=False)
+            restart_required = mediawiki._reconcile_configuration(peer_state)
+            mediawiki._reconcile_services(restart_required=restart_required)
+
+            assert restart_required is False, "the change is no longer visible to the cycle"
+            restart.assert_called_once_with(MediaWiki._SERVICE_NAME)
+            assert not mediawiki.service_restart_pending()
+
     def test_reconciliation_owns_services(
         self, ctx: testing.Context, active_state: testing.State
     ) -> None:
@@ -2756,6 +2829,51 @@ class TestSettingsChangeDetection:
 
         assert changed is True
 
+    def test_deferred_error_still_records_pending_work(
+        self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
+    ) -> None:
+        """Settings written before a deferred error still owe a restart and a rebuild."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            mocker.patch.object(
+                mediawiki,
+                "_get_smtp_settings",
+                side_effect=MediaWikiBlockedStatusException("SMTP relation data is malformed"),
+            )
+            with pytest.raises(MediaWikiBlockedStatusException):
+                mediawiki._settings_reconciliation(
+                    mgr.charm.load_charm_config(), MediaWikiSecrets.generate()
+                )
+
+            assert mediawiki.service_restart_pending()
+            assert mediawiki.localisation_rebuild_pending()
+
+    def test_user_settings_change_survives_unchanged_late_settings_error(
+        self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
+    ) -> None:
+        """A user settings change remains pending when unchanged late settings fail."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            config = mgr.charm.load_charm_config()
+            secrets = MediaWikiSecrets.generate()
+            mediawiki._settings_reconciliation(config, secrets)
+            mediawiki.clear_service_restart()
+            mediawiki.clear_localisation_rebuild()
+
+            changed_config = config.model_copy(
+                update={"local_settings": "$wgDummySettingForTesting = true;"}
+            )
+            mocker.patch.object(
+                mediawiki,
+                "_get_smtp_settings",
+                side_effect=MediaWikiBlockedStatusException("SMTP relation data is malformed"),
+            )
+            with pytest.raises(MediaWikiBlockedStatusException):
+                mediawiki._settings_reconciliation(changed_config, secrets)
+
+            assert mediawiki.service_restart_pending()
+            assert mediawiki.localisation_rebuild_pending()
+
 
 class TestComposerChangeDetection:
     """Tests for the "composer ran" indicator returned by composer reconciliation."""
@@ -3001,6 +3119,54 @@ class TestLocalisationCacheRebuild:
             mgr.charm.mediawiki._localisation_cache_reconciliation(False, False)
 
         mark_spy.assert_not_called()
+
+    def test_failed_rebuild_is_retried_when_the_version_still_matches(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_container: testing.Container,
+        mediawiki_replica_relation: testing.PeerRelation,
+        execs: set[testing.Exec],
+    ) -> None:
+        """A rebuild that fails is retried even once its one-off trigger is gone."""
+        failing_execs = {
+            exec_mock
+            for exec_mock in execs
+            if "rebuildLocalisationCache" not in exec_mock.command_prefix
+        }
+        failing_execs.add(
+            testing.Exec(
+                ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.value,
+                return_code=1,
+                stdout="",
+                stderr="boom",
+            )
+        )
+        container = dataclasses.replace(mediawiki_container, execs=failing_execs)
+        state_in = self._state_with_l10n_version(
+            dataclasses.replace(active_state, containers=[container]),
+            mediawiki_replica_relation,
+            "1.46.0",
+        )
+
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            # A settings change triggers a rebuild, which fails.
+            with pytest.raises(MediaWikiBlockedStatusException):
+                mediawiki._localisation_cache_reconciliation(True, False)
+            assert mediawiki.localisation_rebuild_pending()
+
+            # The trigger is gone and the recorded version matches, so only the marker
+            # keeps the wiki from running on a cache built against the old settings.
+            with pytest.raises(MediaWikiBlockedStatusException):
+                mediawiki._localisation_cache_reconciliation(False, False)
+
+        rebuild_runs = sum(
+            1
+            for exec_event in ctx.exec_history[Charm._CONTAINER_NAME]
+            if set(ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.value) <= set(exec_event.command)
+        )
+        assert rebuild_runs == 2, "Expected the failed localisation cache rebuild to be retried"
 
     def test_rebuild_runs_once_across_reconciliations(
         self, ctx: testing.Context, configured_state: testing.State, mocker: MockerFixture
