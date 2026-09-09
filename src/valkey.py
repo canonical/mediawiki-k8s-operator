@@ -28,6 +28,7 @@ class ValkeyConnectionInfo:
     username: str
     password: str
     tls: bool
+    tls_ca: str | None = None
 
 
 class Valkey(Object):
@@ -110,4 +111,5 @@ class Valkey(Object):
             username=response.username,
             password=response.password,
             tls=tls,
+            tls_ca=response.tls_ca,
         )

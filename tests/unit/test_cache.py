@@ -24,6 +24,7 @@ def test_valkey_is_selected_over_unavailable_redis() -> None:
         username="user",
         password="password",
         tls=True,  # nosec: B106
+        tls_ca="valkey-ca",
     )
 
     cache = Cache.__new__(Cache)
@@ -35,6 +36,7 @@ def test_valkey_is_selected_over_unavailable_redis() -> None:
         username="user",
         password="password",  # nosec: B106
         tls=True,
+        tls_ca="valkey-ca",
     )
 
 
