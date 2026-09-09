@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from charmlibs.interfaces.tls_certificates import (
     CertificateRequestAttributes,
+    CertificatesRequirerCharmEvents,
     Mode,
     TLSCertificatesRequiresV4,
 )
@@ -59,6 +60,11 @@ class Tls(Object):
             certificate_requests=[self._certificate_request],
             mode=Mode.UNIT,
         )
+
+    @property
+    def on(self) -> CertificatesRequirerCharmEvents:
+        """Return the TLS certificates relation events."""
+        return self.tls.on
 
     @property
     def relation_name(self) -> str:

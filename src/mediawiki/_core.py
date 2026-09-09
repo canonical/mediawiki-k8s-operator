@@ -13,10 +13,6 @@ from charmlibs.pathops import ContainerPath
 from ops import pebble
 
 import utils
-from auth import OAuth, Saml
-from cache import Cache
-from certificate_transfer import CertificateTransfer
-from database import Database
 from egress import ProxyRouteResolver, TunnelServiceRegistry
 from exceptions import (
     MediaWikiBlockedStatusException,
@@ -34,10 +30,14 @@ from mediawiki_peers import (
     MediaWikiPeers,
     MediaWikiPeerState,
 )
-from s3 import S3
-from smtp import Smtp
+from relations.auth import OAuth, Saml
+from relations.cache import Cache
+from relations.certificate_transfer import CertificateTransfer
+from relations.database import Database
+from relations.s3 import S3
+from relations.smtp import Smtp
+from relations.tls import Tls
 from state import CharmConfig, StatefulCharmBase
-from tls import Tls
 
 logger = logging.getLogger(__name__)
 

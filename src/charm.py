@@ -26,10 +26,6 @@ from ops import (
     WaitingStatus,
 )
 
-from auth import OAuth, Saml
-from cache import Cache
-from certificate_transfer import CertificateTransfer
-from database import Database
 from exceptions import (
     CharmConfigInvalidError,
     MediaWikiInstallError,
@@ -39,13 +35,17 @@ from exceptions import (
 from git_sync import GitSync
 from mediawiki import MediaWiki
 from mediawiki_peers import MediaWikiPeers
-from redis import Redis
-from s3 import S3
-from smtp import Smtp
+from relations.auth import OAuth, Saml
+from relations.cache import Cache
+from relations.certificate_transfer import CertificateTransfer
+from relations.database import Database
+from relations.redis import Redis
+from relations.s3 import S3
+from relations.smtp import Smtp
+from relations.tls import Tls
+from relations.valkey import Valkey
 from state import StatefulCharmBase
-from tls import Tls
 from types_ import ForceReconciliationAction
-from valkey import Valkey
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -157,14 +157,14 @@ class Charm(StatefulCharmBase):
         reconciliation_events = [
             self.on.mediawiki_pebble_ready,
             self.on.git_sync_pebble_ready,
-            self._database.db.on.database_created,
-            self._database.db.on.endpoints_changed,
+            self._database.on.database_created,
+            self._database.on.endpoints_changed,
             self.on[self._DATABASE_RELATION_NAME].relation_broken,
             self.on[self._OAUTH_RELATION_NAME].relation_created,
             self.on[self._OAUTH_RELATION_NAME].relation_changed,
-            self._oauth.oauth.on.oauth_info_changed,
-            self._oauth.oauth.on.oauth_info_removed,
-            self._saml.saml.on.saml_data_available,
+            self._oauth.on.oauth_info_changed,
+            self._oauth.on.oauth_info_removed,
+            self._saml.on.saml_data_available,
             self.on[self._SAML_RELATION_NAME].relation_broken,
             self.on.redis_relation_updated,
             self._valkey.on.resource_created,
@@ -172,14 +172,14 @@ class Charm(StatefulCharmBase):
             self._valkey.on.authentication_updated,
             self.on[self._VALKEY_RELATION_NAME].relation_changed,
             self.on[self._VALKEY_RELATION_NAME].relation_broken,
-            self._s3.s3.on.credentials_changed,
-            self._s3.s3.on.credentials_gone,
+            self._s3.on.credentials_changed,
+            self._s3.on.credentials_gone,
             self.on[self._SMTP_RELATION_NAME].relation_broken,
             self._smtp.on.smtp_data_available,
             self.on[self._CERTIFICATES_RELATION_NAME].relation_changed,
             self.on[self._CERTIFICATES_RELATION_NAME].relation_broken,
-            self._tls.tls.on.certificate_available,
-            self._tls.tls.on.certificate_denied,
+            self._tls.on.certificate_available,
+            self._tls.on.certificate_denied,
             self._certificate_transfer.on.certificate_set_updated,
             self._certificate_transfer.on.certificates_removed,
             self.on[self._RECEIVE_CA_CERT_RELATION_NAME].relation_created,

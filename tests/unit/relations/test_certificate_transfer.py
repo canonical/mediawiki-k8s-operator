@@ -5,8 +5,8 @@
 
 import pytest
 
-from certificate_transfer import CertificateTransfer
 from exceptions import MediaWikiBlockedStatusException, MediaWikiWaitingStatusException
+from relations.certificate_transfer import CertificateTransfer
 from types_ import CommandExecResult
 
 
@@ -37,8 +37,10 @@ def test_reconcile_writes_bundle_and_refreshes_trust_store(mocker) -> None:
     """A changed bundle is written and imported into the system trust store."""
     path = mocker.Mock()
     path.exists.return_value = False
-    mocker.patch("certificate_transfer.ContainerPath", return_value=path)
-    ensure_contents = mocker.patch("certificate_transfer.ensure_contents", return_value=True)
+    mocker.patch("relations.certificate_transfer.ContainerPath", return_value=path)
+    ensure_contents = mocker.patch(
+        "relations.certificate_transfer.ensure_contents", return_value=True
+    )
     reconciler = _reconciler(mocker, {"certificate"})
 
     assert reconciler.reconcile() is True
@@ -59,8 +61,10 @@ def test_reconcile_merges_additional_certificates(mocker) -> None:
     """Additional certificates are included in the managed trust bundle."""
     path = mocker.Mock()
     path.exists.return_value = False
-    mocker.patch("certificate_transfer.ContainerPath", return_value=path)
-    ensure_contents = mocker.patch("certificate_transfer.ensure_contents", return_value=True)
+    mocker.patch("relations.certificate_transfer.ContainerPath", return_value=path)
+    ensure_contents = mocker.patch(
+        "relations.certificate_transfer.ensure_contents", return_value=True
+    )
     reconciler = _reconciler(mocker, {"receive-ca"})
 
     assert reconciler.reconcile(additional_certificates=["valkey-ca"]) is True
@@ -78,8 +82,10 @@ def test_reconcile_deduplicates_additional_certificates(mocker) -> None:
     """A certificate supplied by both sources appears only once in the bundle."""
     path = mocker.Mock()
     path.exists.return_value = False
-    mocker.patch("certificate_transfer.ContainerPath", return_value=path)
-    ensure_contents = mocker.patch("certificate_transfer.ensure_contents", return_value=True)
+    mocker.patch("relations.certificate_transfer.ContainerPath", return_value=path)
+    ensure_contents = mocker.patch(
+        "relations.certificate_transfer.ensure_contents", return_value=True
+    )
     reconciler = _reconciler(mocker, {"certificate"})
 
     assert reconciler.reconcile(additional_certificates=["certificate"]) is True
@@ -92,8 +98,10 @@ def test_reconcile_removes_valkey_certificate_but_keeps_transferred(mocker) -> N
     path = mocker.Mock()
     path.exists.return_value = True
     path.read_text.return_value = "receive-ca\nvalkey-ca\n"
-    mocker.patch("certificate_transfer.ContainerPath", return_value=path)
-    ensure_contents = mocker.patch("certificate_transfer.ensure_contents", return_value=True)
+    mocker.patch("relations.certificate_transfer.ContainerPath", return_value=path)
+    ensure_contents = mocker.patch(
+        "relations.certificate_transfer.ensure_contents", return_value=True
+    )
     reconciler = _reconciler(mocker, {"receive-ca"})
 
     assert reconciler.reconcile() is True
@@ -106,8 +114,8 @@ def test_reconcile_does_not_refresh_unchanged_bundle(mocker) -> None:
     path = mocker.Mock()
     path.exists.return_value = True
     path.read_text.return_value = "certificate\n"
-    mocker.patch("certificate_transfer.ContainerPath", return_value=path)
-    mocker.patch("certificate_transfer.ensure_contents", return_value=False)
+    mocker.patch("relations.certificate_transfer.ContainerPath", return_value=path)
+    mocker.patch("relations.certificate_transfer.ensure_contents", return_value=False)
     reconciler = _reconciler(mocker, {"certificate"})
 
     assert reconciler.reconcile() is False
@@ -119,7 +127,7 @@ def test_reconcile_removes_bundle_without_active_relation(mocker) -> None:
     """Removing the last relation removes the managed bundle and refreshes trust."""
     path = mocker.Mock()
     path.exists.return_value = True
-    mocker.patch("certificate_transfer.ContainerPath", return_value=path)
+    mocker.patch("relations.certificate_transfer.ContainerPath", return_value=path)
     reconciler = _reconciler(mocker, set(), has_relation=False)
 
     assert reconciler.reconcile() is True
@@ -133,7 +141,7 @@ def test_reconcile_removes_bundle_without_active_relation(mocker) -> None:
 
 def test_reconcile_waits_for_relation_data(mocker) -> None:
     """An active unready relation keeps the last bundle and waits."""
-    pathops = mocker.patch("certificate_transfer.ContainerPath")
+    pathops = mocker.patch("relations.certificate_transfer.ContainerPath")
     reconciler = _reconciler(mocker, {"certificate"}, ready=False)
 
     with pytest.raises(MediaWikiWaitingStatusException, match="not ready"):
@@ -150,9 +158,9 @@ def test_reconcile_keeps_last_good_bundle_when_refresh_fails(mocker) -> None:
     path = mocker.Mock()
     path.exists.return_value = True
     path.read_text.return_value = "previous bundle\n"
-    mocker.patch("certificate_transfer.ContainerPath", return_value=path)
+    mocker.patch("relations.certificate_transfer.ContainerPath", return_value=path)
     ensure_contents = mocker.patch(
-        "certificate_transfer.ensure_contents", side_effect=[True, True]
+        "relations.certificate_transfer.ensure_contents", side_effect=[True, True]
     )
     reconciler = _reconciler(mocker, {"certificate"})
     reconciler._run_cli.side_effect = [

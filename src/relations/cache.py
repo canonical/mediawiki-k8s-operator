@@ -11,8 +11,8 @@ from ops import CharmBase, Object
 from exceptions import MediaWikiBlockedStatusException
 
 if TYPE_CHECKING:
-    from redis import Redis
-    from valkey import Valkey
+    from relations.redis import Redis
+    from relations.valkey import Valkey
 
 
 @dataclass(frozen=True)

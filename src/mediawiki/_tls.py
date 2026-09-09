@@ -7,7 +7,7 @@ from charmlibs.pathops import ContainerPath
 from ops import Container
 
 from mediawiki._base import _MediaWikiBase
-from tls import Tls
+from relations.tls import Tls
 
 
 class _TlsMixin(_MediaWikiBase):

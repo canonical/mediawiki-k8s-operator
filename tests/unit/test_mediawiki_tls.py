@@ -4,7 +4,7 @@
 """Tests for MediaWiki Apache TLS site management."""
 
 from mediawiki._tls import _TlsMixin
-from tls import TlsReconciliationResult
+from relations.tls import TlsReconciliationResult
 
 
 class MediaWikiTls(_TlsMixin):

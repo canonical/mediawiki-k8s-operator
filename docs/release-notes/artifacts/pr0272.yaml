@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Reorganized external relation modules
+    author: hk21702
+    type: minor
+    description: >
+      The charm reorganized its external relation integrations into a dedicated
+      module and exposed relation events consistently, improving internal
+      organization without changing deployment behavior.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/272"
+    visibility: internal
+    highlight: false

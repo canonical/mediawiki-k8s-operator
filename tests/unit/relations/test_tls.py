@@ -3,15 +3,15 @@
 
 """Tests for TLS material reconciliation."""
 
-from tls import Tls
+from relations.tls import Tls
 
 
 def test_reconcile_writes_assigned_material(mocker) -> None:
     """Assigned certificate material is written using standardized attributes."""
     container = mocker.Mock()
     mocker.patch.object(Tls, "get_material", return_value=("certificate", "private-key"))
-    ensure_contents = mocker.patch("tls.ensure_contents", side_effect=[True, False])
-    mocker.patch("tls.ContainerPath")
+    ensure_contents = mocker.patch("relations.tls.ensure_contents", side_effect=[True, False])
+    mocker.patch("relations.tls.ContainerPath")
     tls = object.__new__(Tls)
 
     result = tls.reconcile(container)
@@ -35,7 +35,9 @@ def test_reconcile_removes_material_when_unavailable(mocker) -> None:
     certificate.exists.return_value = True
     private_key = mocker.Mock()
     private_key.exists.return_value = False
-    container_path = mocker.patch("tls.ContainerPath", side_effect=[certificate, private_key])
+    container_path = mocker.patch(
+        "relations.tls.ContainerPath", side_effect=[certificate, private_key]
+    )
     tls = object.__new__(Tls)
 
     result = tls.reconcile(container)

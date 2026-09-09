@@ -80,6 +80,56 @@ def mock_site_info(mocker: MockerFixture) -> SiteInfo:
     return info
 
 
+class TestRelationEventExposure:
+    """Relation helpers preserve event sources and reconciliation subscriptions."""
+
+    @pytest.mark.parametrize(
+        ("helper_name", "source_name", "event_name"),
+        [
+            ("_database", "db", "database_created"),
+            ("_database", "db", "endpoints_changed"),
+            ("_oauth", "oauth", "oauth_info_changed"),
+            ("_oauth", "oauth", "oauth_info_removed"),
+            ("_saml", "saml", "saml_data_available"),
+            ("_s3", "s3", "credentials_changed"),
+            ("_s3", "s3", "credentials_gone"),
+            ("_tls", "tls", "certificate_available"),
+            ("_tls", "tls", "certificate_denied"),
+        ],
+    )
+    def test_reconciliation_subscription(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mocker: MockerFixture,
+        helper_name: str,
+        source_name: str,
+        event_name: str,
+    ) -> None:
+        """Forward the original bound event to the central reconciliation handler."""
+        observe = mocker.spy(ops.Framework, "observe")
+
+        with ctx(ctx.on.update_status(), active_state) as manager:
+            helper = getattr(manager.charm, helper_name)
+            source = getattr(helper, source_name)
+            assert helper.on is source.on
+            event = getattr(helper.on, event_name)
+            subscriptions = [
+                call.args[1]
+                for call in observe.call_args_list
+                if call.args[2] == manager.charm._reconciliation
+            ]
+            assert (
+                sum(
+                    subscription.emitter is event.emitter
+                    and subscription.event_kind == event.event_kind
+                    and subscription.event_type is event.event_type
+                    for subscription in subscriptions
+                )
+                == 1
+            )
+
+
 class TestGeneralEvents:
     def test_invalid_proxy_config(
         self, ctx: testing.Context, active_state: testing.State, monkeypatch: pytest.MonkeyPatch
