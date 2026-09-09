@@ -1,0 +1,14 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+  - title: Added the receive CA certificate endpoint to Terraform outputs
+    author: hk21702
+    type: minor
+    description: Added the receive_ca_cert relation endpoint to the Terraform module outputs so it can be used when configuring integrations that receive CA certificates.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/267"
+    visibility: public
+    highlight: false
