@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Fixed S3 uploads through egress proxies
+    author: hk21702
+    type: bugfix
+    description: >
+      S3 uploads now respect the configured egress proxy throughout the
+      transfer, allowing MediaWiki deployments that use a proxy to upload
+      media to S3 reliably.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/275"
+    visibility: public
+    highlight: false

@@ -1,0 +1,55 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: s3-proxy-config
+data:
+  squid.conf: |
+    http_port 3128
+    http_access allow all
+    cache deny all
+    cache_store_log none
+    cache_log /dev/stderr
+    pid_filename /tmp/squid.pid
+    logformat authority %rm %>Hs %>rd
+    access_log stdio:/dev/stdout authority
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: s3-proxy
+  labels:
+    app: s3-proxy
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 13
+    runAsGroup: 13
+  containers:
+    - name: squid
+      image: docker.io/ubuntu/squid:latest
+      command: [squid, -N, -f, /etc/squid/squid.conf]
+      readinessProbe:
+        tcpSocket:
+          port: 3128
+      volumeMounts:
+        - name: config
+          mountPath: /etc/squid/squid.conf
+          subPath: squid.conf
+  volumes:
+    - name: config
+      configMap:
+        name: s3-proxy-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3-proxy
+spec:
+  selector:
+    app: s3-proxy
+  ports:
+    - port: 3128
+      targetPort: 3128
