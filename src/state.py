@@ -180,6 +180,7 @@ class ProxyConfig(BaseModel):
 
         May set:
         - HTTP_PROXY
+        - http_proxy (for libcurl, which ignores uppercase HTTP_PROXY)
         - CGI_HTTP_PROXY (for composer)
         - HTTPS_PROXY
         - NO_PROXY
@@ -187,6 +188,7 @@ class ProxyConfig(BaseModel):
         out = {}
         if self.http_proxy_string:
             out["HTTP_PROXY"] = self.http_proxy_string
+            out["http_proxy"] = self.http_proxy_string
             out["CGI_HTTP_PROXY"] = self.http_proxy_string
 
         if self.https_proxy_string:

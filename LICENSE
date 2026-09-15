@@ -6,6 +6,10 @@ following Apache license. The MediaWiki rock inherits the MediaWiki license and
 is distributed under GPL-3.0-only. Documentation for this project and the
 MediaWiki logo is licensed under CC-BY-SA 4.0.
 
+The S3 backend adapter in src/templates/S3Backend.php.template is derived from
+Extension:AWS and is distributed under GPL-2.0-or-later. The upstream license is
+available at <https://github.com/edwardspec/mediawiki-aws-s3/blob/master/COPYING>.
+
 MediaWiki logo and trademarks
 -----------------------------
 
