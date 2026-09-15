@@ -19,6 +19,23 @@ class TestState:
         no_proxy="localhost,127.0.0.1",
     )
 
+    def test_proxy_environment_supports_libcurl(self) -> None:
+        """Keep existing consumers supported while supplying cURL's HTTP proxy spelling."""
+        assert self._PROXY.as_dict == {
+            "HTTP_PROXY": "http://proxy.example:3128",
+            "http_proxy": "http://proxy.example:3128",
+            "CGI_HTTP_PROXY": "http://proxy.example:3128",
+            "HTTPS_PROXY": "http://proxy.example:3129",
+            "NO_PROXY": "localhost,127.0.0.1",
+        }
+
+    def test_https_only_does_not_set_http_proxy(self) -> None:
+        """Do not route HTTP through an HTTPS-only proxy configuration."""
+        proxy = self._PROXY.model_copy(update={"http_proxy": None})
+        assert "http_proxy" not in proxy.as_dict
+        assert "HTTP_PROXY" not in proxy.as_dict
+        assert proxy.as_dict["HTTPS_PROXY"] == "http://proxy.example:3129"
+
     @pytest.mark.parametrize(
         "proxy_config, default, expected",
         [
