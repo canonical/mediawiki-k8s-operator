@@ -13,16 +13,7 @@ from charms.smtp_integrator.v0.smtp import AuthType, SmtpRelationData, Transport
 from ops import pebble, testing
 from pytest_mock import MockerFixture, MockType
 
-import auth
-import cache
-import certificate_transfer
-import database
 import mediawiki_peers
-import redis
-import s3
-import smtp
-import tls
-import valkey
 from charm import Charm
 from exceptions import (
     MediaWikiBlockedStatusException,
@@ -32,10 +23,11 @@ from exceptions import (
 from mediawiki import MediaWiki, MediaWikiSecrets, constants
 from mediawiki_api import SiteInfo
 from mediawiki_peers import MediaWikiPeerState
+from relations import auth, cache, certificate_transfer, database, redis, s3, smtp, tls, valkey
+from relations.valkey import ValkeyConnectionInfo
 from state import CharmConfig, CharmConfigInvalidError, StatefulCharmBase
 from tests.unit.conftest import MOCK_COMPOSER_LOCK, ExecCmd
 from types_ import CommandExecResult, DatabaseConfig, DatabaseEndpoint, S3ConnectionInfo
-from valkey import ValkeyConnectionInfo
 
 
 class WrapperCharm(StatefulCharmBase):
@@ -90,7 +82,7 @@ def make_mediawiki_peer_state(
 @pytest.fixture(autouse=True)
 def mock_database(mocker: MockerFixture) -> MockType:
     """Base database class mock."""
-    mock_database_cls = mocker.patch("database.Database", autospec=True)
+    mock_database_cls = mocker.patch("relations.database.Database", autospec=True)
     mock_instance = mock_database_cls.return_value
 
     mock_instance.get_relation_data.return_value = DatabaseConfig(
@@ -124,7 +116,7 @@ def mock_oauth(mocker: MockerFixture) -> MockType:
 
     By default, makes it so OAuth does nothing.
     """
-    mock_oauth_cls = mocker.patch("auth.OAuth", autospec=True)
+    mock_oauth_cls = mocker.patch("relations.auth.OAuth", autospec=True)
     mock_instance = mock_oauth_cls.return_value
 
     mock_instance.update_client_config.return_value = None
@@ -139,7 +131,7 @@ def mock_saml(mocker: MockerFixture) -> MockType:
 
     By default, makes it so SAML does nothing.
     """
-    mock_saml_cls = mocker.patch("auth.Saml", autospec=True)
+    mock_saml_cls = mocker.patch("relations.auth.Saml", autospec=True)
     mock_instance = mock_saml_cls.return_value
 
     mock_instance.get_relation_data.return_value = None
@@ -150,7 +142,7 @@ def mock_saml(mocker: MockerFixture) -> MockType:
 @pytest.fixture(autouse=True)
 def mock_s3(mocker: MockerFixture) -> MockType:
     """Base s3 class mock."""
-    mock_s3_cls = mocker.patch("s3.S3", autospec=True)
+    mock_s3_cls = mocker.patch("relations.s3.S3", autospec=True)
     mock_instance = mock_s3_cls.return_value
 
     mock_instance.get_relation_data.return_value = S3ConnectionInfo.model_validate(
@@ -172,7 +164,7 @@ def mock_redis(mocker: MockerFixture) -> MockType:
 
     By default, Redis is unavailable (no relation, no endpoint).
     """
-    mock_redis_cls = mocker.patch("redis.Redis", autospec=True)
+    mock_redis_cls = mocker.patch("relations.redis.Redis", autospec=True)
     mock_instance = mock_redis_cls.return_value
 
     mock_instance.is_relation_available.return_value = False
@@ -187,7 +179,7 @@ def mock_valkey(mocker: MockerFixture) -> MockType:
 
     By default, Valkey is unavailable (no relation or response).
     """
-    mock_valkey_cls = mocker.patch("valkey.Valkey", autospec=True)
+    mock_valkey_cls = mocker.patch("relations.valkey.Valkey", autospec=True)
     mock_instance = mock_valkey_cls.return_value
     mock_instance.is_relation_available.return_value = False
     mock_instance.get_connection_info.return_value = None
@@ -200,7 +192,7 @@ def mock_smtp(mocker: MockerFixture) -> MockType:
 
     By default, SMTP has no relation.
     """
-    mock_smtp_cls = mocker.patch("smtp.Smtp", autospec=True)
+    mock_smtp_cls = mocker.patch("relations.smtp.Smtp", autospec=True)
     mock_instance = mock_smtp_cls.return_value
 
     mock_instance.has_relation.return_value = False

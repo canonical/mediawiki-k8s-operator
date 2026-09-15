@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from typing import Generator
 
 import mysql.connector
-from charms.data_platform_libs.v0.data_interfaces import DatabaseRequires
+from charms.data_platform_libs.v0.data_interfaces import DatabaseRequires, DatabaseRequiresEvents
 from mysql.connector.abstracts import MySQLConnectionAbstract
 from ops import CharmBase, Object
 
@@ -41,6 +41,11 @@ class Database(Object):
             relation_name=relation_name,
             database_name=database_name,
         )
+
+    @property
+    def on(self) -> DatabaseRequiresEvents:
+        """Return the database relation events."""
+        return self.db.on
 
     def get_relation_data(self) -> DatabaseConfig:
         """Get the database relation data.

@@ -6,8 +6,8 @@ from charms.smtp_integrator.v0.smtp import AuthType, SmtpRelationData, Transport
 from ops import CharmBase, testing
 from pytest_mock import MockerFixture, MockType
 
-import smtp
 from exceptions import MediaWikiBlockedStatusException, MediaWikiWaitingStatusException
+from relations import smtp
 
 
 class WrapperCharm(CharmBase):
@@ -21,7 +21,7 @@ class WrapperCharm(CharmBase):
 @pytest.fixture()
 def mock_smtp_requires(mocker: MockerFixture) -> MockType:
     """Fixture to mock the SmtpRequires class."""
-    mock_cls = mocker.patch("smtp.SmtpRequires")
+    mock_cls = mocker.patch("relations.smtp.SmtpRequires")
     mock_instance = mock_cls.return_value
     mock_instance.relation_name = "smtp"
     return mock_instance

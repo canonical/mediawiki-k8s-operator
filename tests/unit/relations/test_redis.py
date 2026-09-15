@@ -5,7 +5,7 @@ import pytest
 from ops import CharmBase, testing
 from pytest_mock import MockerFixture, MockType
 
-import redis as redis_module
+from relations import redis as redis_module
 
 
 class WrapperCharm(CharmBase):
@@ -19,7 +19,7 @@ class WrapperCharm(CharmBase):
 @pytest.fixture(autouse=True)
 def mock_redis_requires(mocker: MockerFixture) -> MockType:
     """Fixture to mock the RedisRequires class from charms.redis_k8s.v0.redis."""
-    mock_cls = mocker.patch("redis.RedisRequires")
+    mock_cls = mocker.patch("relations.redis.RedisRequires")
     mock_instance = mock_cls.return_value
     mock_instance.relation_name = "redis"
     mock_instance.relation_data = None

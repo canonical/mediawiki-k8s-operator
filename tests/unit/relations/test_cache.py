@@ -7,9 +7,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from cache import Cache, CacheConnectionInfo
 from exceptions import MediaWikiBlockedStatusException
-from valkey import ValkeyConnectionInfo
+from relations.cache import Cache, CacheConnectionInfo
+from relations.valkey import ValkeyConnectionInfo
 
 
 def test_valkey_is_selected_over_unavailable_redis() -> None:

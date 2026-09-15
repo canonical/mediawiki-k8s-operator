@@ -4,10 +4,16 @@
 """Provides classes to handle authentication relations (OAuth, SAML)."""
 
 import logging
+from typing import cast
 from urllib.parse import urlparse
 
-from charms.hydra.v0.oauth import ClientConfig, OauthProviderConfig, OAuthRequirer
-from charms.saml_integrator.v0.saml import SamlRelationData, SamlRequires
+from charms.hydra.v0.oauth import (
+    ClientConfig,
+    OauthProviderConfig,
+    OAuthRequirer,
+    OAuthRequirerEvents,
+)
+from charms.saml_integrator.v0.saml import SamlRelationData, SamlRequires, SamlRequiresEvents
 from ops import Object
 
 from exceptions import MediaWikiBlockedStatusException
@@ -97,6 +103,11 @@ class OAuth(Object):
             logger.error("Failed to update OAuth client config: %s", e)
             raise MediaWikiBlockedStatusException("Failed to update OAuth client config") from e
 
+    @property
+    def on(self) -> OAuthRequirerEvents:
+        """Return the OAuth relation events."""
+        return cast(OAuthRequirerEvents, self.oauth.on)
+
     def get_provider_info(self) -> OauthProviderConfig | None:
         """Get the provider info from the relation."""
         return self.oauth.get_provider_info()
@@ -117,6 +128,11 @@ class Saml(Object):
         self._charm = charm
         self.saml = SamlRequires(self._charm, relation_name=relation_name)
         self.relation_name = relation_name
+
+    @property
+    def on(self) -> SamlRequiresEvents:
+        """Return the SAML relation events."""
+        return cast(SamlRequiresEvents, self.saml.on)
 
     def get_relation_data(self) -> SamlRelationData | None:
         """Get the SAML relation data from the relation.

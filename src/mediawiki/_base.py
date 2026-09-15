@@ -16,14 +16,14 @@ from exceptions import MediaWikiInstallError
 from mediawiki import constants
 
 if TYPE_CHECKING:
-    from auth import OAuth, Saml
-    from cache import Cache
-    from certificate_transfer import CertificateTransfer
-    from database import Database
     from egress import TunnelServiceRegistry
     from mediawiki_peers import MediaWikiPeers
-    from s3 import S3
-    from smtp import Smtp
+    from relations.auth import OAuth, Saml
+    from relations.cache import Cache
+    from relations.certificate_transfer import CertificateTransfer
+    from relations.database import Database
+    from relations.s3 import S3
+    from relations.smtp import Smtp
     from state import StatefulCharmBase
     from types_ import CommandExecResult
 

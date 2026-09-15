@@ -5,7 +5,7 @@
 
 import logging
 
-from charms.data_platform_libs.v0.s3 import S3Requirer
+from charms.data_platform_libs.v0.s3 import S3CredentialRequiresEvents, S3Requirer
 from ops import CharmBase, Object
 from pydantic import ValidationError
 
@@ -28,6 +28,11 @@ class S3(Object):
         super().__init__(charm, "s3-observer")
 
         self.s3 = S3Requirer(charm, relation_name)
+
+    @property
+    def on(self) -> S3CredentialRequiresEvents:
+        """Return the S3 relation events."""
+        return self.s3.on
 
     def get_relation_data(self) -> S3ConnectionInfo:
         """Get the s3 relation data.

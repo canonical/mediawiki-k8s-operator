@@ -10,8 +10,8 @@ from mysql.connector.abstracts import MySQLConnectionAbstract
 from ops import CharmBase, testing
 from pytest_mock import MockerFixture, MockType
 
-import database
 from exceptions import MediaWikiBlockedStatusException, MediaWikiWaitingStatusException
+from relations import database
 
 
 class WrapperCharm(CharmBase):
@@ -25,7 +25,7 @@ class WrapperCharm(CharmBase):
 @pytest.fixture
 def mock_database_requires(mocker: MockerFixture) -> MockType:
     """Fixture to mock the DatabaseRequires class from charms.data_platform_libs.v0.data_interfaces."""
-    mock_database_requires_cls = mocker.patch("database.DatabaseRequires")
+    mock_database_requires_cls = mocker.patch("relations.database.DatabaseRequires")
     mock_instance = mock_database_requires_cls.return_value
 
     return mock_instance

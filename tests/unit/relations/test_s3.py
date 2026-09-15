@@ -5,8 +5,8 @@ import pytest
 from ops import CharmBase, testing
 from pytest_mock import MockerFixture, MockType
 
-import s3
 from exceptions import MediaWikiBlockedStatusException
+from relations import s3
 from types_ import S3ConnectionInfo
 
 
@@ -21,7 +21,7 @@ class WrapperCharm(CharmBase):
 @pytest.fixture
 def mock_s3_requirer(mocker: MockerFixture) -> MockType:
     """Fixture to mock the S3Requirer class from charms.data_platform_libs.v0.s3."""
-    mock_s3_requirer_cls = mocker.patch("s3.S3Requirer")
+    mock_s3_requirer_cls = mocker.patch("relations.s3.S3Requirer")
     mock_instance = mock_s3_requirer_cls.return_value
     mock_instance.relation_name = "s3-parameters"
     mock_instance.relations = []

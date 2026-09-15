@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from valkey import Valkey, ValkeyConnectionInfo
+from relations.valkey import Valkey, ValkeyConnectionInfo
 
 
 def _handler() -> tuple[Valkey, Mock]:
