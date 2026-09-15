@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Set librsvg and ImageMagick as the default image processors
+    author: hk21702
+    type: minor
+    description: >
+      The charm replaced Inkscape with librsvg for SVG rendering and enabled
+      ImageMagick by default for image processing. Both defaults remained
+      configurable by users.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/278"
+      related_doc: "https://documentation.ubuntu.com/mediawiki-k8s-charm/reference/charm-managed-settings/"
+    visibility: public
+    highlight: false
