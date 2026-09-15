@@ -132,3 +132,6 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
    * - `$wgSitename <https://www.mediawiki.org/wiki/Manual:$wgSitename>`__
      - .. centered:: :bdg-success:`Yes`
      - 
+   * - `$wgSVGConverter <https://www.mediawiki.org/wiki/Manual:$wgSVGConverter>`__
+     - .. centered:: :bdg-success:`Yes`
+     - Defaults to ``rsvg``.

@@ -33,9 +33,9 @@ parts:
       # Charm Reqs
       - php-cli
       - git
-      # Thumbnails
+      # Thumbnails and images
       - imagemagick
-      - inkscape
+      - librsvg2-bin
       - php-gd
       # Other
       - php-wikidiff2
