@@ -135,3 +135,6 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
    * - `$wgSVGConverter <https://www.mediawiki.org/wiki/Manual:$wgSVGConverter>`__
      - .. centered:: :bdg-success:`Yes`
      - Defaults to ``rsvg``.
+   * - `$wgUseImageMagick <https://www.mediawiki.org/wiki/Manual:$wgUseImageMagick>`__
+     - .. centered:: :bdg-success:`Yes`
+     - Defaults to ``true``.

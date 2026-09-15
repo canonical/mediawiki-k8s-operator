@@ -61,3 +61,4 @@ $wgAntivirus = "clamavd";
 $wgScribuntoDefaultEngine = 'luasandbox';
 
 $wgSVGConverter = 'rsvg';
+$wgUseImageMagick = true;
