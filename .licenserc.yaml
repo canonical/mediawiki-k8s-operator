@@ -36,5 +36,4 @@ header:
   - 'docs/**'
   - 'uv.lock'
   - 'icon.svg'
-  - 'src/templates/S3Backend.php.template'
   comment: on-failure

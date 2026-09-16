@@ -1355,34 +1355,6 @@ class TestMediaWikiSecrets:
 
 
 class TestS3Settings:
-    @pytest.mark.parametrize("has_relation", [True, False])
-    @pytest.mark.parametrize("has_proxy", [True, False])
-    def test_proxy_adapter_is_scoped_to_s3(
-        self,
-        ctx: testing.Context,
-        active_state: testing.State,
-        mock_s3: MockType,
-        monkeypatch: pytest.MonkeyPatch,
-        has_relation: bool,
-        has_proxy: bool,
-    ) -> None:
-        """Only S3 with a model proxy gets the adapter, using the workload environment."""
-        mock_s3.has_relation.return_value = has_relation
-        for name in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"):
-            monkeypatch.delenv("JUJU_CHARM_" + name, raising=False)
-        if has_proxy:
-            monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "http://proxy.example:3128")
-            monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://secure-proxy.example:3128")
-            monkeypatch.setenv("JUJU_CHARM_NO_PROXY", "127.0.0.1,::1,10.151.0.0/16,quote'host")
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            settings = mgr.charm.mediawiki._get_s3_settings()
-        assert ("class CharmS3FileBackend" in settings) == (has_relation and has_proxy)
-        if has_relation and has_proxy:
-            assert "CURLOPT_PROXY" not in settings
-            assert "CURLOPT_NOPROXY" not in settings
-            assert "secure-proxy.example" not in settings
-            assert "$wgFileBackends['s3']['endpoint'] = 'mocked-s3-endpoint:9000'" in settings
-
     def test_no_s3_relation_disables_uploads(
         self,
         ctx: testing.Context,
