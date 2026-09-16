@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Updated the AWS extension and removed the S3 proxy workaround
+    author: hk21702
+    type: minor
+    description: >
+      The AWS extension was updated to respect configured egress proxy settings,
+      allowing the charm to rely on the upstream implementation for proxied S3
+      transfers.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/280"
+    visibility: internal
+    highlight: false

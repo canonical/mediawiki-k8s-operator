@@ -421,10 +421,6 @@ class _SettingsMixin(_MediaWikiBase):
         if s3_data.s3_uri_style and s3_data.s3_uri_style.lower() == "path":
             content += "$wgFileBackends['s3']['use_path_style_endpoint'] = true;\n"
 
-        # The AWS extension does not fully respect proxy settings, so we need to override it.
-        if self._charm.state.proxy_config is not None:
-            content += (_TEMPLATES_DIR / "S3Backend.php.template").read_text()
-
         return content + "\n"
 
     def _get_smtp_settings(self) -> str:

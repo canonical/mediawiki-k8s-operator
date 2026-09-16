@@ -1,6 +1,6 @@
 {
     "require": {
-        "edwardspec/mediawiki-aws-s3": "0.14.*",
+        "edwardspec/mediawiki-aws-s3": "dev-master#871ac42139b586458b766ddbbf090f832223324d",
         "mediawiki/pluggable-auth": "7.5.0",
         "mediawiki/openidconnect": "dev-REL1_46",
         "mediawiki/simple-s-a-m-lphp": "dev-REL1_46"

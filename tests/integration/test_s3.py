@@ -28,7 +28,6 @@ _MINIO_ACCESS_KEY = "access"
 _MINIO_SECRET_KEY = "secretsecret"  # nosec: B105
 _TEST_DATA = Path(__file__).parent / "test_data" / "s3_proxy"
 _NO_PROXY = "127.0.0.1,localhost,::1,10.151.0.0/16,10.152.0.0/16,10.156.0.0/16,.svc,.cluster.local"
-_UPSTREAM_DOWNLOAD_SHA256 = "8cb299f91d39c4ed973c768550bf4a97cd5ad62cf25e3f086d2821c3ad59ae62"
 
 
 def _kubectl(juju: jubilant.Juju, *args: str, manifest: dict | None = None) -> str:
@@ -238,26 +237,6 @@ def test_integrate_s3_integrator_with_mediawiki(
 
     juju.wait(
         jubilant.all_active,
-    )
-
-
-@pytest.mark.abort_on_fail
-def test_s3_backend_compatibility(juju: jubilant.Juju, app: App):
-    """Require review if the installed upstream download method changes."""
-    probe = _TEST_DATA / "backend-check.php"
-    remote = juju_exec(juju, app, "mktemp --suffix=.php").strip()
-    juju.scp(str(probe), f"{app.name}/leader:{remote}", container="mediawiki")
-    try:
-        result = json.loads(
-            juju_exec(juju, app, f"php /var/www/html/w/maintenance/run.php {shlex.quote(remote)}")
-        )
-    finally:
-        juju_exec(juju, app, f"rm -f {shlex.quote(remote)}")
-    assert result["backend"] == "CharmS3FileBackend"
-    assert result["protected"] and result["parameters"] == 1
-    assert result["curl_version"] >= 0x075600
-    assert result["upstream_sha256"] == _UPSTREAM_DOWNLOAD_SHA256, (
-        "Review upstream getLocalCopyCached and the charm adapter before updating this fingerprint"
     )
 
 
