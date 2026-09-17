@@ -211,7 +211,7 @@ def valkey_fixture(
         yield App(name="valkey")
         return
 
-    juju.deploy("valkey", channel="9/edge", revision=86, trust=True)
+    juju.deploy("valkey", channel="9/beta", trust=True)
     juju.integrate("valkey:client-certificates", f"{ssc.name}:certificates")
     yield App(name="valkey")
 
