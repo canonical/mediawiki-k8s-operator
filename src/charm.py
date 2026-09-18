@@ -29,6 +29,7 @@ from ops import (
 from exceptions import (
     CharmConfigInvalidError,
     MediaWikiInstallError,
+    MediaWikiModeConflictError,
     MediaWikiStatusException,
     MediaWikiWaitingStatusException,
 )
@@ -45,7 +46,7 @@ from relations.smtp import Smtp
 from relations.tls import Tls
 from relations.valkey import Valkey
 from state import StatefulCharmBase
-from types_ import ForceReconciliationAction
+from types_ import ForceReconciliationAction, OperationMode, SetMaintenanceModeAction
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
@@ -80,8 +81,6 @@ class Charm(StatefulCharmBase):
 
     _PEER_RELATION_NAME = MediaWikiPeers.RELATION_NAME
     _REPLICA_SECRET_LABEL = MediaWikiPeers.SECRET_LABEL
-    _RO_DATABASE_FLAG = MediaWikiPeers.RO_DATABASE_FLAG
-    _FORCE_RECONCILIATION_FLAG = MediaWikiPeers.FORCE_RECONCILIATION_FLAG
     _COMPOSER_LOCK_KEY = MediaWikiPeers.COMPOSER_LOCK_KEY
     _COMPOSER_CONFIG_HASH_KEY = MediaWikiPeers.LEADER_STATE_HASH_KEY
 
@@ -199,6 +198,7 @@ class Charm(StatefulCharmBase):
         )
         self.framework.observe(self.on.create_and_promote_action, self._on_create_and_promote_user)
         self.framework.observe(self.on.update_database_action, self._on_update_database)
+        self.framework.observe(self.on.set_maintenance_mode_action, self._on_set_maintenance_mode)
         self.framework.observe(self.on.force_reconciliation_action, self._on_force_reconciliation)
 
     def _configure_ingress(self, *, tls_enabled: bool) -> None:
@@ -316,7 +316,7 @@ class Charm(StatefulCharmBase):
                 ssh_key=self._ssh_key(self._SSH_KEY_GIT_SYNC_FIELD),
             )
 
-            set_ro_database = self._mediawiki.reconciliation(
+            operation_mode = self._mediawiki.reconciliation(
                 ssh_key=self._ssh_key(self._SSH_KEY_MEDIAWIKI_FIELD),
                 force=force,
             )
@@ -334,7 +334,9 @@ class Charm(StatefulCharmBase):
 
         self.unit.status = (
             MaintenanceStatus("Database set to read-only mode")
-            if set_ro_database
+            if operation_mode is OperationMode.DATABASE_UPDATE
+            else ActiveStatus("MediaWiki maintenance mode enabled")
+            if operation_mode is OperationMode.MAINTENANCE
             else ActiveStatus()
         )
 
@@ -430,10 +432,51 @@ class Charm(StatefulCharmBase):
             event.fail("Only the leader unit can request a database update")
             return
 
-        if not self._peers.request_database_update():
-            event.fail("Peer relation not ready yet")
+        try:
+            if not self._peers.request_database_update():
+                event.fail("Peer relation not ready yet")
+                return
+        except MediaWikiModeConflictError as e:
+            event.fail(str(e))
             return
         event.log("Database update requested")
+
+    def _on_set_maintenance_mode(self, event: ActionEvent) -> None:
+        """Handle the set-maintenance-mode action.
+
+        Args:
+            event: The event that triggered the maintenance mode request.
+        """
+        params = event.load_params(SetMaintenanceModeAction, errors="fail")
+        if params is None:
+            return
+        if not self.unit.is_leader():
+            event.fail("Only the leader unit can set maintenance mode")
+            return
+
+        if params.enabled is None:
+            maintenance_mode = self._peers.maintenance_mode()
+            if maintenance_mode is None:
+                event.fail("Peer relation not ready yet")
+                return
+            enabled, message = maintenance_mode
+            results: dict[str, bool | str] = {"enabled": enabled}
+            if message is not None:
+                results["message"] = message
+            event.set_results(results)
+            return
+
+        try:
+            if not self._peers.request_maintenance_mode(
+                enabled=params.enabled,
+                message=params.message,
+            ):
+                event.fail("Peer relation not ready yet")
+                return
+        except MediaWikiModeConflictError as e:
+            event.fail(str(e))
+            return
+        event.log("Maintenance mode request recorded")
 
     def _on_force_reconciliation(self, event: ActionEvent) -> None:
         """Handle the force-reconciliation action.
@@ -458,8 +501,12 @@ class Charm(StatefulCharmBase):
                 event.fail("The all-units flag requires the action to be run on the leader unit")
                 return
 
-            if not self._peers.request_force_reconciliation():
-                event.fail("Peer relation not ready yet")
+            try:
+                if not self._peers.request_force_reconciliation():
+                    event.fail("Peer relation not ready yet")
+                    return
+            except MediaWikiModeConflictError as e:
+                event.fail(str(e))
                 return
             event.log("Force reconciliation requested for all units")
             return

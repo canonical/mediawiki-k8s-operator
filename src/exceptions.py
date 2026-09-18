@@ -52,6 +52,10 @@ class MediaWikiInstallError(Exception):
     """Exception for unrecoverable errors during MediaWiki installation."""
 
 
+class MediaWikiModeConflictError(Exception):
+    """Exception raised when incompatible workload modes are requested."""
+
+
 class ContainerError(Exception):
     """Exception for unrecoverable errors while executing a container command."""
 

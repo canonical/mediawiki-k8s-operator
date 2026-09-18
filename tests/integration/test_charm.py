@@ -362,6 +362,103 @@ def test_force_reconciliation_action(juju: jubilant.Juju, app: App):
 
 
 @pytest.mark.abort_on_fail
+def test_maintenance_mode_action(
+    juju: jubilant.Juju,
+    app: App,
+    authenticated_session: tuple[requests.Session, str, str],
+    requests_timeout: int,
+):
+    """Maintenance mode blocks writes, pauses workers, and recovers cleanly."""
+    session, csrf_token, api_url = authenticated_session
+    maintenance_enabled = False
+    try:
+        action = juju.run(
+            f"{app.name}/leader",
+            "set-maintenance-mode",
+            {"enabled": True, "message": "Database migration in progress"},
+        )
+        assert action.status == "completed"
+        maintenance_enabled = True
+        juju.wait(
+            lambda status: jubilant.all_maintenance(status, app.name),
+            error=jubilant.any_error,
+            timeout=5 * 60,
+        )
+
+        read_response = session.get(api_url, params={"action": "query", "format": "json"})
+        assert read_response.status_code == 200
+        write_response = session.post(
+            api_url,
+            data={
+                "action": "edit",
+                "title": "Maintenance mode integration test",
+                "appendtext": "Maintenance mode write attempt.\n",
+                "token": csrf_token,
+                "format": "json",
+            },
+            timeout=requests_timeout,
+        )
+        assert write_response.json()["error"]["code"] == "readonly"
+
+        with pytest.raises(jubilant.TaskError):
+            juju.run(f"{app.name}/leader", "update-database")
+
+        status = juju.status()
+        for unit_name in status.apps[app.name].units:
+            for service in ("redisJobRunnerService", "redisJobChronService"):
+                service_output = juju.ssh(
+                    unit_name,
+                    f"pebble services {service}",
+                    container="mediawiki",
+                )
+                assert re.search(
+                    rf"^{service}\s+disabled\s+inactive\b",
+                    service_output,
+                    flags=re.MULTILINE,
+                )
+    finally:
+        if maintenance_enabled:
+            disable_action = juju.run(
+                f"{app.name}/leader",
+                "set-maintenance-mode",
+                {"enabled": False},
+            )
+            assert disable_action.status == "completed"
+            juju.wait(jubilant.all_active, timeout=5 * 60)
+
+    write_response = session.post(
+        api_url,
+        data={
+            "action": "edit",
+            "title": "Maintenance mode integration test",
+            "appendtext": "Maintenance mode recovery succeeded.\n",
+            "token": csrf_token,
+            "format": "json",
+        },
+        timeout=requests_timeout,
+    )
+    assert write_response.json()["edit"]["result"] == "Success"
+
+    status = juju.status()
+    for unit_name in status.apps[app.name].units:
+        for service in ("redisJobRunnerService", "redisJobChronService"):
+            service_output = juju.ssh(
+                unit_name,
+                f"pebble services {service}",
+                container="mediawiki",
+            )
+            assert re.search(
+                rf"^{service}\s+disabled\s+active\b",
+                service_output,
+                flags=re.MULTILINE,
+            )
+
+    update_action = juju.run(f"{app.name}/leader", "update-database")
+    assert update_action.status == "completed"
+    juju.wait(jubilant.all_active, successes=5, timeout=8 * 60)
+
+
+@pytest.mark.abort_on_fail
 def test_relations(
     juju: jubilant.Juju,
     app: App,

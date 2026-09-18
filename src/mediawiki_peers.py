@@ -7,11 +7,12 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ops import EventBase, MaintenanceStatus, Object, Relation, RelationData, SecretNotFoundError
+from ops import EventBase, MaintenanceStatus, Object, Relation, SecretNotFoundError
 
-from exceptions import MediaWikiWaitingStatusException
+from exceptions import MediaWikiModeConflictError, MediaWikiWaitingStatusException
 from mediawiki._secrets import MediaWikiSecrets
 from state import StatefulCharmBase
+from types_ import OperationMode
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +22,25 @@ class MediaWikiPeerState:
     """Peer state required for one MediaWiki reconciliation cycle."""
 
     secrets: MediaWikiSecrets
-    ro_database: bool
-    force_reconciliation: bool
+    operation_mode: OperationMode
+    maintenance_message: str | None
     composer_lock: str | None
     leader_state_hash: str | None
+
+    @property
+    def database_update_requested(self) -> bool:
+        """Return whether a database update is requested."""
+        return self.operation_mode is OperationMode.DATABASE_UPDATE
+
+    @property
+    def maintenance_enabled(self) -> bool:
+        """Return whether maintenance mode is requested."""
+        return self.operation_mode is OperationMode.MAINTENANCE
+
+    @property
+    def force_reconciliation(self) -> bool:
+        """Return whether forced reconciliation is requested."""
+        return self.operation_mode is OperationMode.FORCE_RECONCILIATION
 
 
 class MediaWikiPeers(Object):
@@ -32,8 +48,8 @@ class MediaWikiPeers(Object):
 
     RELATION_NAME = "mediawiki-replica"
     SECRET_LABEL = "replica-secret"  # nosec: B105
-    RO_DATABASE_FLAG = "ro_db"
-    FORCE_RECONCILIATION_FLAG = "force_reconciliation"
+    OPERATION_MODE_KEY = "operation_mode"
+    MAINTENANCE_MESSAGE_KEY = "maintenance_message"
     COMPOSER_LOCK_KEY = "composer_lock"
     LEADER_STATE_HASH_KEY = "leader_state_hash"
     L10N_CACHE_VERSION_KEY = "l10n_cache_version"
@@ -62,8 +78,10 @@ class MediaWikiPeers(Object):
         app_data = relation.data[self._charm.app]
         return MediaWikiPeerState(
             secrets=self._replica_secrets(),
-            ro_database=app_data.get(self.RO_DATABASE_FLAG, "false").lower() == "true",
-            force_reconciliation=self._force_reconciliation_requested(relation.data),
+            operation_mode=OperationMode(
+                app_data.get(self.OPERATION_MODE_KEY, OperationMode.NORMAL.value)
+            ),
+            maintenance_message=app_data.get(self.MAINTENANCE_MESSAGE_KEY),
             composer_lock=app_data.get(self.COMPOSER_LOCK_KEY),
             leader_state_hash=app_data.get(self.LEADER_STATE_HASH_KEY),
         )
@@ -74,9 +92,36 @@ class MediaWikiPeers(Object):
         app_data[self.COMPOSER_LOCK_KEY] = lock
         app_data[self.LEADER_STATE_HASH_KEY] = self._charm.load_charm_config().state_hash
 
-    def acknowledge_database_mode(self, *, read_only: bool) -> None:
-        """Publish this unit's current database mode acknowledgement."""
-        self._relation().data[self._charm.unit][self.RO_DATABASE_FLAG] = str(read_only).lower()
+    def acknowledge_operation_mode(self, mode: OperationMode) -> None:
+        """Publish the operation mode applied by this unit."""
+        self._relation().data[self._charm.unit][self.OPERATION_MODE_KEY] = mode.value
+
+    def maintenance_mode(self) -> tuple[bool, str | None] | None:
+        """Return the requested maintenance mode, or None if the peer relation is unavailable."""
+        relation = self._charm.model.get_relation(self._relation_name)
+        if relation is None:
+            return None
+        app_data = relation.data[self._charm.app]
+        mode = OperationMode(app_data.get(self.OPERATION_MODE_KEY, OperationMode.NORMAL.value))
+        return (
+            mode is OperationMode.MAINTENANCE,
+            app_data.get(self.MAINTENANCE_MESSAGE_KEY),
+        )
+
+    def reconcile_operation_mode(self, mode: OperationMode) -> None:
+        """Wait for all peer units to apply the requested operation mode."""
+        if not self._charm.unit.is_leader():
+            return
+
+        relation = self._relation()
+        for unit in relation.units:
+            if relation.data[unit].get(self.OPERATION_MODE_KEY) != mode.value:
+                raise MediaWikiWaitingStatusException(
+                    f"Waiting for unit {unit.name} to apply operation mode {mode.value}"
+                )
+        if mode is OperationMode.FORCE_RECONCILIATION:
+            relation.data[self._charm.app][self.OPERATION_MODE_KEY] = OperationMode.NORMAL.value
+            logger.info("All units completed forced reconciliation")
 
     def localisation_cache_version(self) -> str | None:
         """Return the MediaWiki version of this unit's last successful localisation cache rebuild.
@@ -94,19 +139,18 @@ class MediaWikiPeers(Object):
         """
         self._relation().data[self._charm.unit][self.L10N_CACHE_VERSION_KEY] = version
 
-    def reconcile_database(self, update_database_schema: Callable[[], None]) -> None:
+    def reconcile_database_update(self, update_database_schema: Callable[[], None]) -> None:
         """Run a requested schema update after all peer units acknowledge read-only mode."""
         if not self._charm.unit.is_leader():
             return
 
         relation = self._relation()
-        if relation.data[self._charm.app].get(self.RO_DATABASE_FLAG, "false").lower() != "true":
+        app_data = relation.data[self._charm.app]
+        if (
+            app_data.get(self.OPERATION_MODE_KEY, OperationMode.NORMAL.value)
+            != OperationMode.DATABASE_UPDATE.value
+        ):
             return
-        for unit in relation.units:
-            if relation.data[unit].get(self.RO_DATABASE_FLAG, "false").lower() != "true":
-                raise MediaWikiWaitingStatusException(
-                    f"Waiting for unit {unit.name} to acknowledge database update by setting ro_db to true"
-                )
 
         original_status = self._charm.unit.status
         self._charm.unit.status = MaintenanceStatus("Updating database schema")
@@ -114,7 +158,7 @@ class MediaWikiPeers(Object):
             "All units have acknowledged the database update, proceeding with database schema update"
         )
         update_database_schema()
-        relation.data[self._charm.app][self.RO_DATABASE_FLAG] = "false"
+        app_data[self.OPERATION_MODE_KEY] = OperationMode.NORMAL.value
         self._charm.unit.status = original_status
         logger.info("Database schema update complete")
 
@@ -143,7 +187,62 @@ class MediaWikiPeers(Object):
         relation = self._charm.model.get_relation(self._relation_name)
         if relation is None:
             return False
-        relation.data[self._charm.app][self.RO_DATABASE_FLAG] = "true"
+        app_data = relation.data[self._charm.app]
+        current_mode = OperationMode(
+            app_data.get(self.OPERATION_MODE_KEY, OperationMode.NORMAL.value)
+        )
+        if current_mode is OperationMode.MAINTENANCE:
+            raise MediaWikiModeConflictError(
+                "Disable maintenance mode before requesting a database update"
+            )
+        if current_mode is OperationMode.FORCE_RECONCILIATION:
+            raise MediaWikiModeConflictError(
+                "Wait for forced reconciliation to complete before requesting a database update"
+            )
+        self._ensure_units_in_normal_operation(relation)
+        app_data[self.OPERATION_MODE_KEY] = OperationMode.DATABASE_UPDATE.value
+        return True
+
+    def request_maintenance_mode(self, *, enabled: bool, message: str | None = None) -> bool:
+        """Request application-wide maintenance mode.
+
+        Args:
+            enabled: Whether maintenance mode should be enabled.
+            message: Optional reason shown to MediaWiki users.
+
+        Returns:
+            Whether the peer relation was ready and the request was recorded.
+
+        Raises:
+            MediaWikiModeConflictError: If a database update is pending.
+        """
+        relation = self._charm.model.get_relation(self._relation_name)
+        if relation is None:
+            return False
+        app_data = relation.data[self._charm.app]
+        current_mode = OperationMode(
+            app_data.get(self.OPERATION_MODE_KEY, OperationMode.NORMAL.value)
+        )
+        if enabled and current_mode is OperationMode.DATABASE_UPDATE:
+            raise MediaWikiModeConflictError(
+                "Wait for the database update to complete before enabling maintenance mode"
+            )
+        if enabled and current_mode is OperationMode.FORCE_RECONCILIATION:
+            raise MediaWikiModeConflictError(
+                "Wait for forced reconciliation to complete before enabling maintenance mode"
+            )
+
+        if enabled:
+            if current_mode is OperationMode.NORMAL:
+                self._ensure_units_in_normal_operation(relation)
+            app_data[self.OPERATION_MODE_KEY] = OperationMode.MAINTENANCE.value
+            if message is not None:
+                app_data[self.MAINTENANCE_MESSAGE_KEY] = message
+            else:
+                app_data.pop(self.MAINTENANCE_MESSAGE_KEY, None)
+        elif current_mode is OperationMode.MAINTENANCE:
+            app_data[self.OPERATION_MODE_KEY] = OperationMode.NORMAL.value
+            app_data.pop(self.MAINTENANCE_MESSAGE_KEY, None)
         return True
 
     def request_force_reconciliation(self) -> bool:
@@ -155,8 +254,29 @@ class MediaWikiPeers(Object):
         relation = self._charm.model.get_relation(self._relation_name)
         if relation is None:
             return False
-        relation.data[self._charm.app][self.FORCE_RECONCILIATION_FLAG] = "true"
+        app_data = relation.data[self._charm.app]
+        current_mode = OperationMode(
+            app_data.get(self.OPERATION_MODE_KEY, OperationMode.NORMAL.value)
+        )
+        if current_mode is not OperationMode.NORMAL:
+            raise MediaWikiModeConflictError(
+                f"Wait for {current_mode.value} to complete before forcing reconciliation"
+            )
+        self._ensure_units_in_normal_operation(relation)
+        app_data[self.OPERATION_MODE_KEY] = OperationMode.FORCE_RECONCILIATION.value
         return True
+
+    def _ensure_units_in_normal_operation(self, relation: Relation) -> None:
+        """Ensure no unit still reports a previously completed operation."""
+        units = (self._charm.unit, *relation.units)
+        if any(
+            relation.data[unit].get(self.OPERATION_MODE_KEY, OperationMode.NORMAL.value)
+            != OperationMode.NORMAL.value
+            for unit in units
+        ):
+            raise MediaWikiModeConflictError(
+                "Wait for all units to return to normal operation before starting another operation"
+            )
 
     def _relation(self) -> Relation:
         """Return the MediaWiki peer relation."""
@@ -194,26 +314,3 @@ class MediaWikiPeers(Object):
             return MediaWikiSecrets.from_juju_secret(secrets_content)
         except SecretNotFoundError:
             raise MediaWikiWaitingStatusException("Waiting for replica secrets to be available")
-
-    def _force_reconciliation_requested(self, replica_data: RelationData) -> bool:
-        """Acknowledge and return the peer force-reconciliation request."""
-        app_flag = (
-            replica_data[self._charm.app].get(self.FORCE_RECONCILIATION_FLAG, "false").lower()
-            == "true"
-        )
-        if not app_flag:
-            if (
-                replica_data[self._charm.unit].get(self.FORCE_RECONCILIATION_FLAG, "false").lower()
-                == "true"
-            ):
-                replica_data[self._charm.unit][self.FORCE_RECONCILIATION_FLAG] = "false"
-            return False
-
-        replica_data[self._charm.unit][self.FORCE_RECONCILIATION_FLAG] = "true"
-        if self._charm.unit.is_leader() and all(
-            replica_data[unit].get(self.FORCE_RECONCILIATION_FLAG, "false").lower() == "true"
-            for unit in self._relation().units
-        ):
-            replica_data[self._charm.app][self.FORCE_RECONCILIATION_FLAG] = "false"
-            logger.info("All units acknowledged force reconciliation, app flag cleared")
-        return True

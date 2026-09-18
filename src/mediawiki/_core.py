@@ -38,6 +38,7 @@ from relations.s3 import S3
 from relations.smtp import Smtp
 from relations.tls import Tls
 from state import CharmConfig, StatefulCharmBase
+from types_ import OperationMode
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ class MediaWiki(
         self,
         ssh_key: Optional[str] = None,
         force: bool = False,
-    ) -> bool:
+    ) -> OperationMode:
         """Reconcile MediaWiki configuration, peer state, database, and services.
 
         Args:
@@ -127,7 +128,7 @@ class MediaWiki(
             force: Whether to force updates and rebuilds regardless of state. Defaults to False.
 
         Returns:
-            Whether MediaWiki remains in database read-only mode.
+            The operational mode applied to MediaWiki.
 
         Raises:
             MediaWikiStatusException: If there is a potentially transient error stopping the
@@ -149,20 +150,31 @@ class MediaWiki(
                 )
             peer_state = self._peers.reconciliation_state()
         except (MediaWikiBlockedStatusException, MediaWikiWaitingStatusException):
-            self._reconcile_services(active=False)
+            self._reconcile_services(workload_active=False, run_job_workers=False)
             raise
 
-        restart_required = self._reconcile_configuration(
-            peer_state,
-            ssh_key=ssh_key,
-            force=force,
-        )
+        mode = peer_state.operation_mode
+        try:
+            restart_required = self._reconcile_configuration(
+                peer_state,
+                ssh_key=ssh_key,
+                force=force,
+            )
+        except Exception:
+            if mode is OperationMode.MAINTENANCE:
+                self._stop_job_workers()
+            raise
 
-        self._peers.acknowledge_database_mode(read_only=peer_state.ro_database)
-        self._peers.reconcile_database(self.update_database_schema)
-        self._reconcile_services(restart_required=restart_required)
+        self._reconcile_services(
+            workload_active=True,
+            run_job_workers=(mode.allows_job_workers and self.runner_queue_service_is_ready()),
+            restart_required=restart_required,
+        )
+        self._peers.acknowledge_operation_mode(mode)
+        self._peers.reconcile_operation_mode(mode)
+        self._peers.reconcile_database_update(self.update_database_schema)
         self._oauth.update_client_config()
-        return peer_state.ro_database
+        return mode
 
     def _reconcile_configuration(
         self,
@@ -237,12 +249,17 @@ class MediaWiki(
         settings_changed = False
         if not self._is_database_initialized():
             settings_changed = self._settings_reconciliation(
-                config, peer_state.secrets, ro_database=True
+                config,
+                peer_state.secrets,
+                mode=OperationMode.DATABASE_UPDATE,
             )
             self._install(config)
 
         settings_changed |= self._settings_reconciliation(
-            config, peer_state.secrets, ro_database=peer_state.ro_database
+            config,
+            peer_state.secrets,
+            mode=peer_state.operation_mode,
+            maintenance_message=peer_state.maintenance_message,
         )
 
         if self._charm.unit.is_leader():
@@ -354,11 +371,17 @@ class MediaWiki(
             elif not active and status != pebble.CheckStatus.INACTIVE:
                 self._container.stop_checks(check)
 
-    def _reconcile_services(self, *, active: bool = True, restart_required: bool = False) -> None:
+    def _reconcile_services(
+        self,
+        *,
+        workload_active: bool,
+        run_job_workers: bool,
+        restart_required: bool = False,
+    ) -> None:
         """Privately reconcile MediaWiki services and checks."""
         if not self._container.can_connect():
             raise MediaWikiWaitingStatusException("Waiting for pebble")
-        if not active:
+        if not workload_active:
             self._tunnel_services.register(self._SMTP_PROXY_SERVICE_NAME, self._SMTP_PROXY_PORT)
         self._container.add_layer(self._SERVICE_NAME, self._pebble_layer(), combine=True)
         self._container.replan()
@@ -371,10 +394,10 @@ class MediaWiki(
             if service in self._container.get_plan().services
             and self._container.get_service(service).is_running()
         }
-        if not active:
+        if not workload_active:
             services_to_run.clear()
             self._reconcile_checks(active=False)
-        elif self.runner_queue_service_is_ready():
+        elif run_job_workers:
             services_to_run.update(self._REDIS_JOB_SERVICES)
 
         services_to_stop = all_conditional_services - services_to_run
@@ -385,11 +408,18 @@ class MediaWiki(
         for service in services_to_run:
             if service in services and not self._container.get_service(service).is_running():
                 self._container.start(service)
-        if active:
+        if workload_active:
             self._finish_active_service_reconciliation(
                 restart_required or self.service_restart_pending(),
                 services_to_run & previously_running,
             )
+
+    def _stop_job_workers(self) -> None:
+        """Stop job workers without changing the rest of the workload plan."""
+        services = self._container.get_plan().services
+        for service in self._REDIS_JOB_SERVICES:
+            if service in services and self._container.get_service(service).is_running():
+                self._container.stop(service)
 
     def _finish_active_service_reconciliation(
         self, restart_required: bool, previously_running: set[str]

@@ -5,6 +5,7 @@
 
 import dataclasses
 import logging
+from enum import Enum
 from string import Template
 from typing import List, NamedTuple, Optional, Union
 
@@ -13,12 +14,37 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 
+class OperationMode(Enum):
+    """Mutually exclusive operation coordinated across MediaWiki units."""
+
+    NORMAL = "normal"
+    DATABASE_UPDATE = "database-update"
+    MAINTENANCE = "maintenance"
+    FORCE_RECONCILIATION = "force-reconciliation"
+
+    @property
+    def allows_job_workers(self) -> bool:
+        """Return whether background job workers may run in this mode."""
+        return self is not OperationMode.MAINTENANCE
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class ForceReconciliationAction:
     """Force a reconciliation including a composer update."""
 
     all_units: bool = False
     """Flag all units to perform a forced reconciliation via the peer relation."""
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class SetMaintenanceModeAction:
+    """Set the application-wide MediaWiki maintenance mode."""
+
+    enabled: bool | None = None
+    """Whether maintenance mode should be enabled, or None to query the current state."""
+
+    message: str | None = "MediaWiki is undergoing maintenance"
+    """Optional message shown to users while maintenance mode is enabled."""
 
 
 class CommandExecResult(NamedTuple):
