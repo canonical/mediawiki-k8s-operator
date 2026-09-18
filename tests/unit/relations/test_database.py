@@ -202,3 +202,111 @@ class TestGetDatabaseConnection:
             cnx = mgr.charm.database.get_database_connection()
             with cnx:
                 pass
+
+
+@pytest.mark.usefixtures("mock_fetch_relation_data_filled")
+class TestSetReadOnly:
+    """Schema read-only changes are bounded, verified, and fail without retries."""
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    @pytest.mark.parametrize("database_name", ["db", "wiki`name"])
+    def test_set_read_only(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_fetch_relation_data_filled: MockType,
+        mock_mysql: MockType,
+        enabled: bool,
+        database_name: str,
+    ) -> None:
+        """Alter only the related database on the primary and verify its schema options."""
+        mock_fetch_relation_data_filled.return_value[0]["database"] = database_name
+        connection = mock_mysql.return_value
+        cursor = connection.cursor.return_value
+        cursor.fetchone.return_value = ("READ ONLY=1" if enabled else "",)
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.database.set_read_only(enabled)
+
+        escaped_name = database_name.replace("`", "``")
+        assert [call.args[0] for call in cursor.execute.call_args_list] == [
+            "SET SESSION lock_wait_timeout = 10",
+            f"ALTER DATABASE `{escaped_name}` READ ONLY = {int(enabled)}",
+            "SELECT OPTIONS FROM information_schema.SCHEMATA_EXTENSIONS "
+            "WHERE SCHEMA_NAME = DATABASE()",
+        ]
+        assert mock_mysql.call_args.kwargs["host"] == "host"
+        assert mock_mysql.call_args.kwargs["connection_timeout"] == 30
+        assert mock_mysql.call_args.kwargs["read_timeout"] == 30
+        assert mock_mysql.call_args.kwargs["write_timeout"] == 30
+        cursor.close.assert_called_once_with()
+        connection.close.assert_called_once_with()
+
+    @pytest.mark.parametrize(
+        ("enabled", "row"),
+        [
+            (True, None),
+            (False, None),
+            (True, (None,)),
+            (False, (None,)),
+            (True, ("",)),
+            (False, ("READ ONLY=1",)),
+        ],
+    )
+    def test_verification_failure(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mysql: MockType,
+        enabled: bool,
+        row: tuple[str | None] | None,
+    ) -> None:
+        """Missing or mismatched schema state never reports success or retries."""
+        cursor = mock_mysql.return_value.cursor.return_value
+        cursor.fetchone.return_value = row
+        with (
+            ctx(ctx.on.update_status(), active_state) as mgr,
+            pytest.raises(MediaWikiBlockedStatusException),
+        ):
+            mgr.charm.database.set_read_only(enabled)
+        assert cursor.execute.call_count == 3
+        cursor.close.assert_called_once_with()
+        mock_mysql.return_value.close.assert_called_once_with()
+
+    @pytest.mark.parametrize("step", [0, 1, 2])
+    def test_sql_failure(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mysql: MockType,
+        step: int,
+    ) -> None:
+        """A lock timeout, denied ALTER, or failed verification stops immediately."""
+        cursor = mock_mysql.return_value.cursor.return_value
+        cursor.execute.side_effect = [None] * step + [
+            mysql.connector.Error("Operation failed", errno=1205)
+        ]
+        with (
+            ctx(ctx.on.update_status(), active_state) as mgr,
+            pytest.raises(MediaWikiBlockedStatusException, match="Operation failed"),
+        ):
+            mgr.charm.database.set_read_only(True)
+        assert cursor.execute.call_count == step + 1
+        mock_mysql.return_value.rollback.assert_not_called()
+        cursor.close.assert_called_once_with()
+        mock_mysql.return_value.close.assert_called_once_with()
+
+    def test_connection_failure(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mysql: MockType,
+    ) -> None:
+        """An unavailable database is not retried and no SQL executes."""
+        mock_mysql.side_effect = mysql.connector.Error("Connection failed", errno=2003)
+        with (
+            ctx(ctx.on.update_status(), active_state) as mgr,
+            pytest.raises(MediaWikiBlockedStatusException, match="Connection failed"),
+        ):
+            mgr.charm.database.set_read_only(True)
+        assert mock_mysql.call_count == 1
+        mock_mysql.return_value.cursor.assert_not_called()

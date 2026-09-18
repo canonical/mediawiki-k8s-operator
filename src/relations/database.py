@@ -124,6 +124,42 @@ class Database(Object):
         except MediaWikiStatusException:
             return False
 
+    def set_read_only(self, enabled: bool) -> None:
+        """Synchronously set and verify read-only mode for the related database.
+
+        Args:
+            enabled: Whether to reject writes to the database.
+
+        Raises:
+            MediaWikiStatusException: If relation data or verification is unavailable, or if
+                connecting to or altering the database fails.
+        """
+        database_name = self.get_relation_data().database.replace("`", "``")
+        try:
+            with self.get_database_connection() as connection:
+                cursor = connection.cursor()
+                try:
+                    cursor.execute("SET SESSION lock_wait_timeout = 10")
+                    cursor.execute(f"ALTER DATABASE `{database_name}` READ ONLY = {int(enabled)}")
+                    cursor.execute(
+                        "SELECT OPTIONS FROM information_schema.SCHEMATA_EXTENSIONS "
+                        "WHERE SCHEMA_NAME = DATABASE()"
+                    )
+                    row = cursor.fetchone()
+                finally:
+                    cursor.close()
+        except mysql.connector.Error as e:
+            raise MediaWikiBlockedStatusException(
+                f"Unable to set database read-only mode: {e}"
+            ) from e
+        if not isinstance(row, tuple) or not row or not isinstance(row[0], str):
+            raise MediaWikiBlockedStatusException("Unable to verify database read-only state")
+        if ("READ ONLY=1" in row[0]) != enabled:
+            raise MediaWikiBlockedStatusException(
+                "Database read-only state does not match the requested maintenance mode"
+            )
+        logger.info("Database read-only mode verified: %s", enabled)
+
     @contextmanager
     def get_database_connection(
         self, connection_timeout: int = 30, operation_timeout: int = 30
