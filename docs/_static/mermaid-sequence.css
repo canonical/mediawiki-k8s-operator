@@ -8,7 +8,7 @@
 }
 
 #update-database-diagram>svg {
-    height: 1200px;
+    height: auto;
 }
 
 #deployment-diagram>svg {
