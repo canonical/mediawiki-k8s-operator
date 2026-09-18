@@ -101,7 +101,8 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
      - This is only set when the :ref:`saml relation <reference_relation_endpoints_saml>` is in use. The charm configures ``plugin`` and ``data.authSourceId``. User modifications are otherwise merged in where possible.
    * - `$wgReadOnly <https://www.mediawiki.org/wiki/Manual:$wgReadOnly>`__
      - .. centered:: :bdg-warning:`Partially`
-     - In certain situations such as when performing a database update, the charm may set this variable.
+     - The charm sets this while performing a database update and while
+       operator-requested maintenance mode is enabled.
    * - `$wgResourceBasePath <https://www.mediawiki.org/wiki/Manual:$wgResourceBasePath>`__
      - .. centered:: :bdg-success:`Yes`
      - 
