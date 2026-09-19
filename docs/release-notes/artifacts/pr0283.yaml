@@ -1,0 +1,18 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+  - title: Added charm-managed authentication token rotation
+    author: hk21702
+    type: minor
+    description: >-
+      Added automatic generation and synchronization of wgAuthenticationTokenVersion
+      between units. Included it in the rotate-mediawiki-secrets action to invalidate
+      existing sessions and remember-me cookies once all units applied the change.
+      Initializing this setting on upgrade also logged existing users out.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/283"
+    visibility: public
+    highlight: false

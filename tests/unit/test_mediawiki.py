@@ -1324,6 +1324,8 @@ class TestMediaWikiSecrets:
         result = MediaWikiSecrets.generate()
         assert isinstance(result.secret_key, str) and len(result.secret_key) > 0
         assert isinstance(result.session_secret, str) and len(result.session_secret) > 0
+        assert isinstance(result.authentication_token_version, str)
+        assert len(result.authentication_token_version) > 0
 
     def test_generate_fields_have_sufficient_entropy(self) -> None:
         """Test that generated secrets are long enough to be considered secure."""
@@ -1331,6 +1333,7 @@ class TestMediaWikiSecrets:
         # token_urlsafe(64) produces at least 64 bytes of entropy
         assert len(result.secret_key) >= 64
         assert len(result.session_secret) >= 64
+        assert len(result.authentication_token_version) >= 64
 
     def test_generate_fields_differ_from_each_other(self) -> None:
         """Test that secret_key and session_secret are not the same value."""
@@ -1343,15 +1346,25 @@ class TestMediaWikiSecrets:
         second = MediaWikiSecrets.generate()
         assert first.secret_key != second.secret_key
         assert first.session_secret != second.session_secret
+        assert first.authentication_token_version != second.authentication_token_version
 
     def test_to_local_settings_values_match_fields(self) -> None:
         """Test that to_local_settings() values correspond to the dataclass fields."""
         result = MediaWikiSecrets(
-            secret_key="test-key", session_secret="test-session", saml_secret_salt="test-salt"
+            secret_key="test-key",
+            session_secret="test-session",
+            saml_secret_salt="test-salt",
+            authentication_token_version="test-token-version",
         )  # nosec: B106
         settings = result.to_local_settings()
         assert settings["$wgSecretKey"] == "test-key"
         assert settings["$wgSessionSecret"] == "test-session"
+        assert settings["$wgAuthenticationTokenVersion"] == "test-token-version"
+
+    def test_juju_secret_round_trip(self) -> None:
+        """Test that all generated fields survive storage in the shared secret."""
+        generated = MediaWikiSecrets.generate()
+        assert MediaWikiSecrets.from_juju_secret(generated.to_juju_secret()) == generated
 
 
 class TestS3Settings:

@@ -569,6 +569,53 @@ class TestMediaWikiReplicaChanged:
             )
 
 
+class TestReplicaSecrets:
+    """Shared authentication token versions survive reconciliation and upgrades."""
+
+    def test_migrate_authentication_token_version(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """The leader adds the missing field without rotating existing secrets."""
+        original = dict(active_state.get_secret(label=Charm._REPLICA_SECRET_LABEL).latest_content)
+        original.pop("authentication-token-version")
+        legacy_secret = testing.Secret(original, label=Charm._REPLICA_SECRET_LABEL, owner="app")
+        state_in = dataclasses.replace(active_state, secrets=[legacy_secret])
+
+        migrated = ctx.run(ctx.on.config_changed(), state_in)
+        content = migrated.get_secret(label=Charm._REPLICA_SECRET_LABEL).latest_content
+        assert isinstance(migrated.unit_status, ops.ActiveStatus)
+        assert len(content["authentication-token-version"]) >= 64
+        assert {key: content[key] for key in original} == original
+
+        reconciled = ctx.run(ctx.on.config_changed(), migrated)
+        assert reconciled.get_secret(label=Charm._REPLICA_SECRET_LABEL).latest_content == content
+
+        follower = dataclasses.replace(reconciled, leader=False)
+        with ctx(ctx.on.config_changed(), follower) as manager:
+            peer_state = manager.charm._peers.reconciliation_state()
+            assert (
+                peer_state.secrets.authentication_token_version
+                == content["authentication-token-version"]
+            )
+            manager.run()
+
+    def test_follower_waits_for_secret_migration(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Followers wait for the leader instead of generating independent versions."""
+        original = dict(active_state.get_secret(label=Charm._REPLICA_SECRET_LABEL).latest_content)
+        original.pop("authentication-token-version")
+        legacy_secret = testing.Secret(original, label=Charm._REPLICA_SECRET_LABEL, owner="app")
+        state_in = dataclasses.replace(active_state, leader=False, secrets=[legacy_secret])
+
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+        assert state_out.unit_status == ops.WaitingStatus(
+            "Waiting for leader to migrate replica secrets"
+        )
+        assert state_out.get_secret(label=Charm._REPLICA_SECRET_LABEL).latest_content == original
+
+
 class TestRotateMediaWikiSecretsAction:
     def test_success(
         self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
@@ -578,6 +625,7 @@ class TestRotateMediaWikiSecretsAction:
             "key": "new-mocked-key",
             "session": "new-mocked-session",
             "saml-salt": "new-mocked-saml-salt",
+            "authentication-token-version": "new-mocked-authentication-token-version",
         }
         mocker.patch(
             "mediawiki_peers.MediaWikiSecrets.generate",

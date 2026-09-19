@@ -275,6 +275,7 @@ def secrets() -> list[testing.Secret]:
         secret_key="mock_key",
         session_secret="mock_session",
         saml_secret_salt="mock_saml_salt",
+        authentication_token_version="mock_authentication_token_version",
     )  # nosec: B106
     return [
         testing.Secret(
