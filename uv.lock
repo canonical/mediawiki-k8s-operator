@@ -771,16 +771,16 @@ wheels = [
 
 [[package]]
 name = "dpcharmlibs-interfaces"
-version = "1.2.0"
+version = "1.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
     { name = "ops" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9f/c3/f5d37a6cb39435e89576cba2207035dcfd6785cc5e2da60e64a4cf9684af/dpcharmlibs_interfaces-1.2.0.tar.gz", hash = "sha256:28e1336f62d2d1239c87f468230e871369478a59c3393176ef54ad8ed045b8f5", size = 208152, upload-time = "2026-09-03T14:11:44.803Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4c/9f/094314e6c75e7441e62a408d1cd0aa52e10002f716978f4d17c09d281c69/dpcharmlibs_interfaces-1.2.1.tar.gz", hash = "sha256:3676b6e8e4a0a0276125f02a61670fdd905cd9a0d0e7d5dc572d508cde5a04e1", size = 208233, upload-time = "2026-09-21T06:12:48.76Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d0/67/ad89509a1f0e714824aa59a2cdda2f8098396aac5b9bc076d0e84c477324/dpcharmlibs_interfaces-1.2.0-py3-none-any.whl", hash = "sha256:468dd5bbb7a0b0f37123782f16fb58df68ca491d67ed82dfd958fb27e9384d64", size = 39774, upload-time = "2026-09-03T14:11:43.675Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/5c/4fff547658ea2cb8e10685bfb791dd3f01c6f409f593e0d903533ab56b6f/dpcharmlibs_interfaces-1.2.1-py3-none-any.whl", hash = "sha256:f0fde722013fc745e11fabf64f06fcc60b5e1c2f6bd6c66a4713a5d7a3c89fb2", size = 39785, upload-time = "2026-09-21T06:12:47.183Z" },
 ]
 
 [[package]]
@@ -1179,7 +1179,7 @@ requires-dist = [
     { name = "charmlibs-interfaces-tls-certificates", specifier = ">=1.10.1" },
     { name = "charmlibs-pathops", specifier = "==1.3.0.post0" },
     { name = "cosl", specifier = ">=1.9.1" },
-    { name = "dpcharmlibs-interfaces", specifier = "==1.2.0" },
+    { name = "dpcharmlibs-interfaces", specifier = "==1.2.1" },
     { name = "email-validator", specifier = ">=2.0" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "mysql-connector-python", specifier = ">=9.6.0" },
