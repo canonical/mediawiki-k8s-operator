@@ -14,6 +14,7 @@ class MediaWikiSecrets:
     secret_key: str
     session_secret: str
     saml_secret_salt: str
+    authentication_token_version: str
 
     @classmethod
     def generate(cls) -> "MediaWikiSecrets":
@@ -22,6 +23,7 @@ class MediaWikiSecrets:
             secret_key=secrets.token_urlsafe(64),
             session_secret=secrets.token_urlsafe(64),
             saml_secret_salt=secrets.token_hex(64),
+            authentication_token_version=secrets.token_urlsafe(64),
         )
 
     def to_local_settings(self) -> dict[str, str]:
@@ -29,6 +31,7 @@ class MediaWikiSecrets:
         return {
             "$wgSecretKey": self.secret_key,
             "$wgSessionSecret": self.session_secret,
+            "$wgAuthenticationTokenVersion": self.authentication_token_version,
         }
 
     def to_juju_secret(self) -> dict[str, str]:
@@ -38,6 +41,7 @@ class MediaWikiSecrets:
             "key": self.secret_key,
             "session": self.session_secret,
             "saml-salt": self.saml_secret_salt,
+            "authentication-token-version": self.authentication_token_version,
         }
 
     @classmethod
@@ -47,4 +51,5 @@ class MediaWikiSecrets:
             secret_key=data["key"],
             session_secret=data["session"],
             saml_secret_salt=data["saml-salt"],
+            authentication_token_version=data["authentication-token-version"],
         )

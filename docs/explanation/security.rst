@@ -33,6 +33,7 @@ MediaWiki:
 
 - `$wgSecretKey <https://www.mediawiki.org/wiki/Manual:$wgSecretKey>`_
 - `$wgSessionSecret <https://www.mediawiki.org/wiki/Manual:$wgSessionSecret>`_
+- `$wgAuthenticationTokenVersion <https://www.mediawiki.org/wiki/Manual:$wgAuthenticationTokenVersion>`_
 
 SimpleSAMLphp:
 
