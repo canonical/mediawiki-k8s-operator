@@ -1,0 +1,20 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+  - title: Updated the deployment overview with TLS and SAML
+    author: hk21702
+    type: minor
+    description: >-
+      Updated the high-level deployment diagram to show self-signed TLS
+      certificates and CA transfer for the MediaWiki stack, and replaced the
+      OAuth provider with the SAML integrator. The diagram height was reduced
+      to improve its display.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/289"
+      related_doc: "https://canonical.com/juju/docs/mediawiki-k8s-charm/reference/high-level-deployment/"
+      related_issue: "https://warthogs.atlassian.net/browse/UDENG-11471"
+    visibility: hidden
+    highlight: false

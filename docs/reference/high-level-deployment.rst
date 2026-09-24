@@ -46,14 +46,21 @@ The following diagram shows a typical, fully featured deployment of the MediaWik
          MediaWiki["mediawiki-k8s"]
          MySQLRouter["mysql-router-k8s"]
          Valkey["valkey"]
+         Certs["self-signed-certificates"]
          S3Int["s3-integrator"]
+         SAMLInt["saml-integrator"]
          SMTPInt["smtp-integrator"]
          OtelCol["opentelemetry-<br/>collector-k8s"]
 
          IngressConfig ---|"upstream-ingress<br/>(ingress)"| Traefik ---|"traefik-route<br/>(traefik_route)"| MediaWiki
-         Valkey ---|"valkey"| MediaWiki
+         Certs ---|"certificates<br/>(tls-certificates)"| Traefik
+         Certs ---|"send-ca-cert to receive-ca-cert<br/>(certificate_transfer)"| Traefik
+         Certs ---|"certificates<br/>(tls-certificates)"| MediaWiki
+         Certs ---|"certificates to client-certificates<br/>(tls-certificates)"| Valkey
+        Valkey ---|"valkey<br/>(valkey_client)"| MediaWiki
          MediaWiki ---|"database<br/>(mysql_client)"| MySQLRouter
          MediaWiki ---|"s3-parameters<br/>(s3)"| S3Int
+         MediaWiki ---|"saml<br/>(saml)"| SAMLInt
          MediaWiki ---|"smtp<br/>(smtp)"| SMTPInt
          MediaWiki ----|"logging<br/>(loki_push_api)"| OtelCol
          MediaWiki ----|"grafana-dashboard<br/>(grafana_dashboard)"| OtelCol
@@ -62,9 +69,10 @@ The following diagram shows a typical, fully featured deployment of the MediaWik
 
       Users -.-|"HTTP/S"| ExternalIngress
       Ingress ---|"haproxy-route"| IngressConfig
+      Ingress ---|"send-ca-cert to receive-ca-certs<br/>(certificate_transfer)"| Certs
       MySQLRouter ----|"backend-database<br/>(mysql_client)"| ExternalMySQL
       OtelCol --- ExternalCOS
-      MediaWiki -----|"oauth"| ExternalIdentity
+      SAMLInt -...-|"IdP configuration"| ExternalIdentity
       S3Int -...-|"S3 API"| S3
       SMTPInt -...-|"SMTP"| ExternalSMTP
 
@@ -91,8 +99,12 @@ Components
      - Routes database queries to an external MySQL cluster
    * - **valkey**
      - Provides caching and asynchronous job execution
+   * - **self-signed-certificates**
+     - Issues TLS certificates for MediaWiki, Valkey, and Traefik, and distributes its CA certificate to Traefik and HAProxy
    * - **s3-integrator**
      - Supplies S3 credentials for user file uploads
+   * - **saml-integrator**
+     - Supplies identity provider configuration to MediaWiki for SAML sign-on
    * - **smtp-integrator**
      - Supplies SMTP relay configuration for outgoing emails
    * - **opentelemetry-collector-k8s**
