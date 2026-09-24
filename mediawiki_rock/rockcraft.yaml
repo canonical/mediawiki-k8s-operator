@@ -46,6 +46,7 @@ parts:
       - unzip
       - php-ldap
       - php-luasandbox
+      - python3 # Required for SyntaxHighlight
       # MediaWiki log rotation
       - logrotate
     permissions:

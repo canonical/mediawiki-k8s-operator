@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Fixed SyntaxHighlight support in the MediaWiki rock
+    author: hk21702
+    type: bugfix
+    description: >
+      The MediaWiki rock now includes Python 3, restoring the runtime required
+      by the SyntaxHighlight extension so wikis using it can render highlighted
+      code.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/287"
+    visibility: public
+    highlight: false
