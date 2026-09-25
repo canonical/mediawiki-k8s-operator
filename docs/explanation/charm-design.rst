@@ -121,3 +121,20 @@ This process is designed according to the following principles:
 - **Non-leaders installs from the lock**: Non-leader units write the leader-published lock file to disk *before* invoking Composer. This means that Composer installs exactly the packages and versions already resolved by the leader, regardless of what the current charm config resolves to independently.
 - **Idempotent skipping without halting reconciliation**: Before running Composer, each unit checks whether its on-disk state already matches the desired state. Leaders skip when ``composer.user.json`` matches the current config, while non-leaders skip when both ``composer.user.json`` and ``composer.lock`` match what the leader published. Skipping only short-circuits the Composer step, so the rest of the reconciliation still runs. A stale or missing lock on a non-leader will always trigger a re-install.
 - **Non-leaders wait if state is unavailable or stale**: If the leader has not yet published a lock and matching state hash, or if a non-leader's configuration differs from the published state, it aborts reconciliation and enters ``WaitingStatus`` rather than attempting to resolve dependencies itself.
+
+Localisation cache
+^^^^^^^^^^^^^^^^^^
+
+Each unit stores its `localisation cache <https://www.mediawiki.org/wiki/Manual:LocalisationCache.php>`_ on its own filesystem rather than in MediaWiki's database. This avoids cache-related database traffic and speeds up access. The charm also sets `$wgLocalisationCacheConf['manualRecache'] <https://www.mediawiki.org/wiki/Manual:$wgLocalisationCacheConf>`_ to ``true`` so MediaWiki does not rebuild the cache during web requests. Instead, the charm runs the `rebuildLocalisationCache <https://www.mediawiki.org/wiki/Manual:RebuildLocalisationCache.php>`_ maintenance script during reconciliation when the cache might be stale.
+
+Specifically, each unit rebuilds the cache during reconciliation for the following reasons:
+
+- Its peer data has no record of a successful rebuild, such as on first installation.
+- The MediaWiki version differs from the version recorded at the last successful rebuild, since core translations may have changed.
+- Its settings files change, which may affect localisation.
+- Composer runs, potentially changing translations supplied by extensions or skins.
+- Reconciliation is forced.
+
+The forced reconciliation case is special, and the charm will pass ``--force`` to ``rebuildLocalisationCache`` to rebuild all entries regardless of necessity.
+
+The charm keeps a pending rebuild marker alongside the cache until the rebuild succeeds. This ensures that changes are not lost if reconciliation stops after updating settings or running Composer but before rebuilding the cache. On success, the unit records the MediaWiki version in its peer data and clears the marker. On failure, the unit enters a blocked status and retries the pending rebuild on the next reconciliation.
