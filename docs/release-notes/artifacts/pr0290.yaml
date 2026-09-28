@@ -1,0 +1,19 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+  - title: Documented localisation cache handling
+    author: hk21702
+    type: minor
+    description: >-
+      Added an explanation of how the charm stores and rebuilds the
+      localisation cache, including when a rebuild is triggered. This helps
+      operators understand how the charm reduces database traffic while
+      keeping translations up to date.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/290"
+      related_doc: "https://canonical.com/juju/docs/mediawiki-k8s-charm/explanation/charm-design/"
+    visibility: hidden
+    highlight: false
