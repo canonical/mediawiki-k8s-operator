@@ -300,7 +300,7 @@ class _SettingsMixin(_MediaWikiBase):
             escaped_username = utils.escape_php_string(connection.username)
             escaped_password = utils.escape_php_string(connection.password)
             password_php = f"[ '{escaped_username}', '{escaped_password}' ]"
-            password_entry = f"\n                'password'             => {password_php},"
+            password_entry = f"\n                'password'             => {password_php}"
             redis_config_php = f"[ 'password' => {password_php} ]"
 
         redis_config: dict[str, object] = {
@@ -367,7 +367,8 @@ class _SettingsMixin(_MediaWikiBase):
             $wgObjectCaches['redis'] = [
                 'class'                => 'RedisBagOStuff',
                 'servers'              => [ '{utils.escape_php_string(redis_server)}' ],
-                {password_entry}
+                {password_entry},
+                'persistent'            => true
             ];
 
             $wgMainCacheType = 'redis';
