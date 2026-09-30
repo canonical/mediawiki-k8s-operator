@@ -1,0 +1,14 @@
+version_schema: 2
+
+changes:
+  - title: Fixed Redis failover reconciliation
+    author: hk21702
+    type: bugfix
+    description: >
+      MediaWiki now picks up the updated Redis leader host after a failover,
+      because Redis application-data changes trigger reconciliation.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/296"
+    visibility: public
+    highlight: false
