@@ -1,0 +1,18 @@
+# Version of the artifact schema
+version_schema: 2
+
+# The key holding the change(s)
+changes:
+  - title: Enabled persistent object-cache connections
+    author: hk21702
+    type: minor
+    description: >-
+      Enabled persistent connections for MediaWiki's Valkey-backed object
+      cache, helping reduce connection churn and associated CoreDNS load in
+      high-traffic deployments. This change required Valkey charm revision 109
+      or later.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/295"
+    visibility: public
+    highlight: false
