@@ -6,7 +6,7 @@
 import logging
 import secrets
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import ops
 from charmlibs.pathops import ContainerPath
@@ -38,6 +38,9 @@ from relations.s3 import S3
 from relations.smtp import Smtp
 from relations.tls import Tls
 from state import CharmConfig, StatefulCharmBase
+
+if TYPE_CHECKING:
+    from types_ import CommandExecResult
 
 logger = logging.getLogger(__name__)
 
@@ -477,6 +480,22 @@ class MediaWiki(
         logger.info("User creation output:\n%s", result.stdout)
 
         return password
+
+    def run_maintenance_script(self, args: list[str]) -> "CommandExecResult":
+        """Run an arbitrary MediaWiki maintenance script and return the result.
+
+        The caller is responsible for validating ``args`` before invoking this
+        method; in particular, blocked scripts and flags must be rejected
+        before calling this.
+
+        Args:
+            args: The script name followed by any additional arguments, passed
+                directly to ``php maintenance/run.php``.
+
+        Returns:
+            The result of the maintenance script execution.
+        """
+        return self._run_maintenance_script(args)
 
     def runner_queue_service_is_ready(self) -> bool:
         """Returns whether or not the runner queue services should be enabled."""
