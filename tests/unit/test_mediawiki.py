@@ -237,6 +237,23 @@ def ctx(meta: dict) -> testing.Context:
 
 
 class TestReconciliation:
+    def test_log_tail_filters_missing_file_diagnostics(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Filter missing-file diagnostics without suppressing other tail errors."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            layer = mgr.charm.mediawiki._pebble_layer()
+
+        assert layer["services"]["mediawikiLogs"] == {
+            "override": "replace",
+            "summary": "MediaWiki logs",
+            "command": (
+                f"bash -c 'exec env LC_ALL=C tail -n0 -F {constants.LOGS_FILE_PATH} "
+                '2> >(grep --line-buffered -v ": No such file or directory$" >&2)\''
+            ),
+            "startup": "enabled",
+        }
+
     def test_certificate_transfer_change_requests_restart(
         self,
         ctx: testing.Context,

@@ -293,7 +293,10 @@ class MediaWiki(
                 "mediawikiLogs": {
                     "override": "replace",
                     "summary": "MediaWiki logs",
-                    "command": f"tail -n0 -F {constants.LOGS_FILE_PATH}",
+                    "command": (
+                        f"bash -c 'exec env LC_ALL=C tail -n0 -F {constants.LOGS_FILE_PATH} "
+                        '2> >(grep --line-buffered -v ": No such file or directory$" >&2)\''
+                    ),
                     "startup": "enabled",
                 },
                 self._LOGROTATE_SERVICE_NAME: {
