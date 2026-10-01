@@ -24,6 +24,7 @@ including actions, configurations, and integrations.
     Actions <actions>
     Configurations <configurations>
     Included extensions and skins <included-extensions-and-skins>
+    Logging <logging>
     Metrics <metrics>
     Relation endpoints <relation-endpoints>
 
