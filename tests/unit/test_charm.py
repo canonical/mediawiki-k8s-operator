@@ -129,6 +129,24 @@ class TestRelationEventExposure:
                 == 1
             )
 
+    def test_redis_relation_changed_subscription(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mocker: MockerFixture,
+    ) -> None:
+        """Reconcile on raw redis relation-changed so app-data leader-host updates apply."""
+        observe = mocker.spy(ops.Framework, "observe")
+
+        with ctx(ctx.on.update_status(), active_state) as manager:
+            event = manager.charm.on[manager.charm._REDIS_RELATION_NAME].relation_changed
+            assert any(
+                call.args[1].emitter is event.emitter
+                and call.args[1].event_kind == event.event_kind
+                and call.args[2] == manager.charm._reconciliation
+                for call in observe.call_args_list
+            )
+
 
 class TestGeneralEvents:
     def test_invalid_proxy_config(

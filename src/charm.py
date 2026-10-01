@@ -167,6 +167,7 @@ class Charm(StatefulCharmBase):
             self._saml.on.saml_data_available,
             self.on[self._SAML_RELATION_NAME].relation_broken,
             self.on.redis_relation_updated,
+            self.on[self._REDIS_RELATION_NAME].relation_changed,
             self._valkey.on.resource_created,
             self._valkey.on.endpoints_changed,
             self._valkey.on.authentication_updated,
