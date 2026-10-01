@@ -293,7 +293,7 @@ class MediaWiki(
                 "mediawikiLogs": {
                     "override": "replace",
                     "summary": "MediaWiki logs",
-                    "command": "tail -n0 -F /var/log/mediawiki/logs.log",
+                    "command": f"tail -n0 -F {constants.LOGS_FILE_PATH}",
                     "startup": "enabled",
                 },
                 self._LOGROTATE_SERVICE_NAME: {

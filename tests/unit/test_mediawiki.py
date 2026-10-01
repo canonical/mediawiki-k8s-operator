@@ -2812,6 +2812,105 @@ class TestMediaWikiVersion:
 class TestSettingsChangeDetection:
     """Tests for the change indicator returned by settings reconciliation."""
 
+    def test_logging_defaults_are_applied_in_late_settings(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Render metadata defaults after user settings, without early log assignments."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            config = mgr.charm.load_charm_config()
+            mediawiki = mgr.charm.mediawiki
+            mediawiki._settings_reconciliation(config, MediaWikiSecrets.generate())
+            early = mediawiki._local_settings_file.read_text()
+            late = mediawiki._late_settings_file.read_text()
+
+            assert early.index(str(mediawiki._user_settings_file)) < early.index(
+                str(mediawiki._late_settings_file)
+            )
+
+        assert config.mediawiki_debug_log_groups == [
+            "exception",
+            "error",
+            "fatal",
+            "HttpError",
+            "ratelimit",
+            "throttler",
+        ]
+        assert "$wgDebugLogGroups" not in early
+        assert "$wgDebugLogFile" not in early
+        for group in config.mediawiki_debug_log_groups:
+            assert f"'{group}' => '/var/log/mediawiki/logs.log'" in late
+
+    @pytest.mark.parametrize("enabled", [False, True])
+    def test_debug_log_file_setting(
+        self, ctx: testing.Context, active_state: testing.State, enabled: bool
+    ) -> None:
+        """Emit an explicit general log destination or disabled value."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            config = mgr.charm.load_charm_config().model_copy(
+                update={"mediawiki_debug_log": enabled}
+            )
+            mediawiki = mgr.charm.mediawiki
+            mediawiki._settings_reconciliation(config, MediaWikiSecrets.generate())
+            late = mediawiki._late_settings_file.read_text()
+
+        destination = "/var/log/mediawiki/logs.log" if enabled else ""
+        assert f"$wgDebugLogFile = '{destination}';" in late
+
+    @pytest.mark.parametrize(
+        "groups, expected",
+        [
+            ([], "$wgDebugLogGroups = [];"),
+            (
+                ["My Extension", "custom,channel", "quote'and\\slash"],
+                "$wgDebugLogGroups = [\n"
+                "    'My Extension' => '/var/log/mediawiki/logs.log',\n"
+                "    'custom,channel' => '/var/log/mediawiki/logs.log',\n"
+                "    'quote\\'and\\\\slash' => '/var/log/mediawiki/logs.log'\n];",
+            ),
+        ],
+    )
+    def test_custom_log_groups_replace_defaults(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        groups: list[str],
+        expected: str,
+    ) -> None:
+        """Replace the whole group mapping and safely escape PHP string keys."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            config = mgr.charm.load_charm_config().model_copy(
+                update={"mediawiki_debug_log_groups": groups}
+            )
+            mediawiki = mgr.charm.mediawiki
+            mediawiki._settings_reconciliation(config, MediaWikiSecrets.generate())
+            late = mediawiki._late_settings_file.read_text()
+
+        assert expected in late
+        assert "'exception' =>" not in late
+
+    @pytest.mark.parametrize(
+        "updates",
+        [{"mediawiki_debug_log_groups": []}, {"mediawiki_debug_log": True}],
+    )
+    def test_logging_change_records_restart(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        updates: dict[str, list[str] | bool],
+    ) -> None:
+        """Logging changes owe a restart, but repeated identical settings do not change."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            config = mgr.charm.load_charm_config()
+            secrets = MediaWikiSecrets.generate()
+            mediawiki._settings_reconciliation(config, secrets)
+            mediawiki.clear_service_restart()
+            changed_config = config.model_copy(update=updates)
+
+            assert mediawiki._settings_reconciliation(changed_config, secrets) is True
+            assert mediawiki.service_restart_pending()
+            assert mediawiki._settings_reconciliation(changed_config, secrets) is False
+
     def test_first_run_reports_change_second_run_does_not(
         self, ctx: testing.Context, active_state: testing.State
     ) -> None:
