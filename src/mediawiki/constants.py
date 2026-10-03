@@ -52,6 +52,7 @@ WEBROOT_PATH = "/var/www/html"
 MEDIAWIKI_PATH = WEBROOT_PATH + "/w"
 SECURE_SETTINGS_BASE_PATH = "/etc/mediawiki"
 LOGS_PATH = "/var/log/mediawiki"
+LOGS_FILE_PATH = LOGS_PATH + "/logs.log"
 
 # Static assets
 STATIC_ASSETS_MOUNT_POINT = "/mnt/static-assets"

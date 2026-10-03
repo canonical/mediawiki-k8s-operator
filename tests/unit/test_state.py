@@ -78,6 +78,38 @@ class TestCharmConfig:
 
         return CharmConfig(**(base_config | overrides))
 
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("", []),
+            ("  ", []),
+            ("exception, error", ["exception", "error"]),
+            ('My Extension,"custom,channel"', ["My Extension", "custom,channel"]),
+            ('"quoted""name",back\\slash', ['quoted"name', "back\\slash"]),
+            ("exception,,exception, ", ["exception"]),
+        ],
+    )
+    def test_debug_log_groups_parse_csv(self, value: str, expected: list[str]) -> None:
+        """Accept arbitrary group names while parsing CSV syntax."""
+        config = self.make_config(mediawiki_debug_log_groups=value)
+
+        assert config.mediawiki_debug_log_groups == expected
+
+    @pytest.mark.parametrize("value", ['"unterminated', '"group"suffix', "one\ntwo", 42])
+    def test_debug_log_groups_reject_invalid_csv(self, value: Any) -> None:
+        """Reject malformed or multiple records rather than silently losing names."""
+        with pytest.raises(ValidationError, match="single CSV record"):
+            self.make_config(mediawiki_debug_log_groups=value)
+
+    def test_logging_does_not_change_composer_state_hash(self) -> None:
+        """Logging configuration does not affect compatibility with the Composer lock."""
+        baseline = self.make_config()
+        changed = self.make_config(
+            mediawiki_debug_log_groups="My Extension", mediawiki_debug_log=True
+        )
+
+        assert baseline.state_hash == changed.state_hash
+
     def test_composer_accepts_json_object(self) -> None:
         config = self.make_config(composer='  {"require": {"a/b": "^1.0"}}  ')
 
