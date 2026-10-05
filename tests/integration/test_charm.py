@@ -6,8 +6,10 @@
 """Integration tests."""
 
 import functools
+import json
 import logging
 import re
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +31,188 @@ def test_workload_version_is_set(juju: jubilant.Juju, app: App):
     assert re.match(r"1\.\d{2}\.\d+$", version), (
         f"Expected workload version to match '1.XX.X' pattern, got {version}"
     )
+
+
+def _shellbox_eval(juju: jubilant.Juju, app: App, statements: list[str]) -> dict[str, Any]:
+    """Run a MediaWiki probe and extract its marked JSON result."""
+    output = juju_exec(
+        juju,
+        app,
+        "printf '%s\\n' "
+        + " ".join(shlex.quote(statement) for statement in statements)
+        + " | /usr/bin/php /var/www/html/w/maintenance/run.php eval --quiet",
+    )
+    payloads = [
+        line.removeprefix("SHELLBOX_TEST:")
+        for line in output.splitlines()
+        if line.startswith("SHELLBOX_TEST:")
+    ]
+    assert len(payloads) == 1, output
+    return json.loads(payloads[0])
+
+
+def test_shellbox_command_authentication(juju: jubilant.Juju, app: App):
+    """Highlight source through Shellbox and reject an invalid authentication key."""
+    result = _shellbox_eval(
+        juju,
+        app,
+        [
+            r"$services = MediaWiki\MediaWikiServices::getInstance();",
+            r'$html = MediaWiki\SyntaxHighlight\Pygmentize::highlight("python", '
+            "'print(\"shellbox-highlight-test\")', []);",
+            "$config = $services->getMainConfig();",
+            r"$clients = new MediaWiki\Shell\ShellboxClientFactory("
+            '$services->getHttpRequestFactory(), $config->get("ShellboxUrls"), '
+            'str_repeat("0", 128));',
+            '$limits = ["walltime" => 30, "time" => 30, "memory" => 262144, "filesize" => 10240];',
+            r"$factory = new MediaWiki\Shell\CommandFactory($clients, $limits, false, false);",
+            '$rejected = false; try { $factory->createBoxed("syntaxhighlight")'
+            '->routeName("syntaxhighlight-pygments")->params("/usr/bin/pygmentize", "-V")'
+            "->execute(); } catch (Shellbox\\ShellboxError $error) { $rejected = true; }",
+            'echo "\\nSHELLBOX_TEST:" . json_encode(["html" => $html, "remote" => '
+            '$services->getShellboxClientFactory()->isEnabled("syntaxhighlight"), '
+            '"badKeyRejected" => $rejected]) . "\\n";',
+        ],
+    )
+    assert result["remote"] is True
+    assert '<span class="nb">print</span>' in result["html"]
+    assert '<span class="s2">' in result["html"]
+    assert "shellbox-highlight-test" in result["html"]
+    assert result["badKeyRejected"] is True
+
+
+def _shellbox_command_probe(juju: jubilant.Juju, app: App, probe: str) -> dict[str, Any]:
+    """Run a Python security probe as a real Shellbox command."""
+    result = _shellbox_eval(
+        juju,
+        app,
+        [
+            r"$services = MediaWiki\MediaWikiServices::getInstance();",
+            '$probe = "";',
+            *[f"$probe .= {json.dumps(line)};" for line in probe.splitlines(keepends=True)],
+            '$command = $services->getShellCommandFactory()->createBoxed("syntaxhighlight")'
+            '->routeName("shellbox-test-runtime-user")'
+            '->params("/usr/bin/python3", "-c", $probe);',
+            "$result = $command->execute();",
+            'echo "\\nSHELLBOX_TEST:" . json_encode(["exit" => $result->getExitCode(), '
+            '"probe" => json_decode($result->getStdout(), true)]) . "\\n";',
+        ],
+    )
+    assert result["exit"] == 0, result
+    assert isinstance(result["probe"], dict), result
+    return result["probe"]
+
+
+def test_shellbox_command_isolation(juju: jubilant.Juju, app: App):
+    """Keep unprivileged commands separate from FastCGI and the signing key."""
+    probe = (
+        "import json, os, socket\n"
+        "from pathlib import Path\n"
+        'path = "/run/php/shellbox.sock"\n'
+        'config = "/srv/shellbox/config/config.json"\n'
+        "with open(config) as config_file:\n"
+        "    settings = json.load(config_file)\n"
+        "fpm_count = 0\n"
+        "fpm_environ_readable = False\n"
+        'for process in Path("/proc").iterdir():\n'
+        "    if not process.name.isdigit():\n"
+        "        continue\n"
+        "    try:\n"
+        '        if not (process / "comm").read_text().startswith("php-fpm"):\n'
+        "            continue\n"
+        "        fpm_count += 1\n"
+        "        try:\n"
+        '            with (process / "environ").open("rb") as environment:\n'
+        "                environment.read(1)\n"
+        "            fpm_environ_readable = True\n"
+        "        except PermissionError:\n"
+        "            pass\n"
+        "    except FileNotFoundError:\n"
+        "        continue\n"
+        "client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n"
+        "try:\n"
+        "    client.connect(path)\n"
+        "    socket_errno = 0\n"
+        "except OSError as error:\n"
+        "    socket_errno = error.errno\n"
+        "finally:\n"
+        "    client.close()\n"
+        'print(json.dumps({"uid": os.geteuid(), "gid": os.getegid(), '
+        '"config_writable": os.access(config, os.W_OK), '
+        '"config_contains_key": "secretKey" in settings, '
+        '"env_contains_key": bool(os.environ.get("SHELLBOX_SECRET_KEY")), '
+        '"fpm_count": fpm_count, '
+        '"fpm_environ_readable": fpm_environ_readable, '
+        '"socket_errno": socket_errno, '
+        '"key_file_readable": os.access("/etc/shellbox/key.conf", os.R_OK)}))\n'
+    )
+    result = _shellbox_command_probe(juju, app, probe)
+    assert result["uid"] != 0 and result["gid"] != 0, result
+    assert result["config_writable"] is False, result
+    assert result["config_contains_key"] is False, result
+    assert result["env_contains_key"] is False, result
+    assert result["fpm_count"] >= 2, result
+    assert result["fpm_environ_readable"] is False, result
+    assert result["socket_errno"] == 13, result
+    assert result["key_file_readable"] is False, result
+
+
+def test_shellbox_apache_status_isolation(juju: jubilant.Juju, app: App):
+    """Expose only aggregate Apache counters on the dedicated status listeners."""
+    probe = (
+        "import json, urllib.error, urllib.request\n"
+        "def status_response(port, query):\n"
+        "    try:\n"
+        "        response = urllib.request.urlopen(\n"
+        '            f"http://127.0.0.1:{port}/server-status{query}", timeout=5)\n'
+        "    except urllib.error.HTTPError as error:\n"
+        "        response = error\n"
+        "    with response:\n"
+        "        body = response.read()\n"
+        '    return response.code, b"ServerVersion:" in body or b"Apache Server Status for" in body\n'
+        "responses = [status_response(port, query) for port, query in\n"
+        '    ((8090, "?auto"), (8091, "?auto"), (8090, ""), (8091, ""), '
+        '(8080, "?auto"), (80, "?auto"))]\n'
+        'print(json.dumps({"status_codes": [response[0] for response in responses], '
+        '"status_pages": [response[1] for response in responses]}))\n'
+    )
+    result = _shellbox_command_probe(juju, app, probe)
+    assert result["status_codes"][:4] == [200, 200, 403, 403], result
+    assert all(code in (200, 403, 404) for code in result["status_codes"][4:]), result
+    assert result["status_pages"] == [True, True, False, False, False, False], result
+
+
+def test_shellbox_pebble_plan_hides_key(juju: jubilant.Juju, app: App):
+    """Deny plan access or expose a valid plan without the Shellbox signing key."""
+    probe = (
+        "import http.client, json, socket\n"
+        "plan_status = None\n"
+        "access_denied = False\n"
+        'body = b""\n'
+        "try:\n"
+        "    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:\n"
+        "        client.settimeout(5)\n"
+        '        client.connect("/charm/container/pebble.socket")\n'
+        '        client.sendall(b"GET /v1/plan?format=yaml HTTP/1.1\\r\\nHost: localhost\\r\\n'
+        'Connection: close\\r\\n\\r\\n")\n'
+        "        response = http.client.HTTPResponse(client)\n"
+        "        response.begin()\n"
+        "        plan_status = response.status\n"
+        "        body = response.read()\n"
+        "except PermissionError:\n"
+        "    access_denied = True\n"
+        'plan = json.loads(body).get("result") if plan_status == 200 else None\n'
+        "valid_plan = isinstance(plan, str) and bool(plan)\n"
+        'contains_key = b"SHELLBOX_SECRET_KEY" in body or '
+        '(valid_plan and "SHELLBOX_SECRET_KEY" in plan)\n'
+        'print(json.dumps({"plan_status": plan_status, "access_denied": access_denied, '
+        '"valid_plan": valid_plan, "contains_key": bool(contains_key)}))\n'
+    )
+    result = _shellbox_command_probe(juju, app, probe)
+    assert result["access_denied"] or result["plan_status"] in (200, 401, 403), result
+    if result["plan_status"] == 200:
+        assert result["valid_plan"] is True, result
+    assert result["contains_key"] is False, result
 
 
 @pytest.mark.abort_on_fail
