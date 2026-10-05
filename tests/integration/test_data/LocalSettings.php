@@ -21,3 +21,4 @@ $wgEnableUploads = true;
 wfLoadExtension( 'VisualEditor' );
 wfLoadExtension( 'Nuke' );
 wfLoadExtension( 'WikiEditor' );
+wfLoadExtension( 'SyntaxHighlight_GeSHi' );
