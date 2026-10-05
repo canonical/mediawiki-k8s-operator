@@ -46,7 +46,6 @@ parts:
       - unzip
       - php-ldap
       - php-luasandbox
-      - python3 # Required for SyntaxHighlight
       # MediaWiki log rotation
       - logrotate
     permissions:
@@ -74,11 +73,15 @@ parts:
       chown -R --no-dereference "$IMAGE_RUN_USER_ID:$IMAGE_RUN_GROUP_ID" "$CRAFT_OVERLAY$APACHE_LOG_DIR"
       ln -sfT ../../../dev/stdout "$CRAFT_OVERLAY$APACHE_LOG_DIR/other_vhosts_access.log"
       rsync -abP $CRAFT_PART_SRC/etc/apache2/  $CRAFT_OVERLAY/etc/apache2
+      # Drop the package's loopback-trusted /server-status location; containers in the pod share
+      # loopback, so only server-status.conf's dedicated listener serves the status page.
+      : > $CRAFT_OVERLAY/etc/apache2/mods-available/status.conf
 
       # Enable apache2 modules
       chroot $CRAFT_OVERLAY /bin/sh -x <<'EOF'
       a2enconf docker-php
       a2enconf short-url
+      a2enconf server-status
       a2enconf static-dotfiles
       a2enmod headers
       a2enmod mpm_prefork
