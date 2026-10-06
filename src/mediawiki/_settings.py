@@ -83,7 +83,7 @@ class _SettingsMixin(_MediaWikiBase):
         changed = self._push_user_settings(config)
         if changed:
             self._record_settings_change()
-        late_settings_changed = self._push_late_settings(secrets, ro_database=ro_database)
+        late_settings_changed = self._push_late_settings(config, secrets, ro_database=ro_database)
         changed |= late_settings_changed
         if late_settings_changed:
             self._record_settings_change()
@@ -121,10 +121,13 @@ class _SettingsMixin(_MediaWikiBase):
             group=constants.DAEMON_GROUP,
         )
 
-    def _push_late_settings(self, secrets: MediaWikiSecrets, ro_database: bool = False) -> bool:
+    def _push_late_settings(
+        self, config: CharmConfig, secrets: MediaWikiSecrets, ro_database: bool = False
+    ) -> bool:
         """Push the charm-controlled late MediaWiki settings to the container.
 
         Args:
+            config: The charm configuration.
             secrets (MediaWikiSecrets): An instance of MediaWikiSecrets containing secrets synced between units.
             ro_database: Whether to include settings that put the database into read-only mode for updates. Defaults to False.
 
@@ -133,6 +136,7 @@ class _SettingsMixin(_MediaWikiBase):
         """
         self._secure_settings_base_path.mkdir(exist_ok=True, parents=True)
         content = self._late_settings_template_file.read_text()
+        content += self._get_logging_settings(config)
         content += self._get_proxy_settings()
         content += self._get_database_settings()
         content += self._get_cache_settings()
@@ -218,6 +222,17 @@ class _SettingsMixin(_MediaWikiBase):
             user=constants.WEBROOT_OWNER_USER,
             group=constants.DAEMON_GROUP,
         )
+
+    def _get_logging_settings(self, config: CharmConfig) -> str:
+        """Route selected groups and optional general debugging to the managed log file."""
+        destination = constants.LOGS_FILE_PATH
+        groups = ",\n".join(
+            f"    '{utils.escape_php_string(group)}' => '{destination}'"
+            for group in config.mediawiki_debug_log_groups
+        )
+        groups_php = f"[\n{groups}\n]" if groups else "[]"
+        debug_file = destination if config.mediawiki_debug_log else ""
+        return f"$wgDebugLogGroups = {groups_php};\n$wgDebugLogFile = '{debug_file}';\n"
 
     def _get_proxy_settings(self) -> str:
         """Get the current proxy settings as a string, to be inserted into a PHP file."""

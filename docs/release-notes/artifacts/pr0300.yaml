@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Added configurable MediaWiki debug logging
+    author: hk21702
+    type: minor
+    description: >-
+      Added the mediawiki-debug-log and mediawiki-debug-log-groups options to
+      control general MediaWiki debug logging and selected log groups. The
+      charm routes these logs through the logging relation and applies the
+      settings after user-provided LocalSettings.php configuration.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/300"
+    visibility: public
+    highlight: false

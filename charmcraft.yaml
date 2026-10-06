@@ -183,6 +183,39 @@ config:
         $wgDefaultSkin = 'vector-2022';
         ?>
 
+    mediawiki-debug-log:
+      description: |
+        Enable general MediaWiki debug logging through `$wgDebugLogFile`.
+
+        This option is independent of mediawiki-debug-log-groups: disabling general
+        debugging does not disable logging for selected groups. When enabled, messages
+        from groups without a configured destination can also enter the general log.
+        The charm overrides $wgDebugLogFile assignments in local-settings.
+
+        Logs are available through the `logging` relation.
+        Debug logs can contain sensitive information and produce substantial output.
+      type: boolean
+      default: false
+
+    mediawiki-debug-log-groups:
+      description: |
+        Comma-separated MediaWiki debug log groups for `$wgDebugLogGroups`.
+        
+        Set an empty string to remove all debug log groups.
+
+        Internal spaces and case are preserved; surrounding whitespace is removed.
+        Use CSV double quotes for names containing commas, for example:
+        exception,My Extension,"custom,channel".
+
+        This option is independent of mediawiki-debug-log: selected groups still write
+        logs when mediawiki-debug-log is false. The charm overrides $wgDebugLogGroups
+        assignments in local-settings.
+
+        Logs are available through the `logging` relation. 
+        Debug logs can contain sensitive information and produce substantial output.
+      type: string
+      default: exception,error,fatal,HttpError,ratelimit,throttler
+
 actions:
   rotate-mediawiki-secrets:
     description: |

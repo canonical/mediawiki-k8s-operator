@@ -3,8 +3,10 @@
 
 """MediaWiki charm state."""
 
+import csv
 import dataclasses
 import hashlib
+import io
 import ipaddress
 import json
 import logging
@@ -40,6 +42,8 @@ class CharmConfig(BaseModel):
     oauth_extra_scopes: str = Field("")
     local_settings: str = Field("")
     robots_txt: str = Field("")
+    mediawiki_debug_log_groups: list[str] = Field(default_factory=list)
+    mediawiki_debug_log: bool = Field(False)
 
     @field_validator("composer", mode="before")
     @classmethod
@@ -111,6 +115,23 @@ class CharmConfig(BaseModel):
             raise ValueError("url-origin hostname is not valid")
 
         return v.strip()
+
+    @field_validator("mediawiki_debug_log_groups", mode="before")
+    @classmethod
+    def validate_mediawiki_debug_log_groups(cls, value: Any) -> list[str]:
+        """Parse a CSV list of log groups without checking whether the groups exist."""
+        error = "mediawiki-debug-log-groups must be a single CSV record"
+        if not isinstance(value, str):
+            raise ValueError(error)
+        if not value.strip():
+            return []
+        try:
+            records = list(csv.reader(io.StringIO(value), skipinitialspace=True, strict=True))
+        except csv.Error as exc:
+            raise ValueError(error) from exc
+        if len(records) != 1:
+            raise ValueError(error)
+        return list(dict.fromkeys(group.strip() for group in records[0] if group.strip()))
 
     @property
     def state_hash(self) -> str:

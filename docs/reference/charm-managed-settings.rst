@@ -48,9 +48,12 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
    * - `$wgDBservers <https://www.mediawiki.org/wiki/Manual:$wgDBservers>`__
      - .. centered:: :bdg-danger:`No`
      - This is based on the relation data from the :ref:`database relation <reference_relation_endpoints_database>`.
+   * - `$wgDebugLogFile <https://www.mediawiki.org/wiki/Manual:$wgDebugLogFile>`__
+     - .. centered:: :bdg-danger:`No`
+     - Controlled by ``mediawiki-debug-log``.
    * - `$wgDebugLogGroups <https://www.mediawiki.org/wiki/Manual:$wgDebugLogGroups>`__
-     - .. centered:: :bdg-success:`Yes`
-     - Logs written to ``/var/log/mediawiki/logs.log`` will be forwarded to Loki using the :ref:`logging relation <reference_relation_endpoints_logging>`.
+     - .. centered:: :bdg-danger:`No`
+     - Controlled by ``mediawiki-debug-log-groups``.
    * - `$wgDiff3 <https://www.mediawiki.org/wiki/Manual:$wgDiff3>`__
      - .. centered:: :bdg-danger:`No`
      - 
