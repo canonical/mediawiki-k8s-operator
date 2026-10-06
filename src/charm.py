@@ -83,7 +83,7 @@ _ALLOWED_MAINTENANCE_SCRIPTS = frozenset(
         "updateArticleCount",
     }
 )
-_BLOCKED_FLAGS = frozenset({"--conf", "--wiki"})
+_BLOCKED_FLAGS = frozenset({"--conf", "--globals", "--wiki"})
 
 # Log messages can be retrieved using juju debug-log
 logger = logging.getLogger(__name__)
