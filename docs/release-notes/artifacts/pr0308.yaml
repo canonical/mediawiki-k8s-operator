@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Added logging reference documentation
+    author: hk21702
+    type: minor
+    description: >-
+      Documented default log levels, MediaWiki diagnostic groups, and workload
+      log forwarding. Clarified the separation between workload and charm logs
+      and warned that workload logs may contain sensitive information.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/308"
+    visibility: public
+    highlight: false
