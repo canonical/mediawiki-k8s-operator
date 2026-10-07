@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Updated firewall allowlist destinations
+    author: hk21702
+    type: minor
+    description: >-
+      Updated the firewall allowlist guidance with a clearer destination table
+      and added github.com as a destination for extension installation.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/309"
+      related_doc: https://canonical.com/juju/docs/mediawiki-k8s-charm/reference/allowlist/
+    visibility: hidden
+    highlight: false

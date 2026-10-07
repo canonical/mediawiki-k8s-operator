@@ -11,30 +11,48 @@ Allowlist
 
 .. vale Canonical.007-Headings-sentence-case = YES
 
-This page contains the domain URLs that you may need to add to a firewall allowlist to ensure that the MediaWiki K8s operator works properly.
+This page lists destinations that you may need to add to a firewall allowlist to ensure that the MediaWiki K8s operator works properly.
 
-Domain URLs to allow
---------------------
+Destinations to allow
+---------------------
 
 .. important::
-   Depending on the source of any additional extensions and skins that you use, you may need to add other URLs to your firewall's allowlist.
+   Depending on the source of any additional extensions and skins that you use, you may need to add other destinations to your firewall's allowlist.
+
+   Optional MediaWiki features such as `InstantCommons <https://www.mediawiki.org/wiki/InstantCommons>`__ may also require additional destinations in your firewall's allowlist.
 
 .. list-table::
    :header-rows: 1
    :widths: auto
 
-   * - Domain
+   * - Destination
+     - Protocol
+     - Port
      - Description
-   * - https://repo.packagist.org/
-     - Extensions
-   * - https://gerrit.wikimedia.org/
-     - Extensions
-   * - https://api.github.com
-     - Extensions
-   * - https://codeload.github.com
-     - Extensions
-   * - https://database.clamav.net
-     - ClamAV virus definition updates (regional mirrors under \*.clamav.net may also be used)
+   * - repo.packagist.org
+     - HTTPS
+     - 443
+     - Extension installation
+   * - gerrit.wikimedia.org
+     - HTTPS
+     - 443
+     - Extension installation
+   * - github.com
+     - HTTPS
+     - 443
+     - Extension installation
+   * - api.github.com
+     - HTTPS
+     - 443
+     - Extension installation
+   * - codeload.github.com
+     - HTTPS
+     - 443
+     - Extension installation
+   * - database.clamav.net
+     - HTTPS
+     - 443
+     - ClamAV virus definition updates
 
 
 Object storage
