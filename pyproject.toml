@@ -22,7 +22,7 @@ dependencies = [
   "jsonschema>=4.26.0",
   "mysql-connector-python>=9.6.0",
   "ops==3.9.0",
-  "pydantic==2.13.5",
+  "pydantic==2.14.0",
   "requests>=2.32.5",
   "urllib3>=2.6.3",
 ]
