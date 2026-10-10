@@ -215,6 +215,7 @@ class TestPebbleReadyEvent:
         self,
         ctx: testing.Context,
         mediawiki_container: testing.Container,
+        shellbox_container: testing.Container,
         secrets: list[testing.Secret],
     ) -> None:
         """Test that the charm sets waiting status when pebble cannot connect."""
@@ -222,7 +223,7 @@ class TestPebbleReadyEvent:
 
         # With replica secrets
         state_in = testing.State(
-            containers=[mediawiki_container],
+            containers=[mediawiki_container, shellbox_container],
             secrets=secrets,
             leader=True,
         )
@@ -1429,6 +1430,35 @@ class TestMetricsEndpoint:
         job_names = self._published_job_names(state_out, metrics_relation.id)
         assert any("apache_exporter" in name for name in job_names)
         assert not any("git_sync" in name for name in job_names)
+
+    @pytest.mark.parametrize(
+        ("job_name", "target"),
+        [
+            ("shellbox_apache_exporter", "*:9118"),
+            ("shellbox_php_fpm_exporter", "*:9253"),
+        ],
+    )
+    def test_shellbox_jobs_publish_exporter_targets(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        metrics_relation: testing.Relation,
+        job_name: str,
+        target: str,
+    ) -> None:
+        """Publish each Shellbox exporter with its expected scrape target."""
+        state_in = dataclasses.replace(
+            active_state, relations=[*active_state.relations, metrics_relation]
+        )
+
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+        jobs = json.loads(
+            state_out.get_relation(metrics_relation.id).local_app_data["scrape_jobs"]
+        )
+        matching_jobs = [job for job in jobs if job["job_name"] == job_name]
+        assert len(matching_jobs) == 1
+        assert matching_jobs[0]["static_configs"] == [{"targets": [target]}]
 
     def test_git_sync_job_published_when_metrics_enabled(
         self,

@@ -25,6 +25,7 @@ from mediawiki_api import SiteInfo
 from mediawiki_peers import MediaWikiPeerState
 from relations import auth, cache, certificate_transfer, database, redis, s3, smtp, tls, valkey
 from relations.valkey import ValkeyConnectionInfo
+from shellbox import SHELLBOX_URL, Shellbox
 from state import CharmConfig, CharmConfigInvalidError, StatefulCharmBase
 from tests.unit.conftest import MOCK_COMPOSER_LOCK, ExecCmd
 from types_ import CommandExecResult, DatabaseConfig, DatabaseEndpoint, S3ConnectionInfo
@@ -48,6 +49,7 @@ class WrapperCharm(StatefulCharmBase):
         self.certificate_transfer = certificate_transfer.CertificateTransfer(
             self, "receive-ca-cert", self.unit.get_container("mediawiki")
         )
+        self.shellbox = Shellbox(self)
         self.mediawiki = MediaWiki(
             self,
             self.database,
@@ -59,6 +61,7 @@ class WrapperCharm(StatefulCharmBase):
             self.peers,
             self.tls,
             self.certificate_transfer,
+            self.shellbox,
         )
 
 
@@ -596,6 +599,21 @@ class TestReconciliation:
 
         config_text = (container_fs / "home/webroot_owner/.ssh/config").read_text()
         assert "IdentityFile" not in config_text, "Did not expect IdentityFile without an SSH key"
+
+    def test_apache_exporter_scrapes_dedicated_status_listener(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+    ) -> None:
+        """Scrape the loopback status listener rather than MediaWiki's public listener."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_services(active=False)
+            state_out = mgr.run()
+
+        container = state_out.get_container(Charm._CONTAINER_NAME)
+        assert container.plan.services["apache-exporter"].command == (
+            "/usr/bin/apache_exporter --scrape_uri=http://127.0.0.1:8090/server-status?auto"
+        )
 
 
 class TestCreateAndPromoteUser:
@@ -2928,6 +2946,44 @@ class TestSettingsChangeDetection:
             assert mediawiki.service_restart_pending()
             assert mediawiki._settings_reconciliation(changed_config, secrets) is False
 
+    def test_shellbox_settings_are_part_of_late_settings(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Write client settings inline."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            key = mgr.charm.shellbox.authentication_key()
+            mediawiki._settings_reconciliation(
+                mgr.charm.load_charm_config(),
+                MediaWikiSecrets.generate(),
+            )
+            content = mediawiki._late_settings_file.read_text()
+            # Keep other Shellbox routes from the user's settings.
+            assert f"$wgShellboxUrls['syntaxhighlight'] = '{SHELLBOX_URL}';" in content
+            assert f"$wgShellboxSecretKey = '{key}';" in content
+            assert "$wgPygmentizePath = '/usr/bin/pygmentize';" in content
+
+    def test_shellbox_change_uses_standard_restart_bookkeeping(
+        self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
+    ) -> None:
+        """Detect changed Shellbox credentials through ordinary settings reconciliation."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            config = mgr.charm.load_charm_config()
+            secrets = MediaWikiSecrets.generate()
+            mocker.patch.object(
+                mediawiki._shellbox,
+                "authentication_key",
+                side_effect=["shellbox-key", "changed-shellbox-key"],
+                autospec=True,
+            )
+            mediawiki._settings_reconciliation(config, secrets)
+            mediawiki.clear_service_restart()
+            mediawiki.clear_localisation_rebuild()
+            assert mediawiki._settings_reconciliation(config, secrets) is True
+            assert mediawiki.service_restart_pending()
+            assert mediawiki.localisation_rebuild_pending()
+
     def test_first_run_reports_change_second_run_does_not(
         self, ctx: testing.Context, active_state: testing.State
     ) -> None:
@@ -2970,7 +3026,8 @@ class TestSettingsChangeDetection:
             )
             with pytest.raises(MediaWikiBlockedStatusException):
                 mediawiki._settings_reconciliation(
-                    mgr.charm.load_charm_config(), MediaWikiSecrets.generate()
+                    mgr.charm.load_charm_config(),
+                    MediaWikiSecrets.generate(),
                 )
 
             assert mediawiki.service_restart_pending()

@@ -1,0 +1,7 @@
+{
+  "url": "http://127.0.0.1:8080/shellbox",
+  "tempDir": "/tmp/shellbox",
+  "allowedActions": ["shell"],
+  "allowUrlFiles": false,
+  "logToStderr": false
+}

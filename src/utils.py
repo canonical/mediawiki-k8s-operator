@@ -10,14 +10,49 @@ import re
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
+from ops import SecretNotFoundError
+
 from egress import ProxyRouteResolver
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import ops
     from charmlibs.pathops import ContainerPath
 
     from state import ProxyConfig
 
 logger = logging.getLogger(__name__)
+
+UNIT_SECRET_LABEL = "unit-secrets"  # nosec: B105
+
+
+def unit_secret_value(charm: ops.CharmBase, key: str, value_factory: Callable[[], str]) -> str:
+    """Return a named value from the unit-owned secret, adding it when absent.
+
+    Values that each unit generates for itself share a single unit-owned secret.
+
+    Args:
+        charm: The charm whose unit owns the secret.
+        key: The content key identifying the value.
+        value_factory: A factory for the value, used only when it is absent.
+
+    Returns:
+        The named secret value.
+    """
+    try:
+        secret = charm.model.get_secret(label=UNIT_SECRET_LABEL)
+    except SecretNotFoundError:
+        value = value_factory()
+        charm.unit.add_secret({key: value}, label=UNIT_SECRET_LABEL)
+        return value
+
+    content = secret.get_content(refresh=True)
+    if key not in content:
+        content = dict(content)
+        content[key] = value_factory()
+        secret.set_content(content)
+    return content[key]
 
 
 def escape_php_string(s: str) -> str:

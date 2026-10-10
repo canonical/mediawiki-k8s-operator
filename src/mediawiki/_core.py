@@ -37,6 +37,7 @@ from relations.database import Database
 from relations.s3 import S3
 from relations.smtp import Smtp
 from relations.tls import Tls
+from shellbox import Shellbox
 from state import CharmConfig, StatefulCharmBase
 
 if TYPE_CHECKING:
@@ -60,6 +61,7 @@ class MediaWiki(
     _APACHE_EXPORTER_SERVICE_NAME = "apache-exporter"
     _REDIS_JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
     _APACHE_EXPORTER_PORT = 9117
+    _APACHE_STATUS_PORT = 8090
     _FRESHCLAM_SERVICE_NAME = "freshclam"
     _CLAMD_SERVICE_NAME = "clamd"
     _MEDIAWIKI_API_READY_CHECK = "mediawiki-api-ready"
@@ -79,6 +81,7 @@ class MediaWiki(
         peers: MediaWikiPeers,
         tls: Tls,
         certificate_transfer: CertificateTransfer,
+        shellbox: Shellbox,
     ):
         super().__init__(charm.unit.get_container("mediawiki"))
         self._charm = charm
@@ -92,6 +95,7 @@ class MediaWiki(
         self._tls = tls
         self._tunnel_services = TunnelServiceRegistry(ProxyRouteResolver(charm.state.proxy_config))
         self._certificate_transfer = certificate_transfer
+        self._shellbox = shellbox
 
     @property
     def _logs_path(self) -> ContainerPath:
@@ -245,7 +249,9 @@ class MediaWiki(
             self._install(config)
 
         settings_changed |= self._settings_reconciliation(
-            config, peer_state.secrets, ro_database=peer_state.ro_database
+            config,
+            peer_state.secrets,
+            ro_database=peer_state.ro_database,
         )
 
         if self._charm.unit.is_leader():
@@ -311,7 +317,10 @@ class MediaWiki(
                 self._APACHE_EXPORTER_SERVICE_NAME: {
                     "override": "replace",
                     "summary": "Apache exporter for Prometheus",
-                    "command": "/usr/bin/apache_exporter",
+                    "command": (
+                        "/usr/bin/apache_exporter --scrape_uri="
+                        f"http://127.0.0.1:{self._APACHE_STATUS_PORT}/server-status?auto"
+                    ),
                     "startup": "enabled",
                 },
                 self._FRESHCLAM_SERVICE_NAME: {

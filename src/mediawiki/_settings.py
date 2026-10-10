@@ -27,6 +27,7 @@ from exceptions import (
 )
 from mediawiki import constants
 from mediawiki._base import _MediaWikiBase
+from shellbox import SHELLBOX_URL
 from types_ import PhpTemplate
 
 if TYPE_CHECKING:
@@ -140,6 +141,7 @@ class _SettingsMixin(_MediaWikiBase):
         content += self._get_proxy_settings()
         content += self._get_database_settings()
         content += self._get_cache_settings()
+        content += self._get_shellbox_settings()
 
         deferred_error: Optional[MediaWikiStatusException] = None
 
@@ -233,6 +235,16 @@ class _SettingsMixin(_MediaWikiBase):
         groups_php = f"[\n{groups}\n]" if groups else "[]"
         debug_file = destination if config.mediawiki_debug_log else ""
         return f"$wgDebugLogGroups = {groups_php};\n$wgDebugLogFile = '{debug_file}';\n"
+
+    def _get_shellbox_settings(self) -> str:
+        """Render the unit's Shellbox client configuration for LateSettings.php."""
+        url = utils.escape_php_string(SHELLBOX_URL)
+        key = utils.escape_php_string(self._shellbox.authentication_key())
+        return (
+            f"$wgShellboxUrls['syntaxhighlight'] = '{url}';\n"
+            f"$wgShellboxSecretKey = '{key}';\n"
+            "$wgPygmentizePath = '/usr/bin/pygmentize';\n"
+        )
 
     def _get_proxy_settings(self) -> str:
         """Get the current proxy settings as a string, to be inserted into a PHP file."""
