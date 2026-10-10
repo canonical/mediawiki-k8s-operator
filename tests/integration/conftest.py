@@ -16,7 +16,7 @@ import urllib3
 import yaml
 
 from .types_ import App
-from .utils import kubectl, req_okay
+from .utils import any_error_after, kubectl, req_okay
 
 
 @pytest.fixture(scope="session")
@@ -270,7 +270,7 @@ def early_app_fixture(
             )
         ),
         timeout=20 * 60,
-        error=jubilant.any_error,
+        error=any_error_after(fail_fast_apps=[app_name]),
     )
 
     juju.integrate(app_name, traefik.name)
@@ -279,7 +279,7 @@ def early_app_fixture(
     juju.wait(
         jubilant.all_active,
         timeout=10 * 60,
-        error=jubilant.any_error,
+        error=any_error_after(fail_fast_apps=[app_name]),
     )
 
     yield App(name=app_name)
@@ -301,7 +301,7 @@ def app_fixture(
     juju.wait(
         lambda status: jubilant.all_active(status) and req_okay(ingress_address, requests_timeout),
         timeout=5 * 60,
-        error=jubilant.any_error,
+        error=any_error_after(fail_fast_apps=[early_app.name]),
     )
 
     yield early_app

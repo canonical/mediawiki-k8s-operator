@@ -16,7 +16,7 @@ import pytest
 import requests
 
 from .types_ import App
-from .utils import juju_exec, req_okay
+from .utils import any_error_after, juju_exec, req_okay
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ def test_tls_certificate_lifecycle(
             and _tls_material_matches(ready=True)
             and req_okay(ingress_address, requests_timeout)
         ),
-        error=jubilant.any_error,
+        error=any_error_after(fail_fast_apps=[app.name]),
     )
 
     assert "Syntax OK" in juju_exec(juju, app, "apache2ctl configtest 2>&1")
@@ -94,7 +94,7 @@ def test_tls_certificate_lifecycle(
             and "certificates" not in status.apps[app.name].relations
             and _tls_material_matches(ready=False)
         ),
-        error=jubilant.any_error,
+        error=any_error_after(fail_fast_apps=[app.name]),
     )
     assert (
         juju_exec(
@@ -115,7 +115,7 @@ def test_tls_certificate_lifecycle(
             and _tls_material_matches(ready=True)
             and req_okay(ingress_address, requests_timeout)
         ),
-        error=jubilant.any_error,
+        error=any_error_after(fail_fast_apps=[app.name]),
     )
 
 
@@ -186,7 +186,7 @@ def test_valkey_tls_certificate_transfer(
 
     juju.wait(
         _cache_tls_ready,
-        error=jubilant.any_error,
+        error=any_error_after(fail_fast_apps=[app.name]),
     )
     bundle_without_certificate_transfer = _ca_bundle()
     assert "certificate-transfer-ok" in _cache_roundtrip()
@@ -199,7 +199,7 @@ def test_valkey_tls_certificate_transfer(
             and "receive-ca-cert" in status.apps[app.name].relations
             and _ca_bundle() == bundle_without_certificate_transfer
         ),
-        error=jubilant.any_error,
+        error=any_error_after(fail_fast_apps=[app.name]),
     )
     assert "certificate-transfer-ok" in _cache_roundtrip()
 

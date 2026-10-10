@@ -15,7 +15,7 @@ import jubilant
 import pytest
 
 from .types_ import App
-from .utils import juju_exec, kubectl
+from .utils import any_error_after, juju_exec, kubectl
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +222,7 @@ def test_integrate_smtp_through_proxy(
 
     juju.wait(
         _smtp_settings_use_tunnel,
-        error=jubilant.any_error,
+        error=any_error_after(fail_fast_apps=[app.name]),
         delay=3,
         timeout=5 * 60,
     )
@@ -310,7 +310,7 @@ def test_smtp_proxy_relation_removal(juju: jubilant.Juju, app: App):
 
     juju.wait(
         _smtp_proxy_torn_down,
-        error=jubilant.any_error,
+        error=any_error_after(fail_fast_apps=[app.name]),
         delay=3,
         timeout=5 * 60,
     )
