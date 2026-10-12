@@ -3,6 +3,9 @@
 
 """Utility and helper functions for integration tests."""
 
+import time
+from collections.abc import Callable, Sequence
+
 import jubilant
 import requests
 
@@ -40,3 +43,35 @@ def juju_exec(
         target = f"{app.name}/{unit}"
 
     return juju.ssh(target, cmd, container=container)
+
+
+def any_error_after(
+    *, grace: float = 90, fail_fast_apps: Sequence[str] = ()
+) -> Callable[[jubilant.Status], bool]:
+    """Return a predicate that reports Juju errors persisting past a grace period.
+
+    Errors in fail-fast apps are reported immediately. The default grace period covers
+    Juju's first four automatic hook retries, which back off from 5s by a factor of 2.
+
+    Args:
+        grace: Seconds an error must persist before the predicate reports it.
+        fail_fast_apps: Applications whose errors are reported immediately.
+
+    Returns:
+        A predicate that takes a Juju status and returns True if any fail-fast app is in
+        error, or if any app or unit has been in error for at least the grace period.
+    """
+    first_error_at: float | None = None
+
+    def error(status: jubilant.Status) -> bool:
+        nonlocal first_error_at
+        if fail_fast_apps and jubilant.any_error(status, *fail_fast_apps):
+            return True
+        if not jubilant.any_error(status):
+            first_error_at = None
+            return False
+        if first_error_at is None:
+            first_error_at = time.monotonic()
+        return time.monotonic() - first_error_at >= grace
+
+    return error
