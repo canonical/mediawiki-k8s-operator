@@ -46,21 +46,6 @@ charm-libs:
 
 config:
   options:
-    php-fpm-max-children:
-      description: |
-        Maximum number of concurrent PHP-FPM workers per unit. Size this limit for
-        the workload's available CPU and memory, including Apache and CLI jobs.
-        Startup and spare worker counts are derived from this value.
-      type: int
-      default: 16
-
-    php-fpm-max-requests:
-      description: |
-        Number of requests each PHP-FPM worker handles before it is recycled.
-        Set to zero to disable recycling. This does not affect PHP CLI jobs.
-      type: int
-      default: 500
-
     composer:
       description: |
         The contents of a composer.local.json file to customize MediaWiki extensions and dependencies on top of what is provided by default.
@@ -76,6 +61,93 @@ config:
 
         See [MediaWiki's documentation](https://www.mediawiki.org/wiki/Composer/For_extensions) for more context on how to configure this.
       type: string
+
+    local-settings:
+      description: |
+        The contents of a LocalSettings.php like file to customize MediaWiki configuration on top of what is provided by default. These settings will be inserted into the base
+        `LocalSettings.php` file used by MediaWiki using `require_once`.
+
+        Certain settings such as secrets and database credentials are restricted and will always be overridden by the charm.
+
+        The default configuration will load the bundled Vector 2022 skin and set it as the default skin.
+
+        See [MediaWiki's documentation](https://www.mediawiki.org/wiki/Manual:LocalSettings.php) for more information about LocalSettings.php.
+      type: string
+      default: |
+        <?php
+        wfLoadSkin( 'Vector' );
+        $wgDefaultSkin = 'vector-2022';
+        ?>
+
+    maintenance-script-threads:
+      description: |
+        The number of threads used by the MediaWiki maintenance scripts that the charm runs
+        as part of its reconciliation, and which support parallel execution.
+
+        Raising this value speeds up these scripts on units with several CPU cores available,
+        at the cost of higher CPU and memory usage while they run.
+
+        This option does not affect maintenance scripts run through the `run-maintenance-script`
+        action; pass the relevant argument to the script itself instead.
+      type: int
+      default: 2
+
+    mediawiki-debug-log:
+      description: |
+        Enable general MediaWiki debug logging through `$wgDebugLogFile`.
+
+        This option is independent of mediawiki-debug-log-groups: disabling general
+        debugging does not disable logging for selected groups. When enabled, messages
+        from groups without a configured destination can also enter the general log.
+        The charm overrides $wgDebugLogFile assignments in local-settings.
+
+        Logs are available through the `logging` relation.
+        Debug logs can contain sensitive information and produce substantial output.
+      type: boolean
+      default: false
+
+    mediawiki-debug-log-groups:
+      description: |
+        Comma-separated MediaWiki debug log groups for `$wgDebugLogGroups`.
+
+        Set an empty string to remove all debug log groups.
+
+        Internal spaces and case are preserved; surrounding whitespace is removed.
+        Use CSV double quotes for names containing commas, for example:
+        exception,My Extension,"custom,channel".
+
+        This option is independent of mediawiki-debug-log: selected groups still write
+        logs when mediawiki-debug-log is false. The charm overrides $wgDebugLogGroups
+        assignments in local-settings.
+
+        Logs are available through the `logging` relation.
+        Debug logs can contain sensitive information and produce substantial output.
+      type: string
+      default: exception,error,fatal,HttpError,ratelimit,throttler
+
+    oauth-extra-scopes:
+      description: |
+        Additional OAuth/OIDC scopes to request from the identity provider, as a space-separated string.
+
+        The charm always requests 'openid', 'profile', and 'email'. Use this option to request additional scopes beyond those defaults.
+
+        For example: 'groups roles offline_access'
+      type: string
+
+    php-fpm-max-children:
+      description: |
+        Maximum number of concurrent PHP-FPM workers per unit. Size this limit for
+        the workload's available CPU and memory, including Apache and CLI jobs.
+        Startup and spare worker counts are derived from this value.
+      type: int
+      default: 16
+
+    php-fpm-max-requests:
+      description: |
+        Number of requests each PHP-FPM worker handles before it is recycled.
+        Set to zero to disable recycling. This does not affect PHP CLI jobs.
+      type: int
+      default: 500
 
     robots-txt:
       description: |
@@ -130,6 +202,13 @@ config:
         github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
         git.launchpad.net ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDEFREwBD2ye2Xrc2SVcUmmJ44MF1BCB3W11NTaiqzVj7XZnQmgWZk9UadHVY2wBXvelcDO51MPN5ozJjFAknw09rP7XMRJMlAOLSIVoU6DRF1u1j8kJVY+dfiDHheS7+siADnrmb8HGn2xQQ6EJDjAXrw1x58x5eZjQ0PFWdI+pRTdYGvWkpHdXKFO6a9/lDx4uo9MCnePEGi/QnkCmKqLCBUlYNZYRiB8nVee2tMF0mjV8xk1rJ+/UP+897+FXFR9w/B1EPRjiQ35ZNQZKPP4isxPtyMuCQkZY7ckWr5YsylNfvNcyGDnO1XazZhJ71rzDpi1RmnFXBW5i+2dm2y7
 
+    static-assets-git-ref:
+      description: |
+        The Git reference (branch, tag, or commit) to check out after cloning the repository specified by `static-assets-git-repo`.
+
+        If not specified, the "HEAD" of the default branch of the repository will be used.
+      type: string
+
     static-assets-git-repo:
       description: |
         The Git repository URL to clone static assets from. This is useful for serving assets such as custom logos and a favicon.
@@ -145,13 +224,6 @@ config:
         Note that hidden files (those starting with a dot) will not be served by the web server.
 
         Should a clone operation fail, any existing assets will not be cleared out. To clear out existing assets, set this configuration option to an empty string.
-      type: string
-
-    static-assets-git-ref:
-      description: |
-        The Git reference (branch, tag, or commit) to check out after cloning the repository specified by `static-assets-git-repo`.
-
-        If not specified, the "HEAD" of the default branch of the repository will be used.
       type: string
 
     static-assets-git-sparse-checkout:
@@ -171,78 +243,6 @@ config:
 
         If not specified, the charm will fall back to the application name. '$wgServer' may be overridden with the `local-settings` configuration option.
       type: string
-
-    oauth-extra-scopes:
-      description: |
-        Additional OAuth/OIDC scopes to request from the identity provider, as a space-separated string.
-
-        The charm always requests 'openid', 'profile', and 'email'. Use this option to request additional scopes beyond those defaults.
-
-        For example: 'groups roles offline_access'
-      type: string
-
-    local-settings:
-      description: |
-        The contents of a LocalSettings.php like file to customize MediaWiki configuration on top of what is provided by default. These settings will be inserted into the base
-        `LocalSettings.php` file used by MediaWiki using `require_once`.
-
-        Certain settings such as secrets and database credentials are restricted and will always be overridden by the charm.
-
-        The default configuration will load the bundled Vector 2022 skin and set it as the default skin.
-
-        See [MediaWiki's documentation](https://www.mediawiki.org/wiki/Manual:LocalSettings.php) for more information about LocalSettings.php.
-      type: string
-      default: |
-        <?php
-        wfLoadSkin( 'Vector' );
-        $wgDefaultSkin = 'vector-2022';
-        ?>
-
-    mediawiki-debug-log:
-      description: |
-        Enable general MediaWiki debug logging through `$wgDebugLogFile`.
-
-        This option is independent of mediawiki-debug-log-groups: disabling general
-        debugging does not disable logging for selected groups. When enabled, messages
-        from groups without a configured destination can also enter the general log.
-        The charm overrides $wgDebugLogFile assignments in local-settings.
-
-        Logs are available through the `logging` relation.
-        Debug logs can contain sensitive information and produce substantial output.
-      type: boolean
-      default: false
-
-    maintenance-script-threads:
-      description: |
-        The number of threads used by the MediaWiki maintenance scripts that the charm runs
-        as part of its reconciliation, and which support parallel execution.
-
-        Raising this value speeds up these scripts on units with several CPU cores available,
-        at the cost of higher CPU and memory usage while they run.
-
-        This option does not affect maintenance scripts run through the `run-maintenance-script`
-        action; pass the relevant argument to the script itself instead.
-      type: int
-      default: 2
-
-    mediawiki-debug-log-groups:
-      description: |
-        Comma-separated MediaWiki debug log groups for `$wgDebugLogGroups`.
-        
-        Set an empty string to remove all debug log groups.
-
-        Internal spaces and case are preserved; surrounding whitespace is removed.
-        Use CSV double quotes for names containing commas, for example:
-        exception,My Extension,"custom,channel".
-
-        This option is independent of mediawiki-debug-log: selected groups still write
-        logs when mediawiki-debug-log is false. The charm overrides $wgDebugLogGroups
-        assignments in local-settings.
-
-        Logs are available through the `logging` relation. 
-        Debug logs can contain sensitive information and produce substantial output.
-      type: string
-      default: exception,error,fatal,HttpError,ratelimit,throttler
 
 actions:
   rotate-mediawiki-secrets:
