@@ -78,6 +78,28 @@ class TestCharmConfig:
 
         return CharmConfig(**(base_config | overrides))
 
+    def test_php_fpm_defaults(self) -> None:
+        """Use the agreed worker ceiling and recycling defaults."""
+        config = self.make_config()
+        assert config.php_fpm_max_children == 16
+        assert config.php_fpm_max_requests == 500
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [{"php_fpm_max_children": 0}, {"php_fpm_max_children": -1}, {"php_fpm_max_requests": -1}],
+    )
+    def test_php_fpm_rejects_invalid_limits(self, overrides: dict[str, int]) -> None:
+        """Reject limits that cannot describe a valid FPM pool."""
+        with pytest.raises(ValidationError):
+            self.make_config(**overrides)
+
+    def test_php_fpm_tuning_preserves_state_hash(self) -> None:
+        """Worker sizing is independent of Composer and application settings."""
+        baseline = self.make_config()
+        changed = self.make_config(php_fpm_max_children=1, php_fpm_max_requests=0)
+        assert changed.php_fpm_max_requests == 0
+        assert changed.state_hash == baseline.state_hash
+
     @pytest.mark.parametrize(
         "value, expected",
         [

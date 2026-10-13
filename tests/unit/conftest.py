@@ -63,6 +63,7 @@ class ExecCmd(enum.Enum):
         constants.WEBROOT_STATIC_PATH,
     )
     UPDATE_CA_CERTIFICATES = ("update-ca-certificates",)
+    PHP_FPM_VALIDATE = ("/usr/local/bin/mediawiki-php-fpm", "-t")
 
     def ran_in(self, exec_history: list) -> bool:
         """Return True if this command was executed (all tokens present in some command)."""
@@ -194,6 +195,7 @@ def mediawiki_container(
 @pytest.fixture
 def execs() -> Generator[set[testing.Exec], None, None]:
     yield {
+        testing.Exec(ExecCmd.PHP_FPM_VALIDATE.value, return_code=0),
         testing.Exec(
             ExecCmd.COMPOSER_UPDATE.value,
             return_code=0,

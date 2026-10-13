@@ -46,6 +46,21 @@ charm-libs:
 
 config:
   options:
+    php-fpm-max-children:
+      description: |
+        Maximum number of concurrent PHP-FPM workers per unit. Size this limit for
+        the workload's available CPU and memory, including Apache and CLI jobs.
+        Startup and spare worker counts are derived from this value.
+      type: int
+      default: 16
+
+    php-fpm-max-requests:
+      description: |
+        Number of requests each PHP-FPM worker handles before it is recycled.
+        Set to zero to disable recycling. This does not affect PHP CLI jobs.
+      type: int
+      default: 500
+
     composer:
       description: |
         The contents of a composer.local.json file to customize MediaWiki extensions and dependencies on top of what is provided by default.

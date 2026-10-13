@@ -45,6 +45,8 @@ class CharmConfig(BaseModel):
     maintenance_script_threads: int = Field(2, ge=1)
     mediawiki_debug_log_groups: list[str] = Field(default_factory=list)
     mediawiki_debug_log: bool = Field(False)
+    php_fpm_max_children: int = Field(16, ge=1)
+    php_fpm_max_requests: int = Field(500, ge=0)
 
     @field_validator("composer", mode="before")
     @classmethod

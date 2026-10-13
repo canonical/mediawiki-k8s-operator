@@ -6,10 +6,11 @@
 import logging
 import secrets
 import time
+from string import Template
 from typing import TYPE_CHECKING, Optional
 
 import ops
-from charmlibs.pathops import ContainerPath
+from charmlibs.pathops import ContainerPath, LocalPath, ensure_contents
 from ops import pebble
 
 import utils
@@ -56,6 +57,9 @@ class MediaWiki(
     """Class to manage MediaWiki."""
 
     _SERVICE_NAME = "mediawiki"
+    _PHP_FPM_SERVICE_NAME = "php-fpm"
+    _PHP_FPM_COMMAND = "/usr/local/bin/mediawiki-php-fpm"
+    _PHP_FPM_CONFIG = "/etc/mediawiki/php-fpm.conf"
     _LOGROTATE_SERVICE_NAME = "logrotate"
     _APACHE_EXPORTER_SERVICE_NAME = "apache-exporter"
     _REDIS_JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
@@ -264,6 +268,48 @@ class MediaWiki(
 
         return certificate_transfer_changed or tls_changed or settings_changed
 
+    def _php_fpm_environment(self) -> dict[str, str]:
+        """Build the same validated environment for FPM startup and syntax checks."""
+        config = self._charm.load_charm_config()
+        return {
+            **self._charm.state.get_proxy_env({}),
+            "PHP_FPM_MAX_CHILDREN": str(config.php_fpm_max_children),
+            "PHP_FPM_MIN_SPARE_SERVERS": str(max(1, config.php_fpm_max_children // 4)),
+            "PHP_FPM_MAX_SPARE_SERVERS": str(max(1, config.php_fpm_max_children // 2)),
+            "PHP_FPM_MAX_REQUESTS": str(config.php_fpm_max_requests),
+        }
+
+    def _php_fpm_reconciliation(self) -> None:
+        """Write the pool configuration and preserve any pending service restart."""
+        template = LocalPath(__file__).parent.parent / "templates" / "php-fpm.conf.template"
+        proxy_environment = "\n".join(
+            f"env[{name}] = ${name}" for name in sorted(self._charm.state.get_proxy_env({}))
+        )
+        content = (
+            Template(template.read_text())
+            .safe_substitute(proxy_environment=proxy_environment)
+            .rstrip()
+            + "\n"
+        )
+        path = ContainerPath(self._PHP_FPM_CONFIG, container=self._container)
+        if ensure_contents(path, content, mode=0o600, user="root", group="root"):
+            self.request_service_restart()
+
+    def _validate_php_fpm(self) -> None:
+        """Check the same configuration and environment used by the FPM master."""
+        try:
+            self._container.exec(
+                [self._PHP_FPM_COMMAND, "-t"],
+                user="root",
+                group="root",
+                environment=self._php_fpm_environment(),
+                timeout=constants.BASE_TIMEOUT,
+            ).wait_output()
+        except (pebble.APIError, pebble.ExecError, TimeoutError) as exc:
+            raise MediaWikiBlockedStatusException(
+                "PHP-FPM configuration validation failed; check sizing and use a matching MediaWiki image."
+            ) from exc
+
     def _pebble_layer(self) -> pebble.LayerDict:
         """Build the Pebble layer for the MediaWiki container."""
         health_check_timeout = 5
@@ -274,13 +320,22 @@ class MediaWiki(
             "description": "Pebble layer configuration for MediaWiki",
             "services": {
                 **self._tunnel_services.pebble_services(),
+                self._PHP_FPM_SERVICE_NAME: {
+                    "override": "replace",
+                    "summary": "MediaWiki PHP-FPM workers",
+                    "command": self._PHP_FPM_COMMAND,
+                    "startup": "disabled",
+                    "user": "root",
+                    "group": "root",
+                    "environment": self._php_fpm_environment(),
+                },
                 self._SERVICE_NAME: {
                     "override": "replace",
                     "summary": "MediaWiki service (apache)",
                     "command": "/usr/sbin/apache2ctl -D FOREGROUND",
                     "startup": "disabled",
-                    "requires": ["mediawikiLogs"],
-                    "after": ["mediawikiLogs"],
+                    "requires": ["mediawikiLogs", self._PHP_FPM_SERVICE_NAME],
+                    "after": ["mediawikiLogs", self._PHP_FPM_SERVICE_NAME],
                     "environment": self._charm.state.get_proxy_env({}),
                 },
                 **{
@@ -364,13 +419,20 @@ class MediaWiki(
         """Privately reconcile MediaWiki services and checks."""
         if not self._container.can_connect():
             raise MediaWikiWaitingStatusException("Waiting for pebble")
+        if active:
+            self._php_fpm_reconciliation()
+            self._validate_php_fpm()
         if not active:
             self._tunnel_services.register(self._SMTP_PROXY_SERVICE_NAME, self._SMTP_PROXY_PORT)
         self._container.add_layer(self._SERVICE_NAME, self._pebble_layer(), combine=True)
         self._container.replan()
 
-        all_conditional_services = {self._SERVICE_NAME, *self._REDIS_JOB_SERVICES}
-        services_to_run = {self._SERVICE_NAME}
+        all_conditional_services = {
+            self._SERVICE_NAME,
+            self._PHP_FPM_SERVICE_NAME,
+            *self._REDIS_JOB_SERVICES,
+        }
+        services_to_run = {self._SERVICE_NAME, self._PHP_FPM_SERVICE_NAME}
         previously_running = {
             service
             for service in all_conditional_services
@@ -385,12 +447,20 @@ class MediaWiki(
 
         services_to_stop = all_conditional_services - services_to_run
         services = self._container.get_plan().services
-        for service in services_to_stop:
-            if service in services and self._container.get_service(service).is_running():
-                self._container.stop(service)
-        for service in services_to_run:
-            if service in services and not self._container.get_service(service).is_running():
-                self._container.start(service)
+        running_to_stop = sorted(
+            service
+            for service in services_to_stop
+            if service in services and self._container.get_service(service).is_running()
+        )
+        stopped_to_start = sorted(
+            service
+            for service in services_to_run
+            if service in services and not self._container.get_service(service).is_running()
+        )
+        if running_to_stop:
+            self._container.stop(*running_to_stop)
+        if stopped_to_start:
+            self._container.start(*stopped_to_start)
         if active:
             self._finish_active_service_reconciliation(
                 restart_required or self.service_restart_pending(),
@@ -406,9 +476,8 @@ class MediaWiki(
         deliberately stopped, so both are already up to date with the workload state and the
         pending restart marker is cleared once the running ones have been restarted.
         """
-        if restart_required:
-            for service in previously_running:
-                self._container.restart(service)
+        if restart_required and previously_running:
+            self._container.restart(*sorted(previously_running))
         self.clear_service_restart()
         self._reconcile_checks(active=True)
 
