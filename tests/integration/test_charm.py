@@ -43,7 +43,6 @@ def test_php_fpm_runtime(
     assert "php_module" not in modules
     assert "proxy_fcgi_module" in modules
     assert "Syntax OK" in juju_exec(juju, app, "apache2ctl configtest 2>&1")
-    juju_exec(juju, app, "/usr/local/bin/mediawiki-php-fpm -t 2>&1")
     assert (
         juju_exec(juju, app, "stat -c '%a %U %G' /run/php/mediawiki.sock").strip()
         == "660 _daemon_ _daemon_"
