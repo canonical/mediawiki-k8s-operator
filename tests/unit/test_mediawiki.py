@@ -224,7 +224,6 @@ def mock_ensure_contents(mocker: MockerFixture) -> MockType:
         """Delegate to the real ensure_contents without checking ownership."""
         return real_ensure_contents(path, source, mode=mode)
 
-    mocker.patch("mediawiki._core.ensure_contents", side_effect=without_ownership_check)
     return mocker.patch("mediawiki._settings.ensure_contents", side_effect=without_ownership_check)
 
 
@@ -248,44 +247,19 @@ class TestPhpFpm:
         state = dataclasses.replace(active_state, config={"php-fpm-max-children": children})
         with ctx(ctx.on.update_status(), state) as mgr:
             mediawiki = mgr.charm.mediawiki
-            mediawiki._php_fpm_reconciliation()
-            content = mediawiki._container.pull(mediawiki._PHP_FPM_CONFIG).read()
             environment = mediawiki._pebble_layer()["services"]["php-fpm"]["environment"]
             assert environment["PHP_FPM_MAX_CHILDREN"] == str(children)
             assert environment["PHP_FPM_MIN_SPARE_SERVERS"] == str(max(1, children // 4))
             assert environment["PHP_FPM_MAX_SPARE_SERVERS"] == str(max(1, children // 2))
             assert environment["PHP_FPM_MAX_REQUESTS"] == "500"
-            assert "pm.max_children = ${PHP_FPM_MAX_CHILDREN}\n" in content
-            assert "pm.start_servers = ${PHP_FPM_MIN_SPARE_SERVERS}\n" in content
-            assert "pm.status_path = /php-fpm-status\n" in content
-            assert "listen.mode = 0660\n" in content
-            assert "clear_env = yes\n" in content
-            assert "env[" not in content
-
-    def test_configuration_is_idempotent(
-        self, ctx: testing.Context, active_state: testing.State
-    ) -> None:
-        """Unchanged pool configuration does not request another restart or cache rebuild."""
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            mediawiki = mgr.charm.mediawiki
-            mediawiki._php_fpm_reconciliation()
-            assert mediawiki.service_restart_pending()
-            assert not mediawiki.localisation_rebuild_pending()
-            assert (
-                mediawiki._container.list_files(mediawiki._PHP_FPM_CONFIG)[0].permissions == 0o600
-            )
-            mediawiki.clear_service_restart()
-            mediawiki._php_fpm_reconciliation()
-            assert not mediawiki.service_restart_pending()
 
     def test_sizing_uses_replan_without_explicit_restart(
         self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
     ) -> None:
-        """A sizing change updates the service environment, not the pool file or marker."""
+        """A sizing change updates the service environment and relies on replan."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mediawiki = mgr.charm.mediawiki
             mediawiki._reconcile_services()
-            original = mediawiki._container.pull(mediawiki._PHP_FPM_CONFIG).read()
             config = mgr.charm.load_charm_config().model_copy(
                 update={"php_fpm_max_children": 8, "php_fpm_max_requests": 0}
             )
@@ -307,67 +281,22 @@ class TestPhpFpm:
             start.assert_called_once_with("mediawiki")
             restart.assert_not_called()
             assert not mediawiki.service_restart_pending()
-            assert mediawiki._container.pull(mediawiki._PHP_FPM_CONFIG).read() == original
             service = mediawiki._container.get_plan().services["php-fpm"]
             assert service.environment["PHP_FPM_MAX_CHILDREN"] == "8"
             assert service.environment["PHP_FPM_MAX_REQUESTS"] == "0"
 
-    def test_validation_matches_service_environment(
-        self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
-    ) -> None:
-        """Validate using the service's sizing environment without a working-dir override."""
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            mediawiki = mgr.charm.mediawiki
-            mediawiki._php_fpm_reconciliation()
-            execute = mocker.spy(mediawiki._container, "exec")
-            mediawiki._validate_php_fpm()
-            service = mediawiki._pebble_layer()["services"]["php-fpm"]
-            assert service["startup"] == "disabled"
-            assert "working-dir" not in service
-            assert execute.call_args.kwargs["environment"] == service["environment"]
-            assert "working_dir" not in execute.call_args.kwargs
-
-    def test_proxy_allowlist(
+    def test_proxy_environment(
         self, ctx: testing.Context, active_state: testing.State, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Pass only configured proxy values from the master environment to workers."""
+        """Pass the configured proxy variables to the FPM master environment."""
         monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", "http://proxy.internal:3128")
+        monkeypatch.setenv("JUJU_CHARM_HTTPS_PROXY", "http://proxy.internal:3129")
         monkeypatch.setenv("JUJU_CHARM_NO_PROXY", "localhost,127.0.0.1")
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mediawiki = mgr.charm.mediawiki
-            mediawiki._php_fpm_reconciliation()
-            content = mediawiki._container.pull(mediawiki._PHP_FPM_CONFIG).read()
-            for name in ("HTTP_PROXY", "http_proxy", "CGI_HTTP_PROXY", "NO_PROXY"):
-                assert f"env[{name}] = ${name}\n" in content
-            assert "env[HTTPS_PROXY]" not in content
-            assert "proxy.internal" not in content
-            assert (
-                mediawiki._pebble_layer()["services"]["php-fpm"]["environment"]["http_proxy"]
-                == "http://proxy.internal:3128"
-            )
-
-    def test_validation_failure_preserves_running_services(
-        self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
-    ) -> None:
-        """A failed syntax check leaves running services and pending work untouched."""
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            mediawiki = mgr.charm.mediawiki
-            mediawiki._reconcile_services()
-            restart = mocker.spy(mediawiki._container, "restart")
-            validate = mocker.patch.object(
-                mediawiki._container,
-                "exec",
-                autospec=True,
-                side_effect=pebble.ExecError([mediawiki._PHP_FPM_COMMAND, "-t"], 1, "", "invalid"),
-            )
-            mediawiki.request_service_restart()
-            with pytest.raises(MediaWikiBlockedStatusException, match="PHP-FPM"):
-                mediawiki._reconcile_services()
-            assert mediawiki.service_restart_pending()
-            restart.assert_not_called()
-            assert mediawiki._container.get_service("php-fpm").is_running()
-            assert mediawiki._container.get_service("mediawiki").is_running()
-            validate.assert_called_once()
+            proxy_environment = mgr.charm.state.get_proxy_env({})
+            environment = mgr.charm.mediawiki._pebble_layer()["services"]["php-fpm"]["environment"]
+            assert proxy_environment
+            assert proxy_environment.items() <= environment.items()
 
     def test_lifecycle(
         self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture

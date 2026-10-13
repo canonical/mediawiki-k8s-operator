@@ -6,11 +6,10 @@
 import logging
 import secrets
 import time
-from string import Template
 from typing import TYPE_CHECKING, Optional
 
 import ops
-from charmlibs.pathops import ContainerPath, LocalPath, ensure_contents
+from charmlibs.pathops import ContainerPath
 from ops import pebble
 
 import utils
@@ -59,7 +58,6 @@ class MediaWiki(
     _SERVICE_NAME = "mediawiki"
     _PHP_FPM_SERVICE_NAME = "php-fpm"
     _PHP_FPM_COMMAND = "/usr/local/bin/mediawiki-php-fpm"
-    _PHP_FPM_CONFIG = "/etc/mediawiki/php-fpm.conf"
     _LOGROTATE_SERVICE_NAME = "logrotate"
     _APACHE_EXPORTER_SERVICE_NAME = "apache-exporter"
     _REDIS_JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
@@ -269,7 +267,7 @@ class MediaWiki(
         return certificate_transfer_changed or tls_changed or settings_changed
 
     def _php_fpm_environment(self) -> dict[str, str]:
-        """Build the same validated environment for FPM startup and syntax checks."""
+        """Build the FPM master environment that sizes the pool shipped in the rock."""
         config = self._charm.load_charm_config()
         return {
             **self._charm.state.get_proxy_env({}),
@@ -278,37 +276,6 @@ class MediaWiki(
             "PHP_FPM_MAX_SPARE_SERVERS": str(max(1, config.php_fpm_max_children // 2)),
             "PHP_FPM_MAX_REQUESTS": str(config.php_fpm_max_requests),
         }
-
-    def _php_fpm_reconciliation(self) -> None:
-        """Write the pool configuration and preserve any pending service restart."""
-        template = LocalPath(__file__).parent.parent / "templates" / "php-fpm.conf.template"
-        proxy_environment = "\n".join(
-            f"env[{name}] = ${name}" for name in sorted(self._charm.state.get_proxy_env({}))
-        )
-        content = (
-            Template(template.read_text())
-            .safe_substitute(proxy_environment=proxy_environment)
-            .rstrip()
-            + "\n"
-        )
-        path = ContainerPath(self._PHP_FPM_CONFIG, container=self._container)
-        if ensure_contents(path, content, mode=0o600, user="root", group="root"):
-            self.request_service_restart()
-
-    def _validate_php_fpm(self) -> None:
-        """Check the same configuration and environment used by the FPM master."""
-        try:
-            self._container.exec(
-                [self._PHP_FPM_COMMAND, "-t"],
-                user="root",
-                group="root",
-                environment=self._php_fpm_environment(),
-                timeout=constants.BASE_TIMEOUT,
-            ).wait_output()
-        except (pebble.APIError, pebble.ExecError, TimeoutError) as exc:
-            raise MediaWikiBlockedStatusException(
-                "PHP-FPM configuration validation failed; check sizing and use a matching MediaWiki image."
-            ) from exc
 
     def _pebble_layer(self) -> pebble.LayerDict:
         """Build the Pebble layer for the MediaWiki container."""
@@ -425,9 +392,6 @@ class MediaWiki(
         """Privately reconcile MediaWiki services and checks."""
         if not self._container.can_connect():
             raise MediaWikiWaitingStatusException("Waiting for pebble")
-        if active:
-            self._php_fpm_reconciliation()
-            self._validate_php_fpm()
         if not active:
             self._tunnel_services.register(self._SMTP_PROXY_SERVICE_NAME, self._SMTP_PROXY_PORT)
         self._container.add_layer(self._SERVICE_NAME, self._pebble_layer(), combine=True)

@@ -54,6 +54,8 @@ parts:
         mode: "640"
       - path: usr/local/bin/mediawiki-php-fpm
         mode: "755"
+      - path: usr/local/etc/mediawiki/php-fpm.conf
+        mode: "600"
     override-build: |
       craftctl default
       PHP_VERSION=$(chroot "$CRAFT_OVERLAY" /usr/bin/php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;')
