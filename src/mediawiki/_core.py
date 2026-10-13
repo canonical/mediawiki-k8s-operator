@@ -65,7 +65,9 @@ class MediaWiki(
     _FRESHCLAM_SERVICE_NAME = "freshclam"
     _CLAMD_SERVICE_NAME = "clamd"
     _MEDIAWIKI_API_READY_CHECK = "mediawiki-api-ready"
-    _MEDIAWIKI_CHECKS = (_MEDIAWIKI_API_READY_CHECK,)
+    _PHP_FPM_READY_CHECK = "php-fpm-ready"
+    _PHP_FPM_STATUS_PORT = 8091
+    _MEDIAWIKI_CHECKS = (_MEDIAWIKI_API_READY_CHECK, _PHP_FPM_READY_CHECK)
     _SMTP_PROXY_SERVICE_NAME = "smtp-proxy"
     _SMTP_PROXY_PORT = 8125
 
@@ -364,6 +366,16 @@ class MediaWiki(
                     "startup": "disabled",
                     "http": {
                         "url": "http://localhost/w/api.php?action=query&format=json&prop=&meta=siteinfo&formatversion=2"
+                    },
+                    "period": f"{max(10, health_check_timeout * 2)}s",
+                    "timeout": f"{health_check_timeout}s",
+                },
+                self._PHP_FPM_READY_CHECK: {
+                    "override": "replace",
+                    "level": "ready",
+                    "startup": "disabled",
+                    "http": {
+                        "url": f"http://127.0.0.1:{self._PHP_FPM_STATUS_PORT}/php-fpm-status"
                     },
                     "period": f"{max(10, health_check_timeout * 2)}s",
                     "timeout": f"{health_check_timeout}s",

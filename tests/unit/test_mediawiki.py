@@ -320,6 +320,26 @@ class TestPhpFpm:
             assert not mediawiki._container.get_service("php-fpm").is_running()
             assert not mediawiki._container.get_service("mediawiki").is_running()
 
+    def test_ready_check_follows_lifecycle(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Probe the loopback FPM status page only while MediaWiki is active."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            mediawiki._reconcile_services()
+            check = mediawiki._container.get_plan().checks["php-fpm-ready"]
+            assert check.level == pebble.CheckLevel.READY
+            assert check.http == {"url": "http://127.0.0.1:8091/php-fpm-status"}
+            assert (
+                mediawiki._container.get_check("php-fpm-ready").status
+                != pebble.CheckStatus.INACTIVE
+            )
+            mediawiki._reconcile_services(active=False)
+            assert (
+                mediawiki._container.get_check("php-fpm-ready").status
+                == pebble.CheckStatus.INACTIVE
+            )
+
     def test_restart_failure_preserves_marker(
         self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
     ) -> None:
