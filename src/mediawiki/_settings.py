@@ -98,10 +98,10 @@ class _SettingsMixin(_MediaWikiBase):
         """Record the work owed to the workload by a settings change.
 
         The settings files are already on disk by the time this is called, so a later step
-        aborting the cycle would otherwise leave the running services and the localisation
-        cache permanently behind: the next cycle sees unchanged files and skips both.
+        aborting the cycle would otherwise leave the localisation cache permanently behind:
+        the next cycle sees unchanged files and skips the rebuild. No service is restarted,
+        as PHP-FPM revalidates the settings files through opcache on its own.
         """
-        self.request_service_restart()
         self.request_localisation_rebuild()
 
     def _push_user_settings(self, config: CharmConfig) -> bool:
@@ -369,12 +369,16 @@ class _SettingsMixin(_MediaWikiBase):
             "redis": redis_config,
             "dispatcher": f"{self._php_cli_path} {self._maintenance_scripts_base_path / 'run.php'} runJobs --wiki=%(db)x --type=%(type)x --maxtime=%(maxtime)x --memory-limit=%(maxmem)x --result=json",
         }
-        self._job_runner_config.write_text(
+        # The runners only read their configuration at startup, unlike the MediaWiki settings,
+        # which every dispatched job loads afresh.
+        if ensure_contents(
+            self._job_runner_config,
             json.dumps(job_runner_config, indent=4),
             mode=0o640,
             user=constants.ROOT_USER_NAME,
             group=constants.DAEMON_GROUP,
-        )
+        ):
+            self.request_service_restart(*constants.REDIS_JOB_SERVICES)
 
         # https://www.mediawiki.org/wiki/Redis
         content = textwrap.dedent(

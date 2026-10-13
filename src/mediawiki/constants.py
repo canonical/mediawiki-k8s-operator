@@ -64,6 +64,9 @@ CACHE_STORAGE_NAME = "cache"
 CACHE_STORAGE_MOUNT = "/mnt/cache"
 CACHE_DIR = CACHE_STORAGE_MOUNT + "/mediawiki"
 
+# Pebble services for the Redis-backed job queue, which read their configuration at startup
+REDIS_JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
+
 # Pending work markers
 #
 # Each marker records that the workload is behind the state the charm has already written,
@@ -72,6 +75,8 @@ CACHE_DIR = CACHE_STORAGE_MOUNT + "/mediawiki"
 # running processes and belongs on the container's ephemeral filesystem, whereas the pending
 # localisation cache rebuild tracks an artefact in the cache storage and must outlive the
 # container alongside it.
+#
+# The pending restart marker lists the names of the services that are behind, one per line.
 CHARM_RUNTIME_DIR = "/run/mediawiki-charm"
 RESTART_REQUIRED_MARKER = CHARM_RUNTIME_DIR + "/restart-required"
 LOCALISATION_REBUILD_MARKER = CACHE_DIR + "/.localisation-rebuild-required"

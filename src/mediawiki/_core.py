@@ -60,7 +60,7 @@ class MediaWiki(
     _PHP_FPM_COMMAND = "/usr/local/bin/mediawiki-php-fpm"
     _LOGROTATE_SERVICE_NAME = "logrotate"
     _APACHE_EXPORTER_SERVICE_NAME = "apache-exporter"
-    _REDIS_JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
+    _REDIS_JOB_SERVICES = constants.REDIS_JOB_SERVICES
     _APACHE_EXPORTER_PORT = 9117
     _FRESHCLAM_SERVICE_NAME = "freshclam"
     _CLAMD_SERVICE_NAME = "clamd"
@@ -159,7 +159,7 @@ class MediaWiki(
             self._reconcile_services(active=False)
             raise
 
-        restart_required = self._reconcile_configuration(
+        self._reconcile_configuration(
             peer_state,
             ssh_key=ssh_key,
             force=force,
@@ -167,7 +167,7 @@ class MediaWiki(
 
         self._peers.acknowledge_database_mode(read_only=peer_state.ro_database)
         self._peers.reconcile_database(self.update_database_schema)
-        self._reconcile_services(restart_required=restart_required)
+        self._reconcile_services()
         self._oauth.update_client_config()
         return peer_state.ro_database
 
@@ -176,7 +176,7 @@ class MediaWiki(
         peer_state: MediaWikiPeerState,
         ssh_key: Optional[str] = None,
         force: bool = False,
-    ) -> bool:
+    ) -> None:
         """Reconcile MediaWiki files, installation, and workload configuration.
 
         If this unit is the leader, the freshly reconciled Composer lock and state hash are
@@ -187,9 +187,6 @@ class MediaWiki(
             peer_state: The current state of the MediaWiki peer relation.
             ssh_key: An optional SSH key for accessing private repositories.
             force: Whether to force a Composer update.
-
-        Returns:
-            Whether a restart is required to apply configuration changes.
 
         Raises:
             MediaWikiWaitingStatusException: If we need to wait for the state to match the leader published state.
@@ -209,10 +206,11 @@ class MediaWiki(
             additional_certificates=additional_certificates
         )
         if certificate_transfer_changed:
-            self.request_service_restart()
-        tls_changed = self._tls_reconciliation()
-        if tls_changed:
-            self.request_service_restart()
+            # PHP-FPM workers load the trust store per connection; the long-lived job runners
+            # are restarted so their connections are re-established against the new bundle.
+            self.request_service_restart(*self._REDIS_JOB_SERVICES)
+        if self._tls_reconciliation():
+            self.request_service_restart(self._SERVICE_NAME)
         self._logs_path.mkdir(
             exist_ok=True,
             parents=True,
@@ -265,8 +263,6 @@ class MediaWiki(
             composer_ran,
             force=force,
         )
-
-        return certificate_transfer_changed or tls_changed or settings_changed
 
     def _php_fpm_environment(self) -> dict[str, str]:
         """Build the FPM master environment that sizes the pool shipped in the rock."""
@@ -400,7 +396,7 @@ class MediaWiki(
             elif not active and status != pebble.CheckStatus.INACTIVE:
                 self._container.stop_checks(check)
 
-    def _reconcile_services(self, *, active: bool = True, restart_required: bool = False) -> None:
+    def _reconcile_services(self, *, active: bool = True) -> None:
         """Privately reconcile MediaWiki services and checks."""
         if not self._container.can_connect():
             raise MediaWikiWaitingStatusException("Waiting for pebble")
@@ -444,22 +440,17 @@ class MediaWiki(
         if stopped_to_start:
             self._container.start(*stopped_to_start)
         if active:
-            self._finish_active_service_reconciliation(
-                restart_required or self.service_restart_pending(),
-                services_to_run & previously_running,
-            )
+            self._finish_active_service_reconciliation(services_to_run & previously_running)
 
-    def _finish_active_service_reconciliation(
-        self, restart_required: bool, previously_running: set[str]
-    ) -> None:
+    def _finish_active_service_reconciliation(self, previously_running: set[str]) -> None:
         """Apply active-only service actions after the Pebble plan is reconciled.
 
         Services outside ``previously_running`` were either started fresh by this cycle or
         deliberately stopped, so both are already up to date with the workload state and the
         pending restart marker is cleared once the running ones have been restarted.
         """
-        if restart_required and previously_running:
-            self._container.restart(*sorted(previously_running))
+        if pending := sorted(self.pending_service_restarts() & previously_running):
+            self._container.restart(*pending)
         self.clear_service_restart()
         self._reconcile_checks(active=True)
 

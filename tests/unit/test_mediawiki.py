@@ -301,7 +301,7 @@ class TestPhpFpm:
     def test_lifecycle(
         self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
     ) -> None:
-        """Start and restart the dependent services together and stop both when inactive."""
+        """Start the dependent services together, restart Apache alone, and stop both."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mediawiki = mgr.charm.mediawiki
             restart = mocker.spy(mediawiki._container, "restart")
@@ -312,9 +312,9 @@ class TestPhpFpm:
             assert "php-fpm" in layer["services"]["mediawiki"]["after"]
             mediawiki._reconcile_services()
             restart.assert_not_called()
-            mediawiki.request_service_restart()
+            mediawiki.request_service_restart("mediawiki")
             mediawiki._reconcile_services()
-            restart.assert_called_once_with("mediawiki", "php-fpm")
+            restart.assert_called_once_with("mediawiki")
             assert not mediawiki.service_restart_pending()
             mediawiki._reconcile_services(active=False)
             assert not mediawiki._container.get_service("php-fpm").is_running()
@@ -347,7 +347,7 @@ class TestPhpFpm:
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mediawiki = mgr.charm.mediawiki
             mediawiki._reconcile_services()
-            mediawiki.request_service_restart()
+            mediawiki.request_service_restart("mediawiki")
             mocker.patch.object(
                 mediawiki._container, "restart", side_effect=RuntimeError("failed")
             )
@@ -382,16 +382,13 @@ class TestReconciliation:
         active_state: testing.State,
         mocker: MockerFixture,
     ) -> None:
-        """A changed workload trust store is included in the restart decision."""
+        """A changed workload trust store owes a restart to the long-lived job runners only."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mocker.patch.object(
-                mgr.charm.mediawiki._certificate_transfer, "reconcile", return_value=True
-            )
-            restart_required = mgr.charm.mediawiki._reconcile_configuration(
-                make_mediawiki_peer_state()
-            )
+            mediawiki = mgr.charm.mediawiki
+            mocker.patch.object(mediawiki._certificate_transfer, "reconcile", return_value=True)
+            mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
-        assert restart_required is True
+            assert mediawiki.pending_service_restarts() == set(MediaWiki._REDIS_JOB_SERVICES)
 
     def test_pending_restart_survives_tls_reconciliation_failure(
         self, ctx: testing.Context, configured_state: testing.State, mocker: MockerFixture
@@ -404,6 +401,7 @@ class TestReconciliation:
         with ctx(ctx.on.update_status(), configured_state) as mgr:
             mediawiki = mgr.charm.mediawiki
             peer_state = make_mediawiki_peer_state()
+            mocker.patch.object(mediawiki, "runner_queue_service_is_ready", return_value=True)
             mediawiki._reconcile_services()
             restart = mocker.spy(mediawiki._container, "restart")
 
@@ -421,13 +419,10 @@ class TestReconciliation:
             mocker.patch.object(mediawiki._certificate_transfer, "reconcile", return_value=False)
             mocker.patch.object(mediawiki, "_tls_reconciliation", return_value=False)
             mocker.patch.object(mediawiki, "_settings_reconciliation", return_value=False)
-            restart_required = mediawiki._reconcile_configuration(peer_state)
-            mediawiki._reconcile_services(restart_required=restart_required)
+            mediawiki._reconcile_configuration(peer_state)
+            mediawiki._reconcile_services()
 
-            assert restart_required is False
-            restart.assert_called_once_with(
-                MediaWiki._SERVICE_NAME, MediaWiki._PHP_FPM_SERVICE_NAME
-            )
+            restart.assert_called_once_with(*sorted(MediaWiki._REDIS_JOB_SERVICES))
             assert not mediawiki.service_restart_pending()
 
     def test_pending_restart_survives_an_aborted_reconciliation(
@@ -443,6 +438,7 @@ class TestReconciliation:
         with ctx(ctx.on.update_status(), configured_state) as mgr:
             mediawiki = mgr.charm.mediawiki
             peer_state = make_mediawiki_peer_state()
+            mocker.patch.object(mediawiki, "runner_queue_service_is_ready", return_value=True)
             mediawiki._reconcile_services()
             restart = mocker.spy(mediawiki._container, "restart")
 
@@ -461,13 +457,10 @@ class TestReconciliation:
             # The next cycle sees an unchanged bundle but still owes the restart.
             mocker.patch.object(mediawiki._certificate_transfer, "reconcile", return_value=False)
             mocker.patch.object(mediawiki, "_settings_reconciliation", return_value=False)
-            restart_required = mediawiki._reconcile_configuration(peer_state)
-            mediawiki._reconcile_services(restart_required=restart_required)
+            mediawiki._reconcile_configuration(peer_state)
+            mediawiki._reconcile_services()
 
-            assert restart_required is False, "the change is no longer visible to the cycle"
-            restart.assert_called_once_with(
-                MediaWiki._SERVICE_NAME, MediaWiki._PHP_FPM_SERVICE_NAME
-            )
+            restart.assert_called_once_with(*sorted(MediaWiki._REDIS_JOB_SERVICES))
             assert not mediawiki.service_restart_pending()
 
     def test_reconciliation_owns_services(
@@ -1785,6 +1778,33 @@ class TestCacheSettings:
         assert config["redis"]["aggregators"] == ["redis-host:6379"]
         assert config["redis"]["queues"] == ["redis-host:6379"]
 
+    def test_job_runner_config_change_restarts_runners(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_redis: MockType,
+    ) -> None:
+        """Only a changed job runner configuration owes the runners a restart."""
+        mock_redis.is_relation_available.return_value = True
+        mock_redis.get_endpoint.return_value = "redis-host:6379"
+
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            config = mgr.charm.load_charm_config()
+            secrets = MediaWikiSecrets.generate()
+            mediawiki._settings_reconciliation(config, secrets)
+            assert set(MediaWiki._REDIS_JOB_SERVICES) <= mediawiki.pending_service_restarts()
+
+            mediawiki.clear_service_restart()
+            changed_config = config.model_copy(update={"mediawiki_debug_log": True})
+            assert mediawiki._settings_reconciliation(changed_config, secrets) is True
+            assert not mediawiki.service_restart_pending()
+
+            mediawiki.clear_service_restart()
+            mock_redis.get_endpoint.return_value = "other-redis-host:6379"
+            mediawiki._settings_reconciliation(changed_config, secrets)
+            assert set(MediaWiki._REDIS_JOB_SERVICES) <= mediawiki.pending_service_restarts()
+
     def test_no_redis_removes_job_runner_config(
         self,
         ctx: testing.Context,
@@ -2400,14 +2420,12 @@ class TestComposerLockSync:
         new_lock = '{"packages": [], "_readme": ["Different lock"]}'
         state_in = dataclasses.replace(configured_state, leader=False)
         with ctx(ctx.on.update_status(), state_in) as mgr:
-            result = mgr.charm.mediawiki._reconcile_configuration(
+            mgr.charm.mediawiki._reconcile_configuration(
                 make_mediawiki_peer_state(
                     composer_lock=new_lock,
                     leader_state_hash=mgr.charm.load_charm_config().state_hash,
                 ),
             )
-
-        assert result is True, "Composer changes should require a restart on the non-leader path"
 
         history = ctx.exec_history[Charm._CONTAINER_NAME]
         assert ExecCmd.COMPOSER_INSTALL.ran_in(history), (
@@ -3040,23 +3058,24 @@ class TestSettingsChangeDetection:
         "updates",
         [{"mediawiki_debug_log_groups": []}, {"mediawiki_debug_log": True}],
     )
-    def test_logging_change_records_restart(
+    def test_logging_change_records_rebuild(
         self,
         ctx: testing.Context,
         active_state: testing.State,
         updates: dict[str, list[str] | bool],
     ) -> None:
-        """Logging changes owe a restart, but repeated identical settings do not change."""
+        """Logging changes owe a rebuild but no restart, and identical settings do not change."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mediawiki = mgr.charm.mediawiki
             config = mgr.charm.load_charm_config()
             secrets = MediaWikiSecrets.generate()
             mediawiki._settings_reconciliation(config, secrets)
-            mediawiki.clear_service_restart()
+            mediawiki.clear_localisation_rebuild()
             changed_config = config.model_copy(update=updates)
 
             assert mediawiki._settings_reconciliation(changed_config, secrets) is True
-            assert mediawiki.service_restart_pending()
+            assert mediawiki.localisation_rebuild_pending()
+            assert not mediawiki.service_restart_pending()
             assert mediawiki._settings_reconciliation(changed_config, secrets) is False
 
     def test_first_run_reports_change_second_run_does_not(
@@ -3091,7 +3110,7 @@ class TestSettingsChangeDetection:
     def test_deferred_error_still_records_pending_work(
         self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
     ) -> None:
-        """Settings written before a deferred error still owe a restart and a rebuild."""
+        """Settings written before a deferred error still owe a rebuild."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mediawiki = mgr.charm.mediawiki
             mocker.patch.object(
@@ -3104,7 +3123,6 @@ class TestSettingsChangeDetection:
                     mgr.charm.load_charm_config(), MediaWikiSecrets.generate()
                 )
 
-            assert mediawiki.service_restart_pending()
             assert mediawiki.localisation_rebuild_pending()
 
     def test_user_settings_change_survives_unchanged_late_settings_error(
@@ -3130,7 +3148,6 @@ class TestSettingsChangeDetection:
             with pytest.raises(MediaWikiBlockedStatusException):
                 mediawiki._settings_reconciliation(changed_config, secrets)
 
-            assert mediawiki.service_restart_pending()
             assert mediawiki.localisation_rebuild_pending()
 
 
