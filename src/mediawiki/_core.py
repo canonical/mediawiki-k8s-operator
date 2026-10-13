@@ -344,6 +344,8 @@ class MediaWiki(
                         "summary": f"MediaWiki {service}",
                         "command": f"{php_path} {job_runner_service_dir}/{service} --config-file={constants.JOB_RUNNER_CONFIG_PATH}",
                         "startup": "disabled",
+                        "user": constants.DAEMON_USER,
+                        "group": constants.DAEMON_GROUP,
                         "environment": self._charm.state.get_proxy_env({}),
                     }
                     for service in self._REDIS_JOB_SERVICES
@@ -356,6 +358,8 @@ class MediaWiki(
                         '2> >(grep --line-buffered -v ": No such file or directory$" >&2)\''
                     ),
                     "startup": "enabled",
+                    "user": constants.DAEMON_USER,
+                    "group": constants.DAEMON_GROUP,
                 },
                 self._LOGROTATE_SERVICE_NAME: {
                     "override": "replace",
@@ -368,6 +372,8 @@ class MediaWiki(
                     "summary": "Apache exporter for Prometheus",
                     "command": "/usr/bin/apache_exporter",
                     "startup": "enabled",
+                    "user": constants.DAEMON_USER,
+                    "group": constants.DAEMON_GROUP,
                 },
                 self._FRESHCLAM_SERVICE_NAME: {
                     "override": "replace",

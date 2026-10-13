@@ -423,6 +423,8 @@ class TestReconciliation:
                 '2> >(grep --line-buffered -v ": No such file or directory$" >&2)\''
             ),
             "startup": "enabled",
+            "user": constants.DAEMON_USER,
+            "group": constants.DAEMON_GROUP,
         }
 
     def test_certificate_transfer_change_requests_restart(
