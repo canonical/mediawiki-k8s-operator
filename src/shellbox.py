@@ -20,13 +20,13 @@ class Shellbox(Object):
 
     AUTHENTICATION_KEY_CONTENT_KEY = "shellbox-key"  # nosec: B105
     APACHE_EXPORTER_PORT = 9118
-    PHP_FPM_EXPORTER_PORT = 9253
+    PHP_FPM_METRICS_PORT = 9253
     # Included by the rock's PHP-FPM configuration. Pebble serves its plan to any user in the
     # container, so the key is passed through this root-only file rather than the service
     # environment.
     KEY_FILE = "/etc/shellbox/key.conf"  # nosec: B105
     _PHP_FPM_SERVICE = "php-fpm"
-    _SERVICES = (_PHP_FPM_SERVICE, "apache2", "apache-exporter", "php-fpm-exporter")
+    _SERVICES = (_PHP_FPM_SERVICE, "apache2", "apache-exporter")
 
     def __init__(self, charm: StatefulCharmBase) -> None:
         """Initialize the manager.

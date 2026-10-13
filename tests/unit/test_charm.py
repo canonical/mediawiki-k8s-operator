@@ -1463,10 +1463,10 @@ class TestMetricsEndpoint:
         ("job_name", "target"),
         [
             ("shellbox_apache_exporter", "*:9118"),
-            ("shellbox_php_fpm_exporter", "*:9253"),
+            ("shellbox_php_fpm", "*:9253"),
         ],
     )
-    def test_shellbox_jobs_publish_exporter_targets(
+    def test_shellbox_jobs_publish_metrics_targets(
         self,
         ctx: testing.Context,
         active_state: testing.State,
@@ -1474,7 +1474,7 @@ class TestMetricsEndpoint:
         job_name: str,
         target: str,
     ) -> None:
-        """Publish each Shellbox exporter with its expected scrape target."""
+        """Publish each Shellbox metrics endpoint with its expected scrape target."""
         state_in = dataclasses.replace(
             active_state, relations=[*active_state.relations, metrics_relation]
         )

@@ -47,16 +47,6 @@ services:
     startup: disabled
     after:
       - apache2
-  php-fpm-exporter:
-    override: replace
-    user: _daemon_
-    group: _daemon_
-    command: /bin/php-fpm_exporter server --web.listen-address=:9253
-    environment:
-      PHP_FPM_SCRAPE_URI: unix:///run/php/shellbox.sock;/status
-    startup: disabled
-    after:
-      - php-fpm
 
 parts:
   shellbox:
@@ -98,7 +88,7 @@ parts:
       - bash
     overlay-script: |
       craftctl default
-      printf 'Listen 127.0.0.1:8080\nListen 127.0.0.1:8091\n' > "${CRAFT_OVERLAY}/etc/apache2/ports.conf"
+      printf 'Listen 127.0.0.1:8080\nListen 127.0.0.1:8091\nListen 9253\n' > "${CRAFT_OVERLAY}/etc/apache2/ports.conf"
       # Drop the package's loopback-trusted /server-status location; commands share loopback, so
       # only the dedicated status listener serves the status page.
       : > "${CRAFT_OVERLAY}/etc/apache2/mods-available/status.conf"
@@ -145,13 +135,4 @@ parts:
     source: https://github.com/Lusitaniae/apache_exporter.git
     source-type: git
     source-tag: v1.1.1
-    source-depth: 1
-
-  php-fpm-exporter:
-    plugin: go
-    build-snaps:
-      - go/1.25/stable
-    source: https://github.com/hipages/php-fpm_exporter.git
-    source-type: git
-    source-tag: v2.2.0
     source-depth: 1

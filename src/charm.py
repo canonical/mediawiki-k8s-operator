@@ -196,8 +196,8 @@ class Charm(StatefulCharmBase):
                     "static_configs": [{"targets": [f"*:{Shellbox.APACHE_EXPORTER_PORT}"]}],
                 },
                 {
-                    "job_name": "shellbox_php_fpm_exporter",
-                    "static_configs": [{"targets": [f"*:{Shellbox.PHP_FPM_EXPORTER_PORT}"]}],
+                    "job_name": "shellbox_php_fpm",
+                    "static_configs": [{"targets": [f"*:{Shellbox.PHP_FPM_METRICS_PORT}"]}],
                 },
             ],
             lookaside_jobs_callable=self._git_sync.metrics_scrape_jobs,
