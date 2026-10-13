@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Replaced mod_php with PHP-FPM
+    author: hk21702
+    type: major
+    description: >-
+      MediaWiki requests are now handled by PHP-FPM behind Apache's event MPM.
+      Configurable worker limits and request recycling allow operators to tune
+      capacity and can improve performance under sustained load. The PHP-FPM
+      status endpoint is restricted to loopback.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/319"
+    visibility: public
+    highlight: false
