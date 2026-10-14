@@ -459,7 +459,12 @@ class TestReconciliation:
             state_out = mgr.run()
 
         ln_cmd = list(ExecCmd.SYMLINK_STATIC_ASSETS.value)
-        rebuild_cmd = list(ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.value)
+        default_threads = meta["config"]["options"]["maintenance-script-threads"]["default"]
+        rebuild_cmd = [
+            *ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.value,
+            "--threads",
+            str(default_threads),
+        ]
         executed = [e.command for e in ctx.exec_history.get(Charm._CONTAINER_NAME, [])]
         assert executed == [ln_cmd, rebuild_cmd], (
             "Only the webroot symlink and localisation cache rebuild commands should have run"
@@ -3295,6 +3300,46 @@ class TestLocalisationCacheRebuild:
             if set(ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.value) <= set(exec_event.command)
         )
         assert rebuild_runs == 2, "Expected the failed localisation cache rebuild to be retried"
+
+    @pytest.mark.parametrize(
+        ("configured_threads", "expected_threads"),
+        [
+            pytest.param(None, None, id="default"),
+            pytest.param(8, "8", id="configured"),
+        ],
+    )
+    def test_rebuild_uses_configured_thread_count(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        meta: dict,
+        configured_threads: int | None,
+        expected_threads: str | None,
+    ) -> None:
+        """Test that the rebuild runs with the configured number of threads."""
+        state_in = active_state
+        if configured_threads is not None:
+            state_in = dataclasses.replace(
+                active_state,
+                config={**active_state.config, "maintenance-script-threads": configured_threads},
+            )
+        else:
+            expected_threads = str(
+                meta["config"]["options"]["maintenance-script-threads"]["default"]
+            )
+
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mgr.charm.mediawiki._localisation_cache_reconciliation(False, False)
+            mgr.run()
+
+        rebuild_commands = [
+            exec_event.command
+            for exec_event in ctx.exec_history[Charm._CONTAINER_NAME]
+            if set(ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.value) <= set(exec_event.command)
+        ]
+        assert rebuild_commands == [
+            [*ExecCmd.MAINTENANCE_REBUILD_L10N_CACHE.value, "--threads", expected_threads]
+        ]
 
     def test_rebuild_runs_once_across_reconciliations(
         self, ctx: testing.Context, configured_state: testing.State, mocker: MockerFixture

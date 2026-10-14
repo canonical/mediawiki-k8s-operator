@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Added configurable maintenance script thread counts
+    author: hk21702
+    type: minor
+    description: >-
+      Added the maintenance-script-threads charm option to configure the number
+      of threads used by supported maintenance scripts. This currently allows
+      the localization cache rebuild to run with more threads on units with
+      available CPU capacity.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/320"
+    visibility: public
+    highlight: false
