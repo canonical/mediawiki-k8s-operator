@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from ops import EventBase, MaintenanceStatus, Object, Relation, RelationData, SecretNotFoundError
 
 from exceptions import MediaWikiWaitingStatusException
+from log_redaction import register_secrets
 from mediawiki._secrets import MediaWikiSecrets
 from state import StatefulCharmBase
 
@@ -180,6 +181,7 @@ class MediaWikiPeers(Object):
         try:
             secret = self._charm.model.get_secret(label=self._secret_label)
             secrets_content = secret.get_content(refresh=True)
+            register_secrets(*secrets_content.values())
             expected = MediaWikiSecrets.generate().to_juju_secret()
             missing_keys = expected.keys() - secrets_content.keys()
             if missing_keys:

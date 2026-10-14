@@ -16,6 +16,8 @@ from dpcharmlibs.interfaces import (
 from ops import CharmBase, Object, ObjectEvents
 from pydantic import TypeAdapter
 
+from log_redaction import register_relation_secrets, register_secrets
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,17 +66,23 @@ class Valkey(Object):
             return None
 
         relation = relations[0]
+        register_relation_secrets(
+            self.model,
+            relation,
+            fields=("password", "entity-password"),
+            references=("secret-user", "secret-entity", "secret-requested-entity"),
+        )
         try:
             contract: DataContractV1[ValkeyResponseModel] = build_model(
                 self._handler.interface.repository(relation.id, relation.app),
                 TypeAdapter(DataContractV1[ValkeyResponseModel]),  # type: ignore[arg-type]
             )
-        except Exception:
+        except Exception as error:
             logger.warning(
-                "Could not read Valkey response from relation data: relation_id=%s app=%s",
+                "Could not read Valkey response from relation data: relation_id=%s app=%s (%s)",
                 relation.id,
                 relation.app.name if relation.app else None,
-                exc_info=True,
+                type(error).__name__,
             )
             return None
 
@@ -83,6 +91,8 @@ class Valkey(Object):
     def get_connection_info(self) -> ValkeyConnectionInfo | None:
         """Return complete Valkey connection information, if available."""
         response = self._get_response()
+        if response is not None:
+            register_secrets(response.password)
         if response is None or not response.endpoints:
             return None
 

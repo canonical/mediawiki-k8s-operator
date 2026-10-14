@@ -27,6 +27,7 @@ from ops import (
     WaitingStatus,
 )
 
+import log_redaction
 from exceptions import (
     CharmConfigInvalidError,
     MediaWikiInstallError,
@@ -130,7 +131,9 @@ class Charm(StatefulCharmBase):
     on = RedisRelationCharmEvents()  # pyright: ignore[reportAssignmentType,reportIncompatibleMethodOverride]
 
     def __init__(self, *args: typing.Any):
+        log_redaction.install()
         super().__init__(*args)
+        self._seed_log_secrets()
 
         self._database = Database(self, self._DATABASE_RELATION_NAME, self._DATABASE_NAME)
         self._oauth = OAuth(self, self._OAUTH_RELATION_NAME)
@@ -243,6 +246,40 @@ class Charm(StatefulCharmBase):
             self.on.run_maintenance_script_action, self._on_run_maintenance_script
         )
 
+    def _seed_log_secrets(self) -> None:
+        """Collect available credentials before relation observers and actions run."""
+        # Replica secrets
+        log_redaction.register_secret(
+            self.model,
+            label=self._REPLICA_SECRET_LABEL,
+            fields=("key", "session", "saml-salt", "authentication-token-version"),
+        )
+
+        # Configured SSH key secret
+        # Bypass Pydantic since we want to mask even if the configuration is invalid.
+        secret_id = self.config.get("ssh-key")
+        if isinstance(secret_id, str) and secret_id:
+            log_redaction.register_secret(
+                self.model, secret_id=secret_id, fields=tuple(self._SSH_KEY_FIELDS)
+            )
+
+        # Relations
+        sources = {
+            self._DATABASE_RELATION_NAME: (("password",), ("secret-user",)),
+            self._VALKEY_RELATION_NAME: (
+                ("password", "entity-password"),
+                ("secret-user", "secret-entity", "secret-requested-entity"),
+            ),
+            self._SMTP_RELATION_NAME: (("password",), ("password_id",)),
+            self._OAUTH_RELATION_NAME: (("client_secret", "secret"), ("client_secret_id",)),
+            self._S3_RELATION_NAME: (("access-key", "secret-key"), ()),
+        }
+        for endpoint, (fields, references) in sources.items():
+            for relation in self.model.relations[endpoint]:
+                log_redaction.register_relation_secrets(
+                    self.model, relation, fields=fields, references=references
+                )
+
     def _configure_ingress(self, *, tls_enabled: bool) -> None:
         """Configure the Traefik ingress relation.
 
@@ -305,6 +342,7 @@ class Charm(StatefulCharmBase):
             if secret is None:
                 return None
             content = secret.get_content(refresh=True)
+            log_redaction.register_secrets(*(content.get(field) for field in self._SSH_KEY_FIELDS))
         except SecretNotFoundError:
             raise CharmConfigInvalidError("The configured ssh-key secret does not exist.")
         except ModelError:

@@ -6,6 +6,8 @@
 import dataclasses
 import secrets
 
+from log_redaction import register_secrets
+
 
 @dataclasses.dataclass(frozen=True)
 class MediaWikiSecrets:
@@ -15,6 +17,10 @@ class MediaWikiSecrets:
     session_secret: str
     saml_secret_salt: str
     authentication_token_version: str
+
+    def __post_init__(self) -> None:
+        """Register generated and loaded values before publication or use."""
+        register_secrets(*self.to_juju_secret().values())
 
     @classmethod
     def generate(cls) -> "MediaWikiSecrets":

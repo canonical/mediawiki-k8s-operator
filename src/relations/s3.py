@@ -10,6 +10,7 @@ from ops import CharmBase, Object
 from pydantic import ValidationError
 
 from exceptions import MediaWikiBlockedStatusException
+from log_redaction import register_secrets
 from types_ import S3ConnectionInfo
 
 logger = logging.getLogger(__name__)
@@ -49,8 +50,11 @@ class S3(Object):
             raise MediaWikiBlockedStatusException(f"Waiting for relation {self.s3.relation_name}.")
 
         try:
+            data = self.s3.get_s3_connection_info()
+            credentials = (data.get("access-key"), data.get("secret-key"))
+            register_secrets(*(value for value in credentials if isinstance(value, str)))
             # We have to type-ignore here because the s3 lib's type annotation is wrong
-            return S3ConnectionInfo(**self.s3.get_s3_connection_info())  # type: ignore
+            return S3ConnectionInfo(**data)  # type: ignore
         except ValidationError as e:
             logger.warning(f"Failed to parse s3 relation data: {e}")
             raise MediaWikiBlockedStatusException(

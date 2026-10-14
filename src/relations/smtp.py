@@ -9,6 +9,7 @@ from charms.smtp_integrator.v0.smtp import SmtpRelationData, SmtpRequires
 from ops import CharmBase, Object, ObjectEvents
 
 from exceptions import MediaWikiBlockedStatusException, MediaWikiWaitingStatusException
+from log_redaction import register_relation_secrets, register_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,10 @@ class Smtp(Object):
             MediaWikiBlockedStatusException: If there is an error fetching the relation data.
             MediaWikiWaitingStatusException: If the relation data is not yet available.
         """
+        for relation in self.model.relations[self.relation_name]:
+            register_relation_secrets(
+                self.model, relation, fields=("password",), references=("password_id",)
+            )
         try:
             data = self._requires.get_relation_data()
         except Exception as e:
@@ -60,6 +65,7 @@ class Smtp(Object):
                 f"Waiting for {self.relation_name} relation data."
             )
 
+        register_secrets(data.password)
         return data
 
     def has_relation(self) -> bool:

@@ -18,6 +18,7 @@ from exceptions import (
     MediaWikiStatusException,
     MediaWikiWaitingStatusException,
 )
+from log_redaction import register_relation_secrets, register_secrets
 from types_ import DatabaseConfig, DatabaseEndpoint
 
 logger = logging.getLogger(__name__)
@@ -63,8 +64,12 @@ class Database(Object):
             raise MediaWikiBlockedStatusException(f"Waiting for relation {self.db.relation_name}.")
 
         relation_id = self.db.relations[0].id
+        register_relation_secrets(
+            self.model, self.db.relations[0], fields=("password",), references=("secret-user",)
+        )
         try:
             relation_data = self.db.fetch_relation_data()[relation_id]
+            register_secrets(relation_data.get("password"))
         except Exception as e:
             logger.warning("Error fetching relation data for %s: %s", self.db.relation_name, e)
             raise MediaWikiBlockedStatusException(
