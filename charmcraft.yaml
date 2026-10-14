@@ -197,6 +197,19 @@ config:
       type: boolean
       default: false
 
+    maintenance-script-threads:
+      description: |
+        The number of threads used by the MediaWiki maintenance scripts that the charm runs
+        as part of its reconciliation, and which support parallel execution.
+
+        Raising this value speeds up these scripts on units with several CPU cores available,
+        at the cost of higher CPU and memory usage while they run.
+
+        This option does not affect maintenance scripts run through the `run-maintenance-script`
+        action; pass the relevant argument to the script itself instead.
+      type: int
+      default: 2
+
     mediawiki-debug-log-groups:
       description: |
         Comma-separated MediaWiki debug log groups for `$wgDebugLogGroups`.

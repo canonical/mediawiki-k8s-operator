@@ -60,7 +60,12 @@ class _CacheMixin(_MediaWikiBase):
             force,
         )
         result = self._run_maintenance_script(
-            ["rebuildLocalisationCache", "--force"] if force else ["rebuildLocalisationCache"]
+            [
+                "rebuildLocalisationCache",
+                "--threads",
+                str(self._charm.load_charm_config().maintenance_script_threads),
+                *(["--force"] if force else []),
+            ]
         )
         result.raise_for_status("Localisation cache rebuild", MediaWikiBlockedStatusException)
         logger.debug("Localisation cache rebuild output:\n%s", result.stdout)

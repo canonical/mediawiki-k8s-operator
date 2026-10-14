@@ -110,6 +110,12 @@ class TestCharmConfig:
 
         assert baseline.state_hash == changed.state_hash
 
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_maintenance_script_threads_rejects_non_positive(self, value: int) -> None:
+        """Reject thread counts that no maintenance script could run with."""
+        with pytest.raises(ValidationError):
+            self.make_config(maintenance_script_threads=value)
+
     def test_composer_accepts_json_object(self) -> None:
         config = self.make_config(composer='  {"require": {"a/b": "^1.0"}}  ')
 

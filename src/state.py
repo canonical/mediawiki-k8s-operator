@@ -42,6 +42,7 @@ class CharmConfig(BaseModel):
     oauth_extra_scopes: str = Field("")
     local_settings: str = Field("")
     robots_txt: str = Field("")
+    maintenance_script_threads: int = Field(2, ge=1)
     mediawiki_debug_log_groups: list[str] = Field(default_factory=list)
     mediawiki_debug_log: bool = Field(False)
 
