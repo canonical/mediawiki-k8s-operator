@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _php_fpm_status(juju: jubilant.Juju, app: App) -> dict[str, Any]:
-    """Read aggregate FPM status through the local-only Apache listener."""
+    """Read aggregate FPM status through the Apache status listener."""
     output = juju_exec(
         juju,
         app,
@@ -32,11 +32,21 @@ def _php_fpm_status(juju: jubilant.Juju, app: App) -> dict[str, Any]:
     return json.loads(output)
 
 
+def _php_fpm_openmetrics(juju: jubilant.Juju, app: App) -> str:
+    """Read the PHP-FPM OpenMetrics endpoint through Apache's status listener."""
+    return juju_exec(
+        juju,
+        app,
+        "/usr/bin/php -r 'echo file_get_contents("
+        '"http://127.0.0.1:8091/php-fpm-status?openmetrics");\'',
+    )
+
+
 @pytest.mark.abort_on_fail
 def test_php_fpm_runtime(
     juju: jubilant.Juju, app: App, ingress_address: str, requests_timeout: int
 ) -> None:
-    """Use event MPM and FPM without exposing the status handler on public listeners."""
+    """Use event MPM and FPM with status metrics limited to the pod network."""
     modules = juju_exec(juju, app, "apache2ctl -M 2>&1")
     assert "mpm_event_module" in modules
     assert "mpm_prefork_module" not in modules
@@ -59,12 +69,16 @@ def test_php_fpm_runtime(
         for line in listeners.splitlines()
         if ":1F9B " in line and line.split()[3] == "0A"
     ]
-    assert status_listeners == ["0100007F:1F9B"]
+    # Apache may bind the wildcard as IPv4 (tcp) or dual-stack IPv6 (tcp6).
+    wildcard_listeners = {"00000000:1F9B", f"{'0' * 32}:1F9B"}
+    assert status_listeners
+    assert set(status_listeners) <= wildcard_listeners
 
     for path in (
         "/php-fpm-status",
         "/php-fpm-status?json",
         "/php-fpm-status?full",
+        "/php-fpm-status?openmetrics",
         "/php-fpm-status/",
         "/php-fpm-status/extra",
         "/%70hp-fpm-status?json",
@@ -74,6 +88,8 @@ def test_php_fpm_runtime(
             assert '"pool":"mediawiki"' not in response.text.replace(" ", "")
             assert "process manager:" not in response.text
             assert "listen queue:" not in response.text
+            assert "# TYPE " not in response.text
+            assert "# EOF" not in response.text
         output = juju_exec(
             juju,
             app,
@@ -85,6 +101,10 @@ def test_php_fpm_runtime(
         assert '"pool":"mediawiki"' not in output.replace(" ", "")
         assert "process manager:" not in output
         assert "listen queue:" not in output
+
+    openmetrics = _php_fpm_openmetrics(juju, app)
+    assert "# TYPE " in openmetrics
+    assert openmetrics.rstrip().endswith("# EOF")
 
 
 @pytest.mark.abort_on_fail

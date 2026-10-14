@@ -7,8 +7,8 @@ changes:
     description: >-
       MediaWiki requests are now handled by PHP-FPM behind Apache's event MPM.
       Configurable worker limits and request recycling allow operators to tune
-      capacity and can improve performance under sustained load. The PHP-FPM
-      status endpoint is restricted to loopback.
+      capacity and can improve performance under sustained load. PHP-FPM metrics
+      are exposed via the metrics endpoint.
     urls:
       pr:
         - "https://github.com/canonical/mediawiki-k8s-operator/pull/319"
