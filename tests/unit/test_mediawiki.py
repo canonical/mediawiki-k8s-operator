@@ -3113,10 +3113,10 @@ class TestSettingsChangeDetection:
             assert f"$wgShellboxSecretKey = '{key}';" in content
             assert "$wgPygmentizePath = '/usr/bin/pygmentize';" in content
 
-    def test_shellbox_change_uses_standard_restart_bookkeeping(
+    def test_shellbox_change_records_rebuild_without_restart(
         self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
     ) -> None:
-        """Detect changed Shellbox credentials through ordinary settings reconciliation."""
+        """Detect changed Shellbox credentials without restarting services."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mediawiki = mgr.charm.mediawiki
             config = mgr.charm.load_charm_config()
@@ -3131,7 +3131,7 @@ class TestSettingsChangeDetection:
             mediawiki.clear_service_restart()
             mediawiki.clear_localisation_rebuild()
             assert mediawiki._settings_reconciliation(config, secrets) is True
-            assert mediawiki.service_restart_pending()
+            assert not mediawiki.service_restart_pending()
             assert mediawiki.localisation_rebuild_pending()
 
     def test_first_run_reports_change_second_run_does_not(
