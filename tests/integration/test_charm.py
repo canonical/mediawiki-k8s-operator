@@ -294,7 +294,7 @@ def test_shellbox_apache_status_isolation(juju: jubilant.Juju, app: App):
         "        body = response.read()\n"
         '    return response.code, b"ServerVersion:" in body or b"Apache Server Status for" in body\n'
         "responses = [status_response(port, query) for port, query in\n"
-        '    ((8090, "?auto"), (8091, "?auto"), (8090, ""), (8091, ""), '
+        '    ((8090, "?auto"), (8092, "?auto"), (8090, ""), (8092, ""), '
         '(8080, "?auto"), (80, "?auto"))]\n'
         'print(json.dumps({"status_codes": [response[0] for response in responses], '
         '"status_pages": [response[1] for response in responses]}))\n'

@@ -5,6 +5,7 @@
 
 import configparser
 import dataclasses
+import re
 from pathlib import Path
 
 import ops
@@ -37,6 +38,37 @@ def mock_git_sync(mocker: MockerFixture) -> MockType:
 
 class TestShellbox:
     """Shellbox sidecar configuration, prerequisites, and unit authentication."""
+
+    def test_apache_status_listener_does_not_conflict_with_mediawiki(self) -> None:
+        """Use a Shellbox status port that is not bound by MediaWiki in the shared pod."""
+        repository = Path(__file__).parents[2]
+        shellbox_rock = (repository / "shellbox_rock/rockcraft.yaml").read_text()
+        scrape_port_match = re.search(
+            r"--scrape_uri=http://127\.0\.0\.1:(\d+)/server-status", shellbox_rock
+        )
+        assert scrape_port_match
+        scrape_port = int(scrape_port_match.group(1))
+        shellbox_status_config = (
+            repository / "shellbox_rock/files/etc/apache2/sites-available/shellbox.conf"
+        ).read_text()
+        assert f"Listen 127.0.0.1:{scrape_port}\\n" in shellbox_rock
+        assert f"<VirtualHost 127.0.0.1:{scrape_port}>" in shellbox_status_config
+
+        mediawiki_status_ports = {
+            int(port)
+            for config in (
+                "mediawiki-fpm-status.conf",
+                "server-status.conf",
+            )
+            for port in re.findall(
+                r"^Listen (?:\S+:)?(\d+)$",
+                (
+                    repository / "mediawiki_rock/files/apache/etc/apache2/conf-available" / config
+                ).read_text(),
+                flags=re.MULTILINE,
+            )
+        }
+        assert scrape_port not in mediawiki_status_ports
 
     def test_pebble_ready_configures_authenticated_sidecar(
         self,
