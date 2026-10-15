@@ -89,9 +89,12 @@ The MediaWiki charm is driven by the :ref:`charm operator container <reference_c
       subgraph MediaWikiContainer["Container: MediaWiki"]
          Pebble1["Pebble<br/>(Process supervisor)"]
          Apache@{ shape: subproc, label: "Apache Server<br/>(Serves MediaWiki)" }
+         PhpFpm@{ shape: subproc, label: "PHP-FPM<br/>(PHP requests)" }
          JobRunner@{ shape: subproc, label: "Job Runner<br/>(Background tasks)" }
 
          Pebble1 -->|Start/Manage| Apache
+         Pebble1 -->|Start/Manage| PhpFpm
+         Apache -->|Unix socket| PhpFpm
          Pebble1 -->|Start/Manage| JobRunner
       end
       
@@ -134,6 +137,13 @@ The Apache server is configured by default to accept all web traffic on port 80,
 
 .. |mediawiki_rock/files/apache/etc/apache2| replace:: ``mediawiki_rock/files/apache/etc/apache2/``
 .. _mediawiki_rock/files/apache/etc/apache2: https://github.com/canonical/mediawiki-k8s-operator/tree/main/mediawiki_rock/files/apache/etc/apache2
+
+PHP-FPM
+"""""""
+
+Apache uses the event multi-processing module and forwards PHP requests over
+``/run/php/mediawiki.sock`` to the ``php-fpm`` Pebble service. The root FPM
+parent process launches unprivileged ``_daemon_`` workers.
 
 Job runner
 """""""""""

@@ -57,14 +57,18 @@ class MediaWiki(
     """Class to manage MediaWiki."""
 
     _SERVICE_NAME = "mediawiki"
+    _PHP_FPM_SERVICE_NAME = "php-fpm"
+    _PHP_FPM_COMMAND = "/usr/local/bin/mediawiki-php-fpm"
     _LOGROTATE_SERVICE_NAME = "logrotate"
     _APACHE_EXPORTER_SERVICE_NAME = "apache-exporter"
-    _REDIS_JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
+    _REDIS_JOB_SERVICES = constants.REDIS_JOB_SERVICES
     _APACHE_EXPORTER_PORT = 9117
     _FRESHCLAM_SERVICE_NAME = "freshclam"
     _CLAMD_SERVICE_NAME = "clamd"
     _MEDIAWIKI_API_READY_CHECK = "mediawiki-api-ready"
-    _MEDIAWIKI_CHECKS = (_MEDIAWIKI_API_READY_CHECK,)
+    _PHP_FPM_READY_CHECK = "php-fpm-ready"
+    _PHP_FPM_STATUS_PORT = 8091
+    _MEDIAWIKI_CHECKS = (_MEDIAWIKI_API_READY_CHECK, _PHP_FPM_READY_CHECK)
     _SMTP_PROXY_SERVICE_NAME = "smtp-proxy"
     _SMTP_PROXY_PORT = 8125
 
@@ -156,7 +160,7 @@ class MediaWiki(
             self._reconcile_services(active=False)
             raise
 
-        restart_required = self._reconcile_configuration(
+        self._reconcile_configuration(
             peer_state,
             ssh_key=ssh_key,
             force=force,
@@ -164,7 +168,7 @@ class MediaWiki(
 
         self._peers.acknowledge_database_mode(read_only=peer_state.ro_database)
         self._peers.reconcile_database(self.update_database_schema)
-        self._reconcile_services(restart_required=restart_required)
+        self._reconcile_services()
         self._oauth.update_client_config()
         return peer_state.ro_database
 
@@ -173,7 +177,7 @@ class MediaWiki(
         peer_state: MediaWikiPeerState,
         ssh_key: Optional[str] = None,
         force: bool = False,
-    ) -> bool:
+    ) -> None:
         """Reconcile MediaWiki files, installation, and workload configuration.
 
         If this unit is the leader, the freshly reconciled Composer lock and state hash are
@@ -184,9 +188,6 @@ class MediaWiki(
             peer_state: The current state of the MediaWiki peer relation.
             ssh_key: An optional SSH key for accessing private repositories.
             force: Whether to force a Composer update.
-
-        Returns:
-            Whether a restart is required to apply configuration changes.
 
         Raises:
             MediaWikiWaitingStatusException: If we need to wait for the state to match the leader published state.
@@ -206,10 +207,11 @@ class MediaWiki(
             additional_certificates=additional_certificates
         )
         if certificate_transfer_changed:
-            self.request_service_restart()
-        tls_changed = self._tls_reconciliation()
-        if tls_changed:
-            self.request_service_restart()
+            # PHP-FPM workers load the trust store per connection; the long-lived job runners
+            # are restarted so their connections are re-established against the new bundle.
+            self.request_service_restart(*self._REDIS_JOB_SERVICES)
+        if self._tls_reconciliation():
+            self.request_service_restart(self._SERVICE_NAME)
         self._logs_path.mkdir(
             exist_ok=True,
             parents=True,
@@ -263,7 +265,16 @@ class MediaWiki(
             force=force,
         )
 
-        return certificate_transfer_changed or tls_changed or settings_changed
+    def _php_fpm_environment(self) -> dict[str, str]:
+        """Build the FPM master environment that sizes the pool shipped in the rock."""
+        config = self._charm.load_charm_config()
+        return {
+            **self._charm.state.get_proxy_env({}),
+            "PHP_FPM_MAX_CHILDREN": str(config.php_fpm_max_children),
+            "PHP_FPM_MIN_SPARE_SERVERS": str(max(1, config.php_fpm_max_children // 4)),
+            "PHP_FPM_MAX_SPARE_SERVERS": str(max(1, config.php_fpm_max_children // 2)),
+            "PHP_FPM_MAX_REQUESTS": str(config.php_fpm_max_requests),
+        }
 
     def _pebble_layer(self) -> pebble.LayerDict:
         """Build the Pebble layer for the MediaWiki container."""
@@ -275,13 +286,22 @@ class MediaWiki(
             "description": "Pebble layer configuration for MediaWiki",
             "services": {
                 **self._tunnel_services.pebble_services(),
+                self._PHP_FPM_SERVICE_NAME: {
+                    "override": "replace",
+                    "summary": "MediaWiki PHP-FPM workers",
+                    "command": self._PHP_FPM_COMMAND,
+                    "startup": "disabled",
+                    "user": "root",
+                    "group": "root",
+                    "environment": self._php_fpm_environment(),
+                },
                 self._SERVICE_NAME: {
                     "override": "replace",
                     "summary": "MediaWiki service (apache)",
                     "command": "/usr/sbin/apache2ctl -D FOREGROUND",
                     "startup": "disabled",
-                    "requires": ["mediawikiLogs"],
-                    "after": ["mediawikiLogs"],
+                    "requires": ["mediawikiLogs", self._PHP_FPM_SERVICE_NAME],
+                    "after": ["mediawikiLogs", self._PHP_FPM_SERVICE_NAME],
                     "environment": self._charm.state.get_proxy_env({}),
                 },
                 **{
@@ -290,6 +310,8 @@ class MediaWiki(
                         "summary": f"MediaWiki {service}",
                         "command": f"{php_path} {job_runner_service_dir}/{service} --config-file={constants.JOB_RUNNER_CONFIG_PATH}",
                         "startup": "disabled",
+                        "user": constants.DAEMON_USER,
+                        "group": constants.DAEMON_GROUP,
                         "environment": self._charm.state.get_proxy_env({}),
                     }
                     for service in self._REDIS_JOB_SERVICES
@@ -302,6 +324,8 @@ class MediaWiki(
                         '2> >(grep --line-buffered -v ": No such file or directory$" >&2)\''
                     ),
                     "startup": "enabled",
+                    "user": constants.DAEMON_USER,
+                    "group": constants.DAEMON_GROUP,
                 },
                 self._LOGROTATE_SERVICE_NAME: {
                     "override": "replace",
@@ -314,6 +338,8 @@ class MediaWiki(
                     "summary": "Apache exporter for Prometheus",
                     "command": "/usr/bin/apache_exporter",
                     "startup": "enabled",
+                    "user": constants.DAEMON_USER,
+                    "group": constants.DAEMON_GROUP,
                 },
                 self._FRESHCLAM_SERVICE_NAME: {
                     "override": "replace",
@@ -341,6 +367,16 @@ class MediaWiki(
                     "period": f"{max(10, health_check_timeout * 2)}s",
                     "timeout": f"{health_check_timeout}s",
                 },
+                self._PHP_FPM_READY_CHECK: {
+                    "override": "replace",
+                    "level": "ready",
+                    "startup": "disabled",
+                    "http": {
+                        "url": f"http://127.0.0.1:{self._PHP_FPM_STATUS_PORT}/php-fpm-status"
+                    },
+                    "period": f"{max(10, health_check_timeout * 2)}s",
+                    "timeout": f"{health_check_timeout}s",
+                },
                 "apache-exporter-up": {
                     "override": "replace",
                     "level": "alive",
@@ -361,7 +397,7 @@ class MediaWiki(
             elif not active and status != pebble.CheckStatus.INACTIVE:
                 self._container.stop_checks(check)
 
-    def _reconcile_services(self, *, active: bool = True, restart_required: bool = False) -> None:
+    def _reconcile_services(self, *, active: bool = True) -> None:
         """Privately reconcile MediaWiki services and checks."""
         if not self._container.can_connect():
             raise MediaWikiWaitingStatusException("Waiting for pebble")
@@ -370,8 +406,12 @@ class MediaWiki(
         self._container.add_layer(self._SERVICE_NAME, self._pebble_layer(), combine=True)
         self._container.replan()
 
-        all_conditional_services = {self._SERVICE_NAME, *self._REDIS_JOB_SERVICES}
-        services_to_run = {self._SERVICE_NAME}
+        all_conditional_services = {
+            self._SERVICE_NAME,
+            self._PHP_FPM_SERVICE_NAME,
+            *self._REDIS_JOB_SERVICES,
+        }
+        services_to_run = {self._SERVICE_NAME, self._PHP_FPM_SERVICE_NAME}
         previously_running = {
             service
             for service in all_conditional_services
@@ -386,30 +426,32 @@ class MediaWiki(
 
         services_to_stop = all_conditional_services - services_to_run
         services = self._container.get_plan().services
-        for service in services_to_stop:
-            if service in services and self._container.get_service(service).is_running():
-                self._container.stop(service)
-        for service in services_to_run:
-            if service in services and not self._container.get_service(service).is_running():
-                self._container.start(service)
+        running_to_stop = sorted(
+            service
+            for service in services_to_stop
+            if service in services and self._container.get_service(service).is_running()
+        )
+        stopped_to_start = sorted(
+            service
+            for service in services_to_run
+            if service in services and not self._container.get_service(service).is_running()
+        )
+        if running_to_stop:
+            self._container.stop(*running_to_stop)
+        if stopped_to_start:
+            self._container.start(*stopped_to_start)
         if active:
-            self._finish_active_service_reconciliation(
-                restart_required or self.service_restart_pending(),
-                services_to_run & previously_running,
-            )
+            self._finish_active_service_reconciliation(services_to_run & previously_running)
 
-    def _finish_active_service_reconciliation(
-        self, restart_required: bool, previously_running: set[str]
-    ) -> None:
+    def _finish_active_service_reconciliation(self, previously_running: set[str]) -> None:
         """Apply active-only service actions after the Pebble plan is reconciled.
 
         Services outside ``previously_running`` were either started fresh by this cycle or
         deliberately stopped, so both are already up to date with the workload state and the
         pending restart marker is cleared once the running ones have been restarted.
         """
-        if restart_required:
-            for service in previously_running:
-                self._container.restart(service)
+        if pending := sorted(self.pending_service_restarts() & previously_running):
+            self._container.restart(*pending)
         self.clear_service_restart()
         self._reconcile_checks(active=True)
 

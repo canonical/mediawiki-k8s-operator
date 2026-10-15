@@ -1,0 +1,9 @@
+#!/bin/sh
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+set -eu
+install -d -o root -g root -m 0755 /run/php
+exec /usr/sbin/php-fpm@PHP_VERSION@ \
+    --nodaemonize \
+    --fpm-config /usr/local/etc/mediawiki/php-fpm.conf "$@"

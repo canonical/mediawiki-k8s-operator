@@ -19,6 +19,12 @@ Each revision is versioned by the date of the revision.
   using ``[REDACTED]``.
 - Mask known credentials in returned container command output, including script action output.
 
+2026-10-13
+----------
+
+- Replace ``mod_php`` with PHP-FPM and Apache event processing.
+- Add PHP worker sizing and recycling configuration with a local-only status endpoint.
+
 2026-10-06
 ----------
 

@@ -16,11 +16,11 @@ parts:
     source: files/apache
     build-packages:
       - apache2
-      - php
+      - php-cli
       - rsync
     overlay-packages:
       - apache2
-      - php
+      - php-fpm
       - php-curl
       - php-intl
       - php-mbstring
@@ -52,6 +52,15 @@ parts:
     permissions:
       - path: etc/logrotate.d/mediawiki/logrotate.conf
         mode: "640"
+      - path: usr/local/bin/mediawiki-php-fpm
+        mode: "755"
+      - path: usr/local/etc/mediawiki/php-fpm.conf
+        mode: "600"
+    override-build: |
+      craftctl default
+      PHP_VERSION=$(chroot "$CRAFT_OVERLAY" /usr/bin/php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;')
+      test -x "$CRAFT_OVERLAY/usr/sbin/php-fpm${PHP_VERSION}"
+      sed -i "s/@PHP_VERSION@/${PHP_VERSION}/g" "$CRAFT_PART_INSTALL/usr/local/bin/mediawiki-php-fpm"
     build-environment:
       # Required to source $CRAFT_OVERLAY/etc/apache2/envvars
       - APACHE_CONFDIR: /etc/apache2
@@ -80,9 +89,17 @@ parts:
       a2enconf docker-php
       a2enconf short-url
       a2enconf static-dotfiles
+      a2enconf mediawiki-fpm-status
+      for module in /etc/apache2/mods-enabled/php*.load; do
+        test -f "$module" || continue
+        module=${module##*/}
+        a2dismod "${module%.load}"
+      done
+      a2dismod mpm_prefork mpm_worker
       a2enmod headers
-      a2enmod mpm_prefork
+      a2enmod mpm_event
       a2enmod proxy
+      a2enmod proxy_fcgi
       a2enmod proxy_http
       a2enmod rewrite
       a2enmod ssl
@@ -198,6 +215,8 @@ parts:
     plugin: nil
     after:
       - mediawiki
+      - redis-job-runner-service
+      - simplesamlphp
     stage-packages:
       - base-passwd
     build-environment:
@@ -205,6 +224,13 @@ parts:
       - IMAGE_RUN_GROUP_ID: "584792"
     override-prime: |
       craftctl default
+
+      test -L "${CRAFT_PRIME}/etc/apache2/mods-enabled/mpm_event.load"
+      test ! -L "${CRAFT_PRIME}/etc/apache2/mods-enabled/mpm_prefork.load"
+      test ! -L "${CRAFT_PRIME}/etc/apache2/mods-enabled/mpm_worker.load"
+      for module in "${CRAFT_PRIME}"/etc/apache2/mods-enabled/php*.load; do
+        test ! -L "$module"
+      done
 
       rm -rf **/.git
 

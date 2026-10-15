@@ -33,3 +33,16 @@ Git-sync metrics
 The ``git-sync`` sidecar synchronizes extensions and skins from a remote Git repository. It is started with the ``--http-metrics`` flag so that it exposes its metrics under the ``git_sync_*`` prefix (for example: ``git_sync_count_total`` and ``git_sync_duration_seconds``), and reports the number and duration of synchronization operations by status.
 
 For more information about the sidecar and its ``--http-metrics`` flag, refer to the `git-sync documentation <https://github.com/kubernetes/git-sync>`__.
+
+PHP-FPM metrics
+---------------
+
+* **Source**: `PHP-FPM status page <https://www.php.net/manual/en/fpm.status.php>`_
+* **Container**: ``mediawiki``
+
+The PHP-FPM status page is scraped in OpenMetrics format. Its listener is reachable over the
+Kubernetes pod network and is not forwarded through Traefik; the status path remains denied on
+the public HTTP and HTTPS listeners.
+
+For details about the exported metrics, refer to the `PHP-FPM status page documentation
+<https://www.php.net/manual/en/fpm.status.php>`__.

@@ -100,6 +100,7 @@ class Charm(StatefulCharmBase):
     _REDIS_JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
 
     _APACHE_EXPORTER_PORT = 9117
+    _PHP_FPM_STATUS_PORT = 8091
     _FRESHCLAM_SERVICE_NAME = "freshclam"
     _CLAMD_SERVICE_NAME = "clamd"
 
@@ -183,7 +184,13 @@ class Charm(StatefulCharmBase):
                 {
                     "job_name": "apache_exporter",
                     "static_configs": [{"targets": [f"*:{self._APACHE_EXPORTER_PORT}"]}],
-                }
+                },
+                {
+                    "job_name": "mediawiki_php_fpm",
+                    "metrics_path": "/php-fpm-status",
+                    "params": {"openmetrics": [""]},
+                    "static_configs": [{"targets": [f"*:{self._PHP_FPM_STATUS_PORT}"]}],
+                },
             ],
             lookaside_jobs_callable=self._git_sync.metrics_scrape_jobs,
             refresh_event=[

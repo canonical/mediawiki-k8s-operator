@@ -6,6 +6,7 @@
 """Integration tests."""
 
 import functools
+import json
 import logging
 import re
 from pathlib import Path
@@ -19,6 +20,129 @@ from .types_ import App
 from .utils import any_error_after, juju_exec, req_okay
 
 logger = logging.getLogger(__name__)
+
+
+def _php_fpm_status(juju: jubilant.Juju, app: App) -> dict[str, Any]:
+    """Read aggregate FPM status through the Apache status listener."""
+    output = juju_exec(
+        juju,
+        app,
+        "/usr/bin/php -r 'echo file_get_contents(\"http://127.0.0.1:8091/php-fpm-status?json\");'",
+    )
+    return json.loads(output)
+
+
+def _php_fpm_openmetrics(juju: jubilant.Juju, app: App) -> str:
+    """Read the PHP-FPM OpenMetrics endpoint through Apache's status listener."""
+    return juju_exec(
+        juju,
+        app,
+        "/usr/bin/php -r 'echo file_get_contents("
+        '"http://127.0.0.1:8091/php-fpm-status?openmetrics");\'',
+    )
+
+
+@pytest.mark.abort_on_fail
+def test_php_fpm_runtime(
+    juju: jubilant.Juju, app: App, ingress_address: str, requests_timeout: int
+) -> None:
+    """Use event MPM and FPM with status metrics limited to the pod network."""
+    modules = juju_exec(juju, app, "apache2ctl -M 2>&1")
+    assert "mpm_event_module" in modules
+    assert "mpm_prefork_module" not in modules
+    assert "php_module" not in modules
+    assert "proxy_fcgi_module" in modules
+    assert "Syntax OK" in juju_exec(juju, app, "apache2ctl configtest 2>&1")
+    assert (
+        juju_exec(juju, app, "stat -c '%a %U %G' /run/php/mediawiki.sock").strip()
+        == "660 _daemon_ _daemon_"
+    )
+    status = _php_fpm_status(juju, app)
+    assert status["pool"] == "mediawiki"
+    assert status["process manager"] == "dynamic"
+    assert "active processes" in status
+    assert "idle processes" in status
+    assert "listen queue" in status
+    listeners = juju_exec(juju, app, "cat /proc/net/tcp /proc/net/tcp6")
+    status_listeners = [
+        line.split()[1]
+        for line in listeners.splitlines()
+        if ":1F9B " in line and line.split()[3] == "0A"
+    ]
+    # Apache may bind the wildcard as IPv4 (tcp) or dual-stack IPv6 (tcp6).
+    wildcard_listeners = {"00000000:1F9B", f"{'0' * 32}:1F9B"}
+    assert status_listeners
+    assert set(status_listeners) <= wildcard_listeners
+
+    for path in (
+        "/php-fpm-status",
+        "/php-fpm-status?json",
+        "/php-fpm-status?full",
+        "/php-fpm-status?openmetrics",
+        "/php-fpm-status/",
+        "/php-fpm-status/extra",
+        "/%70hp-fpm-status?json",
+    ):
+        for origin in (ingress_address, ingress_address.replace("https://", "http://")):
+            response = requests.get(origin + path, timeout=requests_timeout, allow_redirects=True)
+            assert '"pool":"mediawiki"' not in response.text.replace(" ", "")
+            assert "process manager:" not in response.text
+            assert "listen queue:" not in response.text
+            assert "# TYPE " not in response.text
+            assert "# EOF" not in response.text
+        output = juju_exec(
+            juju,
+            app,
+            "/usr/bin/php -r '"
+            '$context = stream_context_create(["http" => ["ignore_errors" => true, '
+            '"header" => "Host: localhost:8091\\r\\n"]]); '
+            f'echo file_get_contents("http://127.0.0.1{path}", false, $context);' + "'",
+        )
+        assert '"pool":"mediawiki"' not in output.replace(" ", "")
+        assert "process manager:" not in output
+        assert "listen queue:" not in output
+
+    openmetrics = _php_fpm_openmetrics(juju, app)
+    assert "# TYPE " in openmetrics
+    assert openmetrics.rstrip().endswith("# EOF")
+
+
+@pytest.mark.abort_on_fail
+def test_php_fpm_sizing_update(juju: jubilant.Juju, app: App) -> None:
+    """Apply a smaller ceiling, then restore a serving pool to its original size."""
+    original = int(juju.config(app.name)["php-fpm-max-children"])
+
+    def _n_workers_ready(status: jubilant.Status, n: int, *, at_least: bool = False) -> bool:
+        """Retry while the restarted pool's status listener is unavailable."""
+        if not jubilant.all_active(status):
+            return False
+        try:
+            total_processes = _php_fpm_status(juju, app)["total processes"]
+            return total_processes >= n if at_least else total_processes == n
+        except (jubilant.CLIError, json.JSONDecodeError):
+            return False
+
+    juju.config(app.name, {"php-fpm-max-children": "1"})
+    juju.wait(
+        lambda status: _n_workers_ready(status, 1),
+        error=any_error_after(fail_fast_apps=[app.name]),
+    )
+
+    juju.config(app.name, reset="php-fpm-max-children")
+    minimum_spare_servers = max(1, original // 4)
+    juju.wait(
+        lambda status: _n_workers_ready(status, minimum_spare_servers, at_least=True),
+        error=any_error_after(fail_fast_apps=[app.name]),
+    )
+    response = juju_exec(
+        juju,
+        app,
+        "/usr/bin/php -r "
+        "'echo file_get_contents("
+        '"http://127.0.0.1/w/api.php?action=query&meta=siteinfo&format=json&formatversion=2"'
+        ");'",
+    )
+    assert "general" in json.loads(response)["query"]
 
 
 @pytest.mark.abort_on_fail
