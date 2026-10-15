@@ -5,6 +5,7 @@
 
 import logging
 from dataclasses import dataclass
+from typing import ClassVar
 
 from dpcharmlibs.interfaces import (
     DataContractV1,
@@ -16,7 +17,7 @@ from dpcharmlibs.interfaces import (
 from ops import CharmBase, Object, ObjectEvents
 from pydantic import TypeAdapter
 
-from log_redaction import register_relation_secrets, register_secrets
+from log_redaction import RelationRedaction, register_relation_secrets, register_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,12 @@ class ValkeyConnectionInfo:
 
 class Valkey(Object):
     """Handle the ``valkey_client`` relation."""
+
+    REDACTION: ClassVar[RelationRedaction] = RelationRedaction(
+        fields=("password", "entity-password"),
+        references=("secret-user", "secret-entity", "secret-requested-entity"),
+        nested_list_key="requests",
+    )
 
     def __init__(self, charm: CharmBase, relation_name: str):
         """Initialize the Valkey client relation.
@@ -66,12 +73,7 @@ class Valkey(Object):
             return None
 
         relation = relations[0]
-        register_relation_secrets(
-            self.model,
-            relation,
-            fields=("password", "entity-password"),
-            references=("secret-user", "secret-entity", "secret-requested-entity"),
-        )
+        register_relation_secrets(self.model, relation, type(self))
         try:
             contract: DataContractV1[ValkeyResponseModel] = build_model(
                 self._handler.interface.repository(relation.id, relation.app),

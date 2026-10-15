@@ -7,12 +7,35 @@ import json
 import logging
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import ClassVar, Protocol
 
 import ops
 
 from utils import escape_php_string
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RelationRedaction:
+    """Describe which relation application data fields carry credentials.
+
+    Attributes:
+        fields: Fields holding credentials, in relation data or in referenced secrets.
+        references: Fields holding Juju secret IDs whose content includes ``fields``.
+        nested_list_key: Field holding a JSON list of objects using the same field names.
+    """
+
+    fields: tuple[str, ...]
+    references: tuple[str, ...] = ()
+    nested_list_key: str | None = None
+
+
+class RelationRedactionSource(Protocol):
+    """A relation handler declaring how to redact its relation data."""
+
+    REDACTION: ClassVar[RelationRedaction]
 
 
 class SecretRedactor:
@@ -131,25 +154,26 @@ def register_secret(
 def register_relation_secrets(
     model: ops.Model,
     relation: ops.Relation,
-    *,
-    fields: tuple[str, ...],
-    references: tuple[str, ...] = (),
+    source: type[RelationRedactionSource],
 ) -> None:
     """Register secrets from a Juju relation for log redaction."""
     if relation.app is None:
         return
     data = relation.data[relation.app]
+    redaction = source.REDACTION
+    fields, references = redaction.fields, redaction.references
     _register_fields(model, data, fields, references)
-    if relation.name == "valkey":
-        try:
-            requests = json.loads(data.get("requests", "[]"))
-        except json.JSONDecodeError:
-            logger.warning("Log masking could not parse Valkey requests.")
-            return
-        if isinstance(requests, list):
-            for request in requests:
-                if isinstance(request, dict):
-                    _register_fields(model, request, fields, references)
+    if redaction.nested_list_key is None:
+        return
+    try:
+        nested = json.loads(data.get(redaction.nested_list_key, "[]"))
+    except json.JSONDecodeError:
+        logger.warning("Log masking could not parse nested relation data.")
+        return
+    if isinstance(nested, list):
+        for item in nested:
+            if isinstance(item, dict):
+                _register_fields(model, item, fields, references)
 
 
 def _register_fields(

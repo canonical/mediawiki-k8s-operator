@@ -4,18 +4,23 @@
 """Provides the Smtp class to handle smtp relations and state."""
 
 import logging
+from typing import ClassVar
 
 from charms.smtp_integrator.v0.smtp import SmtpRelationData, SmtpRequires
 from ops import CharmBase, Object, ObjectEvents
 
 from exceptions import MediaWikiBlockedStatusException, MediaWikiWaitingStatusException
-from log_redaction import register_relation_secrets, register_secrets
+from log_redaction import RelationRedaction, register_relation_secrets, register_secrets
 
 logger = logging.getLogger(__name__)
 
 
 class Smtp(Object):
     """The Smtp relation handler."""
+
+    REDACTION: ClassVar[RelationRedaction] = RelationRedaction(
+        fields=("password",), references=("password_id",)
+    )
 
     def __init__(self, charm: CharmBase, relation_name: str):
         """Initialize the handler and register event handlers.
@@ -49,9 +54,7 @@ class Smtp(Object):
             MediaWikiWaitingStatusException: If the relation data is not yet available.
         """
         for relation in self.model.relations[self.relation_name]:
-            register_relation_secrets(
-                self.model, relation, fields=("password",), references=("password_id",)
-            )
+            register_relation_secrets(self.model, relation, type(self))
         try:
             data = self._requires.get_relation_data()
         except Exception as e:

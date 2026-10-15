@@ -264,21 +264,16 @@ class Charm(StatefulCharmBase):
             )
 
         # Relations
-        sources = {
-            self._DATABASE_RELATION_NAME: (("password",), ("secret-user",)),
-            self._VALKEY_RELATION_NAME: (
-                ("password", "entity-password"),
-                ("secret-user", "secret-entity", "secret-requested-entity"),
-            ),
-            self._SMTP_RELATION_NAME: (("password",), ("password_id",)),
-            self._OAUTH_RELATION_NAME: (("client_secret", "secret"), ("client_secret_id",)),
-            self._S3_RELATION_NAME: (("access-key", "secret-key"), ()),
-        }
-        for endpoint, (fields, references) in sources.items():
+        sources: tuple[tuple[str, type[log_redaction.RelationRedactionSource]], ...] = (
+            (self._DATABASE_RELATION_NAME, Database),
+            (self._VALKEY_RELATION_NAME, Valkey),
+            (self._SMTP_RELATION_NAME, Smtp),
+            (self._OAUTH_RELATION_NAME, OAuth),
+            (self._S3_RELATION_NAME, S3),
+        )
+        for endpoint, source in sources:
             for relation in self.model.relations[endpoint]:
-                log_redaction.register_relation_secrets(
-                    self.model, relation, fields=fields, references=references
-                )
+                log_redaction.register_relation_secrets(self.model, relation, source)
 
     def _configure_ingress(self, *, tls_enabled: bool) -> None:
         """Configure the Traefik ingress relation.
