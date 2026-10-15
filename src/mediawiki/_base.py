@@ -89,23 +89,35 @@ class _MediaWikiBase(ContainerService):
         """The marker recording that the localisation cache is behind the workload state."""
         return ContainerPath(constants.LOCALISATION_REBUILD_MARKER, container=self._container)
 
-    def request_service_restart(self) -> None:
-        """Record that the MediaWiki services must be restarted to pick up new state.
+    def request_service_restart(self, *services: str) -> None:
+        """Record that the given services must be restarted to pick up new state.
 
         The marker is written as soon as the change is made so that the restart is not lost
         when a later reconciliation step aborts the cycle: the change itself is already on
         disk, so the next cycle would otherwise see no change and never restart.
+
+        Args:
+            services: The names of the Pebble services that read the changed state.
         """
-        if self._restart_required_marker.exists():
+        pending = self.pending_service_restarts()
+        if pending.issuperset(services):
             return
         ContainerPath(constants.CHARM_RUNTIME_DIR, container=self._container).mkdir(
             parents=True, exist_ok=True
         )
-        self._restart_required_marker.write_text("")
+        self._restart_required_marker.write_text(
+            "".join(f"{service}\n" for service in sorted(pending.union(services)))
+        )
+
+    def pending_service_restarts(self) -> set[str]:
+        """Return the names of the services that still owe a restart to the workload."""
+        if not self._restart_required_marker.exists():
+            return set()
+        return set(self._restart_required_marker.read_text().split())
 
     def service_restart_pending(self) -> bool:
         """Return whether a service restart is still owed to the workload."""
-        return self._restart_required_marker.exists()
+        return bool(self.pending_service_restarts())
 
     def clear_service_restart(self) -> None:
         """Record that the running services are up to date with the workload state."""

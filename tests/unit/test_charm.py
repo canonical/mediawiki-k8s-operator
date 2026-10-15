@@ -4,6 +4,7 @@
 import copy
 import dataclasses
 import json
+from typing import Any
 
 import ops
 import pytest
@@ -1404,12 +1405,39 @@ class TestMetricsEndpoint:
         return testing.Relation(endpoint="metrics-endpoint", interface="prometheus_scrape")
 
     @staticmethod
-    def _published_job_names(state_out: testing.State, relation_id: int) -> list[str]:
-        """Return the job names published in the metrics-endpoint relation data."""
+    def _published_jobs(state_out: testing.State, relation_id: int) -> list[dict[str, Any]]:
+        """Return the scrape jobs published in the metrics-endpoint relation data."""
         data = state_out.get_relation(relation_id).local_app_data.get("scrape_jobs")
         if not data:
             return []
-        return [job.get("job_name", "") for job in json.loads(data)]
+        return json.loads(data)
+
+    @staticmethod
+    def _published_job_names(state_out: testing.State, relation_id: int) -> list[str]:
+        """Return the job names published in the metrics-endpoint relation data."""
+        return [
+            job.get("job_name", "")
+            for job in TestMetricsEndpoint._published_jobs(state_out, relation_id)
+        ]
+
+    def test_php_fpm_job_published_as_openmetrics(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        metrics_relation: testing.Relation,
+    ) -> None:
+        """Publish PHP-FPM's OpenMetrics endpoint through the metrics relation."""
+        state_in = dataclasses.replace(
+            active_state, relations=active_state.relations | {metrics_relation}
+        )
+
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+        jobs = self._published_jobs(state_out, metrics_relation.id)
+        php_fpm_job = next(job for job in jobs if job["job_name"] == "mediawiki_php_fpm")
+        assert php_fpm_job["metrics_path"] == "/php-fpm-status"
+        assert php_fpm_job["params"] == {"openmetrics": [""]}
+        assert php_fpm_job["static_configs"] == [{"targets": ["*:8091"]}]
 
     def test_apache_job_always_published_when_active(
         self,

@@ -12,6 +12,12 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
 Each revision is versioned by the date of the revision.
 
+2026-10-13
+----------
+
+- Replace ``mod_php`` with PHP-FPM and Apache event processing.
+- Add PHP worker sizing and recycling configuration with a local-only status endpoint.
+
 2026-10-06
 ----------
 
