@@ -54,3 +54,6 @@ $wgScribuntoDefaultEngine = 'luasandbox';
 
 $wgSVGConverter = 'rsvg';
 $wgUseImageMagick = true;
+
+# Thumbnails are never hosted locally
+$wgImagePreconnect = true;

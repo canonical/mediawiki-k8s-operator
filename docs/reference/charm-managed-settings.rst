@@ -75,6 +75,9 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
    * - `$wgImageMagickConvertCommand <https://www.mediawiki.org/wiki/Manual:$wgImageMagickConvertCommand>`__
      - .. centered:: :bdg-danger:`No`
      - 
+   * - `$wgImagePreconnect <https://www.mediawiki.org/wiki/Manual:$wgImagePreconnect>`__
+     - .. centered:: :bdg-success:`Yes`
+     - Defaults to ``true``, since thumbnails are never hosted locally.
    * - `$wgInternalServer <https://www.mediawiki.org/wiki/Manual:$wgInternalServer>`__
      - .. centered:: :bdg-danger:`No`
      - 
