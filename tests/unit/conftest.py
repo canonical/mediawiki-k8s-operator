@@ -11,7 +11,7 @@ from typing import Generator
 import pytest
 import yaml
 from mysql.connector.abstracts import MySQLConnectionAbstract
-from ops import testing
+from ops import pebble, testing
 from pytest_mock import MockerFixture, MockType
 
 from charm import Charm
@@ -107,13 +107,26 @@ def git_sync_container(git_sync_mounts: dict) -> testing.Container:
 
 
 @pytest.fixture
+def shellbox_container() -> testing.Container:
+    """Return a Shellbox container with the services supplied by its rock."""
+    rock = Path(__file__).parents[2] / "shellbox_rock/rockcraft.yaml"
+    services = yaml.safe_load(rock.read_text())["services"]
+    return testing.Container(
+        name="shellbox",
+        can_connect=True,
+        layers={"rock": pebble.Layer({"services": services})},
+    )
+
+
+@pytest.fixture
 def base_state(
     mediawiki_container: testing.Container,
     git_sync_container: testing.Container,
+    shellbox_container: testing.Container,
     secrets: list[testing.Secret],
 ) -> testing.State:
     return testing.State(
-        containers=[mediawiki_container, git_sync_container],
+        containers=[mediawiki_container, git_sync_container, shellbox_container],
         storages=[
             testing.Storage(name="static-assets-repo"),
             testing.Storage(name=constants.CACHE_STORAGE_NAME),

@@ -46,6 +46,7 @@ from relations.s3 import S3
 from relations.smtp import Smtp
 from relations.tls import Tls
 from relations.valkey import Valkey
+from shellbox import Shellbox
 from state import StatefulCharmBase
 from types_ import ForceReconciliationAction
 
@@ -155,6 +156,7 @@ class Charm(StatefulCharmBase):
             self._RECEIVE_CA_CERT_RELATION_NAME,
             self.unit.get_container(self._CONTAINER_NAME),
         )
+        self._shellbox = Shellbox(self)
         self._mediawiki = MediaWiki(
             self,
             self._database,
@@ -166,6 +168,7 @@ class Charm(StatefulCharmBase):
             self._peers,
             self._tls,
             self._certificate_transfer,
+            self._shellbox,
         )
         self._git_sync = GitSync(self)
 
@@ -191,11 +194,20 @@ class Charm(StatefulCharmBase):
                     "params": {"openmetrics": [""]},
                     "static_configs": [{"targets": [f"*:{self._PHP_FPM_STATUS_PORT}"]}],
                 },
+                {
+                    "job_name": "shellbox_apache_exporter",
+                    "static_configs": [{"targets": [f"*:{Shellbox.APACHE_EXPORTER_PORT}"]}],
+                },
+                {
+                    "job_name": "shellbox_php_fpm",
+                    "static_configs": [{"targets": [f"*:{Shellbox.PHP_FPM_METRICS_PORT}"]}],
+                },
             ],
             lookaside_jobs_callable=self._git_sync.metrics_scrape_jobs,
             refresh_event=[
                 self.on.mediawiki_pebble_ready,
                 self.on.git_sync_pebble_ready,
+                self.on.shellbox_pebble_ready,
                 self.on.config_changed,
             ],
         )
@@ -205,6 +217,7 @@ class Charm(StatefulCharmBase):
         reconciliation_events = [
             self.on.mediawiki_pebble_ready,
             self.on.git_sync_pebble_ready,
+            self.on.shellbox_pebble_ready,
             self._database.on.database_created,
             self._database.on.endpoints_changed,
             self.on[self._DATABASE_RELATION_NAME].relation_broken,
@@ -397,6 +410,7 @@ class Charm(StatefulCharmBase):
             self._git_sync.reconciliation(
                 ssh_key=self._ssh_key(self._SSH_KEY_GIT_SYNC_FIELD),
             )
+            self._shellbox.reconciliation()
 
             set_ro_database = self._mediawiki.reconciliation(
                 ssh_key=self._ssh_key(self._SSH_KEY_MEDIAWIKI_FIELD),

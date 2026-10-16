@@ -46,3 +46,15 @@ the public HTTP and HTTPS listeners.
 
 For details about the exported metrics, refer to the `PHP-FPM status page documentation
 <https://www.php.net/manual/en/fpm.status.php>`__.
+
+Shellbox metrics
+----------------
+
+* **Container**: ``shellbox``
+* **Services**: ``apache-exporter``, ``apache2``
+
+The Shellbox sidecar runs its own Apache and PHP-FPM. Its ``apache-exporter`` service publishes Apache metrics under the ``apache_*`` prefix, as described in `Apache metrics`_.
+
+PHP-FPM metrics come from PHP-FPM's built-in status page. They are published under the ``phpfpm_*`` prefix (for example: ``phpfpm_accepted_connections``, ``phpfpm_active_processes``, ``phpfpm_listen_queue``, ``phpfpm_max_children_reached``, ``phpfpm_slow_requests``).
+
+For the meaning of each value, refer to the `PHP-FPM status page documentation <https://www.php.net/manual/en/fpm.status.php>`__.

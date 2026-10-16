@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Added Shellbox isolation for SyntaxHighlight
+    author: hk21702
+    type: minor
+    description: >-
+      SyntaxHighlight's Pygments commands were moved from the MediaWiki
+      container into an authenticated Shellbox sidecar, reducing the impact
+      of a compromised command. The charm generated a unique key per unit
+      and removed Python from the main MediaWiki image.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/307"
+    visibility: public
+    highlight: false

@@ -1,0 +1,18 @@
+version_schema: 2
+
+changes:
+  - title: Enabled image preconnect by default
+    author: kkuo
+    type: minor
+    description: >-
+      Set $wgImagePreconnect to true in the charm-managed LocalSettings.php,
+      so pages hint browsers to open an early connection to the host serving
+      thumbnails. Thumbnails are never hosted locally in this charm, which can
+      reduce image load latency. The setting can still be overridden through
+      user-provided LocalSettings.php configuration.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/324"
+      related_doc: "https://documentation.ubuntu.com/mediawiki-k8s-charm/reference/charm-managed-settings/"
+    visibility: public
+    highlight: false
