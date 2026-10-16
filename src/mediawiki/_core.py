@@ -19,6 +19,7 @@ from exceptions import (
     MediaWikiInstallError,
     MediaWikiWaitingStatusException,
 )
+from log_redaction import register_secrets
 from mediawiki import constants
 from mediawiki._base import _MediaWikiBase
 from mediawiki._cache import _CacheMixin
@@ -507,6 +508,7 @@ class MediaWiki(
             MediaWikiInstallError: If there was an error creating or promoting the user.
         """
         password = secrets.token_urlsafe(64) if generate_password else None
+        register_secrets(password)
 
         args = ["createAndPromote"]
         if sysop:

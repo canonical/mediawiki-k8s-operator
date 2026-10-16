@@ -4,12 +4,14 @@
 """Provides the S3 class to handle s3 relations and state."""
 
 import logging
+from typing import ClassVar
 
 from charms.data_platform_libs.v0.s3 import S3CredentialRequiresEvents, S3Requirer
 from ops import CharmBase, Object
 from pydantic import ValidationError
 
 from exceptions import MediaWikiBlockedStatusException
+from log_redaction import RelationRedaction, register_secrets
 from types_ import S3ConnectionInfo
 
 logger = logging.getLogger(__name__)
@@ -17,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 class S3(Object):
     """The S3 relation handler."""
+
+    REDACTION: ClassVar[RelationRedaction] = RelationRedaction(fields=("access-key", "secret-key"))
 
     def __init__(self, charm: CharmBase, relation_name: str):
         """Initialize the handler and register event handlers.
@@ -49,8 +53,11 @@ class S3(Object):
             raise MediaWikiBlockedStatusException(f"Waiting for relation {self.s3.relation_name}.")
 
         try:
+            data = self.s3.get_s3_connection_info()
+            credentials = (data.get(field) for field in self.REDACTION.fields)
+            register_secrets(*(value for value in credentials if isinstance(value, str)))
             # We have to type-ignore here because the s3 lib's type annotation is wrong
-            return S3ConnectionInfo(**self.s3.get_s3_connection_info())  # type: ignore
+            return S3ConnectionInfo(**data)  # type: ignore
         except ValidationError as e:
             logger.warning(f"Failed to parse s3 relation data: {e}")
             raise MediaWikiBlockedStatusException(

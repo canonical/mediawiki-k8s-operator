@@ -12,6 +12,13 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
 Each revision is versioned by the date of the revision.
 
+2026-10-14
+----------
+
+- Mask known credentials in charm Python log output, including exception stack traces,
+  using ``[REDACTED]``.
+- Mask known credentials in returned container command output, including script action output.
+
 2026-10-13
 ----------
 

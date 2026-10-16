@@ -6,7 +6,7 @@
 import logging
 import traceback
 from contextlib import contextmanager
-from typing import Generator
+from typing import ClassVar, Generator
 
 import mysql.connector
 from charms.data_platform_libs.v0.data_interfaces import DatabaseRequires, DatabaseRequiresEvents
@@ -18,6 +18,7 @@ from exceptions import (
     MediaWikiStatusException,
     MediaWikiWaitingStatusException,
 )
+from log_redaction import RelationRedaction, register_relation_secrets, register_secrets
 from types_ import DatabaseConfig, DatabaseEndpoint
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 class Database(Object):
     """The Database relation handler."""
+
+    REDACTION: ClassVar[RelationRedaction] = RelationRedaction(
+        fields=("password",), references=("secret-user",)
+    )
 
     def __init__(self, charm: CharmBase, relation_name: str, database_name: str):
         """Initialize the handler and register event handlers.
@@ -63,8 +68,10 @@ class Database(Object):
             raise MediaWikiBlockedStatusException(f"Waiting for relation {self.db.relation_name}.")
 
         relation_id = self.db.relations[0].id
+        register_relation_secrets(self.model, self.db.relations[0], type(self))
         try:
             relation_data = self.db.fetch_relation_data()[relation_id]
+            register_secrets(relation_data.get("password"))
         except Exception as e:
             logger.warning("Error fetching relation data for %s: %s", self.db.relation_name, e)
             raise MediaWikiBlockedStatusException(

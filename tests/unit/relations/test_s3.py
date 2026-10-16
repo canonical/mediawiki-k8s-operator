@@ -315,3 +315,33 @@ class TestGetRelationData:
             ),
         ):
             mgr.charm.s3.get_relation_data()
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("access-key", 12345),
+            ("secret-key", True),
+        ],
+    )
+    def test_malformed_credential_type(
+        self,
+        ctx: testing.Context,
+        active_state_with_s3: testing.State,
+        mock_s3_requirer: MockType,
+        valid_s3_data: dict,
+        field: str,
+        value: object,
+    ):
+        """Test that malformed credential types use the blocked-status handling."""
+        valid_s3_data[field] = value
+        mock_s3_requirer.relations = [testing.Relation("s3-parameters")]
+        mock_s3_requirer.get_s3_connection_info.return_value = valid_s3_data
+
+        with (
+            ctx(ctx.on.update_status(), active_state_with_s3) as mgr,
+            pytest.raises(
+                MediaWikiBlockedStatusException,
+                match="Error fetching s3-parameters relation data",
+            ),
+        ):
+            mgr.charm.s3.get_relation_data()

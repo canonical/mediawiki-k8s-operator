@@ -4,7 +4,7 @@
 """Provides classes to handle authentication relations (OAuth, SAML)."""
 
 import logging
-from typing import cast
+from typing import ClassVar, cast
 from urllib.parse import urlparse
 
 from charms.hydra.v0.oauth import (
@@ -17,6 +17,7 @@ from charms.saml_integrator.v0.saml import SamlRelationData, SamlRequires, SamlR
 from ops import Object
 
 from exceptions import MediaWikiBlockedStatusException
+from log_redaction import RelationRedaction, register_relation_secrets, register_secrets
 from mediawiki_api import SiteInfo
 from state import StatefulCharmBase
 
@@ -25,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 class OAuth(Object):
     """The OAuth relation handler."""
+
+    REDACTION: ClassVar[RelationRedaction] = RelationRedaction(
+        fields=("client_secret", "secret"), references=("client_secret_id",)
+    )
 
     _base_scope = frozenset({"openid", "profile", "email"})
     _grant_types = frozenset({"authorization_code", "client_credentials", "refresh_token"})
@@ -110,7 +115,12 @@ class OAuth(Object):
 
     def get_provider_info(self) -> OauthProviderConfig | None:
         """Get the provider info from the relation."""
-        return self.oauth.get_provider_info()
+        for relation in self.model.relations[self.relation_name]:
+            register_relation_secrets(self.model, relation, type(self))
+        info = self.oauth.get_provider_info()
+        if info is not None:
+            register_secrets(info.client_secret)
+        return info
 
 
 class Saml(Object):

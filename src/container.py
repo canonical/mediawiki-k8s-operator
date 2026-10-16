@@ -10,6 +10,7 @@ from typing import List, Union, cast
 
 import ops
 
+import log_redaction
 from exceptions import ContainerError
 from types_ import CommandExecResult
 
@@ -62,7 +63,7 @@ class ContainerService:
 
         Returns:
             A named tuple with three fields: return code, stdout and stderr. Stdout and stderr are
-            both string.
+            masked for known secrets before logging or returning to the caller.
 
         Raises:
             ContainerError: If the command execution times out.
@@ -94,6 +95,11 @@ class ContainerService:
 
             raise ContainerError("Container command execution timed out; see logs for details.")
 
+        result = CommandExecResult(
+            result.return_code,
+            log_redaction.redact(result.stdout),
+            log_redaction.redact(result.stderr) if result.stderr is not None else None,
+        )
         return_code = result.return_code
         if combine_stderr:
             logger.debug(

@@ -18,6 +18,7 @@ from charmlibs.pathops import ContainerPath, ensure_contents
 from ops import Container, Object
 
 from exceptions import MediaWikiBlockedStatusException
+from log_redaction import register_secrets
 
 if TYPE_CHECKING:
     from state import StatefulCharmBase
@@ -60,6 +61,13 @@ class Tls(Object):
             certificate_requests=[self._certificate_request],
             mode=Mode.UNIT,
         )
+        self._register_log_secrets()
+
+    def _register_log_secrets(self) -> None:
+        """Register available private material even before a certificate is issued."""
+        key = self.tls.get_private_key()
+        if key is not None:
+            register_secrets(key.raw)
 
     @property
     def on(self) -> CertificatesRequirerCharmEvents:
@@ -85,6 +93,7 @@ class Tls(Object):
         Raises:
             MediaWikiBlockedStatusException: If certificate issuance was denied.
         """
+        self._register_log_secrets()
         if not self.has_relation():
             return None
 
@@ -95,6 +104,8 @@ class Tls(Object):
             )
 
         certificate, private_key = self.tls.get_assigned_certificate(self._certificate_request)
+        if private_key is not None:
+            register_secrets(private_key.raw)
         if certificate is None or private_key is None:
             return None
 

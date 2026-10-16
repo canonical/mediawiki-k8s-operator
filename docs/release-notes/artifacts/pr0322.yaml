@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Redacted known secrets from charm-produced logs
+    author: hk21702
+    type: minor
+    description: >-
+      Redacted known secrets from charm-produced log output, reducing the risk
+      of exposing credentials in Juju debug logs. Workload logs and forwarded
+      observability data are not covered, and uncaught exceptions may still
+      expose secrets.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/322"
+    visibility: public
+    highlight: false
