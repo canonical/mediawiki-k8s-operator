@@ -11,6 +11,10 @@
     height: auto;
 }
 
+#set-maintenance-mode-diagram>svg {
+    height: auto;
+}
+
 #deployment-diagram>svg {
     height: 800px;
 }
