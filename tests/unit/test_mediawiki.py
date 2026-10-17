@@ -28,7 +28,13 @@ from relations.valkey import ValkeyConnectionInfo
 from shellbox import SHELLBOX_URL, Shellbox
 from state import CharmConfig, CharmConfigInvalidError, StatefulCharmBase
 from tests.unit.conftest import MOCK_COMPOSER_LOCK, ExecCmd
-from types_ import CommandExecResult, DatabaseConfig, DatabaseEndpoint, S3ConnectionInfo
+from types_ import (
+    CommandExecResult,
+    DatabaseConfig,
+    DatabaseEndpoint,
+    OperationMode,
+    S3ConnectionInfo,
+)
 
 
 class WrapperCharm(StatefulCharmBase):
@@ -67,16 +73,25 @@ class WrapperCharm(StatefulCharmBase):
 
 def make_mediawiki_peer_state(
     *,
-    ro_database: bool = False,
+    database_update_requested: bool = False,
+    maintenance_enabled: bool = False,
+    maintenance_message: str | None = None,
     force_reconciliation: bool = False,
     composer_lock: str | None = None,
     leader_state_hash: str | None = None,
 ) -> MediaWikiPeerState:
     """Build peer state for direct MediaWiki reconciliation tests."""
+    operation_mode = OperationMode.NORMAL
+    if database_update_requested:
+        operation_mode = OperationMode.DATABASE_UPDATE
+    elif maintenance_enabled:
+        operation_mode = OperationMode.MAINTENANCE
+    elif force_reconciliation:
+        operation_mode = OperationMode.FORCE_RECONCILIATION
     return MediaWikiPeerState(
         secrets=MediaWikiSecrets.generate(),
-        ro_database=ro_database,
-        force_reconciliation=force_reconciliation,
+        operation_mode=operation_mode,
+        maintenance_message=maintenance_message,
         composer_lock=composer_lock,
         leader_state_hash=leader_state_hash,
     )
@@ -262,7 +277,7 @@ class TestPhpFpm:
         """A sizing change updates the service environment and relies on replan."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mediawiki = mgr.charm.mediawiki
-            mediawiki._reconcile_services()
+            mediawiki._reconcile_services(run_job_workers=False)
             config = mgr.charm.load_charm_config().model_copy(
                 update={"php_fpm_max_children": 8, "php_fpm_max_requests": 0}
             )
@@ -279,7 +294,7 @@ class TestPhpFpm:
             replan = mocker.patch.object(
                 mediawiki._container, "replan", side_effect=replan_stopping_dependent
             )
-            mediawiki._reconcile_services()
+            mediawiki._reconcile_services(run_job_workers=False)
             replan.assert_called_once()
             start.assert_called_once_with("mediawiki")
             restart.assert_not_called()
@@ -308,18 +323,18 @@ class TestPhpFpm:
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mediawiki = mgr.charm.mediawiki
             restart = mocker.spy(mediawiki._container, "restart")
-            mediawiki._reconcile_services()
+            mediawiki._reconcile_services(run_job_workers=False)
             restart.assert_not_called()
             layer = mediawiki._pebble_layer()
             assert "php-fpm" in layer["services"]["mediawiki"]["requires"]
             assert "php-fpm" in layer["services"]["mediawiki"]["after"]
-            mediawiki._reconcile_services()
+            mediawiki._reconcile_services(run_job_workers=False)
             restart.assert_not_called()
             mediawiki.request_service_restart("mediawiki")
-            mediawiki._reconcile_services()
+            mediawiki._reconcile_services(run_job_workers=False)
             restart.assert_called_once_with("mediawiki")
             assert not mediawiki.service_restart_pending()
-            mediawiki._reconcile_services(active=False)
+            mediawiki._reconcile_services(workload_active=False, run_job_workers=False)
             assert not mediawiki._container.get_service("php-fpm").is_running()
             assert not mediawiki._container.get_service("mediawiki").is_running()
 
@@ -329,7 +344,7 @@ class TestPhpFpm:
         """Probe the loopback FPM status page only while MediaWiki is active."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mediawiki = mgr.charm.mediawiki
-            mediawiki._reconcile_services()
+            mediawiki._reconcile_services(run_job_workers=False)
             check = mediawiki._container.get_plan().checks["php-fpm-ready"]
             assert check.level == pebble.CheckLevel.READY
             assert check.http == {"url": "http://127.0.0.1:8091/php-fpm-status"}
@@ -337,7 +352,7 @@ class TestPhpFpm:
                 mediawiki._container.get_check("php-fpm-ready").status
                 != pebble.CheckStatus.INACTIVE
             )
-            mediawiki._reconcile_services(active=False)
+            mediawiki._reconcile_services(workload_active=False, run_job_workers=False)
             assert (
                 mediawiki._container.get_check("php-fpm-ready").status
                 == pebble.CheckStatus.INACTIVE
@@ -349,13 +364,13 @@ class TestPhpFpm:
         """A later event can retry an interrupted service restart."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mediawiki = mgr.charm.mediawiki
-            mediawiki._reconcile_services()
+            mediawiki._reconcile_services(run_job_workers=False)
             mediawiki.request_service_restart("mediawiki")
             mocker.patch.object(
                 mediawiki._container, "restart", side_effect=RuntimeError("failed")
             )
             with pytest.raises(RuntimeError, match="failed"):
-                mediawiki._reconcile_services()
+                mediawiki._reconcile_services(run_job_workers=False)
             assert mediawiki.service_restart_pending()
 
 
@@ -404,8 +419,7 @@ class TestReconciliation:
         with ctx(ctx.on.update_status(), configured_state) as mgr:
             mediawiki = mgr.charm.mediawiki
             peer_state = make_mediawiki_peer_state()
-            mocker.patch.object(mediawiki, "runner_queue_service_is_ready", return_value=True)
-            mediawiki._reconcile_services()
+            mediawiki._reconcile_services(workload_active=True, run_job_workers=True)
             restart = mocker.spy(mediawiki._container, "restart")
 
             mocker.patch.object(mediawiki._certificate_transfer, "reconcile", return_value=True)
@@ -423,7 +437,7 @@ class TestReconciliation:
             mocker.patch.object(mediawiki, "_tls_reconciliation", return_value=False)
             mocker.patch.object(mediawiki, "_settings_reconciliation", return_value=False)
             mediawiki._reconcile_configuration(peer_state)
-            mediawiki._reconcile_services()
+            mediawiki._reconcile_services(workload_active=True, run_job_workers=True)
 
             restart.assert_called_once_with(*sorted(MediaWiki._REDIS_JOB_SERVICES))
             assert not mediawiki.service_restart_pending()
@@ -441,8 +455,7 @@ class TestReconciliation:
         with ctx(ctx.on.update_status(), configured_state) as mgr:
             mediawiki = mgr.charm.mediawiki
             peer_state = make_mediawiki_peer_state()
-            mocker.patch.object(mediawiki, "runner_queue_service_is_ready", return_value=True)
-            mediawiki._reconcile_services()
+            mediawiki._reconcile_services(workload_active=True, run_job_workers=True)
             restart = mocker.spy(mediawiki._container, "restart")
 
             # The cycle that installs the CA bundle aborts before it can restart anything.
@@ -461,7 +474,7 @@ class TestReconciliation:
             mocker.patch.object(mediawiki._certificate_transfer, "reconcile", return_value=False)
             mocker.patch.object(mediawiki, "_settings_reconciliation", return_value=False)
             mediawiki._reconcile_configuration(peer_state)
-            mediawiki._reconcile_services()
+            mediawiki._reconcile_services(workload_active=True, run_job_workers=True)
 
             restart.assert_called_once_with(*sorted(MediaWiki._REDIS_JOB_SERVICES))
             assert not mediawiki.service_restart_pending()
@@ -471,13 +484,96 @@ class TestReconciliation:
     ) -> None:
         """The public runtime loop applies the Pebble plan and starts MediaWiki."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            ro_database = mgr.charm.mediawiki.reconciliation()
+            operation_mode = mgr.charm.mediawiki.reconciliation()
             state_out = mgr.run()
 
-        assert ro_database is False
+        assert operation_mode is OperationMode.NORMAL
         container = state_out.get_container(Charm._CONTAINER_NAME)
         assert container.service_statuses[MediaWiki._SERVICE_NAME] == pebble.ServiceStatus.ACTIVE
         assert MediaWiki._LOGROTATE_SERVICE_NAME in container.plan.services
+
+    def test_failed_maintenance_entry_stops_workers_without_acknowledging(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        mocker: MockerFixture,
+    ) -> None:
+        """A failed maintenance transition stops workers but is not acknowledged."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            mediawiki._reconcile_services(workload_active=True, run_job_workers=True)
+            mocker.patch.object(
+                mediawiki._peers,
+                "reconciliation_state",
+                return_value=make_mediawiki_peer_state(maintenance_enabled=True),
+            )
+            mocker.patch.object(
+                mediawiki,
+                "_reconcile_configuration",
+                side_effect=MediaWikiBlockedStatusException("Configuration is incomplete"),
+            )
+
+            with pytest.raises(MediaWikiBlockedStatusException):
+                mediawiki.reconciliation()
+            state_out = mgr.run()
+
+        container = state_out.get_container(Charm._CONTAINER_NAME)
+        for service in MediaWiki._REDIS_JOB_SERVICES:
+            assert container.service_statuses[service] == pebble.ServiceStatus.INACTIVE
+        relation = state_out.get_relation(mediawiki_replica_relation.id)
+        assert mediawiki_peers.MediaWikiPeers.OPERATION_MODE_KEY not in relation.local_unit_data
+
+    def test_failed_maintenance_exit_keeps_workers_stopped_and_acknowledged(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        mocker: MockerFixture,
+    ) -> None:
+        """A failed maintenance exit retains the last successfully applied mode."""
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_unit_data={
+                mediawiki_peers.MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.MAINTENANCE.value
+            },
+        )
+        state_in = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            mediawiki._reconcile_services(workload_active=True, run_job_workers=False)
+            mocker.patch.object(
+                mediawiki._peers,
+                "reconciliation_state",
+                return_value=make_mediawiki_peer_state(),
+            )
+            mocker.patch.object(
+                mediawiki,
+                "_reconcile_configuration",
+                side_effect=MediaWikiBlockedStatusException("Configuration is incomplete"),
+            )
+
+            with pytest.raises(MediaWikiBlockedStatusException):
+                mediawiki.reconciliation()
+            state_out = mgr.run()
+
+        container = state_out.get_container(Charm._CONTAINER_NAME)
+        for service in MediaWiki._REDIS_JOB_SERVICES:
+            assert (
+                container.service_statuses.get(service, pebble.ServiceStatus.INACTIVE)
+                == pebble.ServiceStatus.INACTIVE
+            )
+        out_relation = state_out.get_relation(relation.id)
+        assert (
+            out_relation.local_unit_data[mediawiki_peers.MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.MAINTENANCE.value
+        )
 
     def test_reconciliation_publishes_composer_state(
         self,
@@ -600,12 +696,48 @@ class TestReconciliation:
         """Test that reconciliation can run successfully with a read-only database."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mgr.charm.mediawiki._reconcile_configuration(
-                make_mediawiki_peer_state(ro_database=True)
+                make_mediawiki_peer_state(database_update_requested=True)
             )
 
             state_out = mgr.run()
 
         validate_container(ctx, state_out, meta=meta, expect_read_only_db=True)
+
+    def test_maintenance_mode_settings(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Maintenance mode blocks all MediaWiki contexts with the escaped reason."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_configuration(
+                make_mediawiki_peer_state(
+                    maintenance_enabled=True,
+                    maintenance_message="Database move: today's snapshot",
+                )
+            )
+
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        late_settings = (container_fs / "etc/mediawiki/LateSettings.php").read_text()
+        assert "$wgReadOnly = 'Database move: today\\'s snapshot';" in late_settings
+        assert "$wgAllowSchemaUpdates = false;" in late_settings
+        assert "$adminTask" not in late_settings
+
+    def test_maintenance_mode_settings_with_empty_message(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """An empty maintenance message enables MediaWiki's standard read-only message."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki._reconcile_configuration(
+                make_mediawiki_peer_state(maintenance_enabled=True, maintenance_message="")
+            )
+
+            state_out = mgr.run()
+
+        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
+        late_settings = (container_fs / "etc/mediawiki/LateSettings.php").read_text()
+        assert "$wgReadOnly = true;" in late_settings
+        assert "$wgAllowSchemaUpdates = false;" in late_settings
 
     def test_initial_with_valid_proxy(
         self,
@@ -731,13 +863,69 @@ class TestReconciliation:
     ) -> None:
         """Scrape the loopback status listener rather than MediaWiki's public listener."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_services(active=False)
+            mgr.charm.mediawiki._reconcile_services(workload_active=False, run_job_workers=False)
             state_out = mgr.run()
 
         container = state_out.get_container(Charm._CONTAINER_NAME)
         assert container.plan.services["apache-exporter"].command == (
             "/usr/bin/apache_exporter --scrape_uri=http://127.0.0.1:8090/server-status?auto"
         )
+
+
+class TestEnsureReady:
+    def test_ready(
+        self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
+    ) -> None:
+        """A reachable container, ready database relation and installed wiki pass the check."""
+        mocker.patch.object(
+            MediaWiki, "_is_database_initialized", autospec=True, return_value=True
+        )
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            mgr.charm.mediawiki.ensure_ready()
+
+    def test_not_installed(
+        self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
+    ) -> None:
+        """A database not yet initialized by the charm raises a waiting status."""
+        mocker.patch.object(
+            MediaWiki, "_is_database_initialized", autospec=True, return_value=False
+        )
+        with (
+            ctx(ctx.on.update_status(), active_state) as mgr,
+            pytest.raises(
+                MediaWikiWaitingStatusException, match="Waiting for MediaWiki to be installed"
+            ),
+        ):
+            mgr.charm.mediawiki.ensure_ready()
+
+    def test_pebble_not_ready(self, ctx: testing.Context, active_state: testing.State) -> None:
+        """An unreachable workload container raises a waiting status."""
+        container = dataclasses.replace(
+            active_state.get_container(Charm._CONTAINER_NAME), can_connect=False
+        )
+        state_in = dataclasses.replace(
+            active_state,
+            containers=[
+                container,
+                *(c for c in active_state.containers if c.name != container.name),
+            ],
+        )
+        with (
+            ctx(ctx.on.update_status(), state_in) as mgr,
+            pytest.raises(MediaWikiWaitingStatusException, match="Waiting for pebble"),
+        ):
+            mgr.charm.mediawiki.ensure_ready()
+
+    def test_database_not_ready(
+        self, ctx: testing.Context, active_state: testing.State, mock_database: MockType
+    ) -> None:
+        """A database relation without usable data raises a blocked status."""
+        mock_database.is_relation_ready.return_value = False
+        with (
+            ctx(ctx.on.update_status(), active_state) as mgr,
+            pytest.raises(MediaWikiBlockedStatusException, match="Database relation is not ready"),
+        ):
+            mgr.charm.mediawiki.ensure_ready()
 
 
 class TestCreateAndPromoteUser:
@@ -2782,7 +2970,10 @@ class TestSmtpSettings:
 
         with ctx(ctx.on.update_status(), state_in) as mgr:
             mgr.charm.mediawiki._get_smtp_settings()
-            mgr.charm.mediawiki._reconcile_services()
+            mgr.charm.mediawiki._reconcile_services(
+                workload_active=True,
+                run_job_workers=True,
+            )
             plan = mgr.charm.unit.get_container(Charm._CONTAINER_NAME).get_plan()
             is_running = (
                 mgr.charm.unit.get_container(Charm._CONTAINER_NAME)
@@ -2806,7 +2997,10 @@ class TestSmtpSettings:
         )
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_services(active=False)
+            mgr.charm.mediawiki._reconcile_services(
+                workload_active=False,
+                run_job_workers=False,
+            )
 
         mock_smtp.get_relation_data.assert_not_called()
 

@@ -20,9 +20,10 @@ from exceptions import (
 from mediawiki import MediaWiki as WorkloadMediaWiki
 from mediawiki import MediaWikiSecrets
 from mediawiki_api import SiteInfo
+from mediawiki_peers import MediaWikiPeers
 from state import CharmConfig
 from tests.unit.conftest import MOCK_COMPOSER_LOCK
-from types_ import CommandExecResult
+from types_ import CommandExecResult, OperationMode
 
 
 @pytest.fixture(autouse=True)
@@ -38,6 +39,7 @@ def mock_mediawiki(mocker: MockerFixture) -> MockType:
         constructor_kwargs = mock_mediawiki_cls.call_args.kwargs
         workload = WorkloadMediaWiki(*constructor_args, **constructor_kwargs)
         workload._reconcile_configuration = mock_instance._reconcile_configuration
+        workload._settings_reconciliation = mock_instance._settings_reconciliation
         workload.update_database_schema = mock_instance.update_database_schema
         workload.runner_queue_service_is_ready = mock_instance.runner_queue_service_is_ready
         return workload.reconciliation(*args, **kwargs)
@@ -406,39 +408,41 @@ class TestMediaWikiReplicaChanged:
         self,
         mediawiki_replica_relation: testing.PeerRelation,
         active_state: testing.State,
-        app_ro: str,
-        peers_ro: dict[int, str | None],
+        app_mode: OperationMode,
+        peer_modes: dict[int, OperationMode | None],
         *,
-        unit_ro: str | None = None,
+        unit_mode: OperationMode | None = None,
         leader: bool = True,
     ) -> tuple[testing.PeerRelation, testing.State]:
-        """Helper method to configure the replica relation RO flags and build the input state.
+        """Configure workload modes in the replica relation and build the input state.
 
         Args:
             mediawiki_replica_relation: The base peer relation fixture to configure.
             active_state: The base state to extend with the configured relation.
-            app_ro: The app-level RO database flag value ("true" or "false").
-            peers_ro: Mapping of peer unit ID to its RO flag value, or None if the flag should be absent.
-            unit_ro: The local unit RO flag value, or None if the flag should be absent.
+            app_mode: The application-requested workload mode.
+            peer_modes: Mapping of peer unit ID to its applied mode, or None if absent.
+            unit_mode: The local unit's applied mode, or None if absent.
             leader: Whether the local unit should be the leader.
 
         Returns:
             The configured (replica_relation, state_in) tuple.
         """
         peers_data = {
-            unit_id: ({Charm._RO_DATABASE_FLAG: ro} if ro is not None else {})
-            for unit_id, ro in peers_ro.items()
+            unit_id: ({MediaWikiPeers.OPERATION_MODE_KEY: mode.value} if mode is not None else {})
+            for unit_id, mode in peer_modes.items()
         }
         replace_kwargs: dict = {
             "local_app_data": {
-                Charm._RO_DATABASE_FLAG: app_ro,
+                MediaWikiPeers.OPERATION_MODE_KEY: app_mode.value,
                 Charm._COMPOSER_LOCK_KEY: MOCK_COMPOSER_LOCK,
                 Charm._COMPOSER_CONFIG_HASH_KEY: CharmConfig().state_hash,
             },
             "peers_data": peers_data,
         }
-        if unit_ro is not None:
-            replace_kwargs["local_unit_data"] = {Charm._RO_DATABASE_FLAG: unit_ro}
+        if unit_mode is not None:
+            replace_kwargs["local_unit_data"] = {
+                MediaWikiPeers.OPERATION_MODE_KEY: unit_mode.value
+            }
         mediawiki_replica_relation = dataclasses.replace(
             mediawiki_replica_relation, **replace_kwargs
         )
@@ -456,8 +460,8 @@ class TestMediaWikiReplicaChanged:
         mediawiki_replica_relation, state_in = self._setup(
             mediawiki_replica_relation,
             active_state,
-            app_ro="true",
-            peers_ro={1: None, 2: None},
+            app_mode=OperationMode.DATABASE_UPDATE,
+            peer_modes={1: None, 2: None},
             leader=False,
         )
         state_out = ctx.run(
@@ -466,8 +470,14 @@ class TestMediaWikiReplicaChanged:
         assert isinstance(state_out.unit_status, ops.MaintenanceStatus)
 
         out_replica_relation = state_out.get_relation(mediawiki_replica_relation.id)
-        assert out_replica_relation.local_app_data[Charm._RO_DATABASE_FLAG] == "true"
-        assert out_replica_relation.local_unit_data[Charm._RO_DATABASE_FLAG] == "true"
+        assert (
+            out_replica_relation.local_app_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.DATABASE_UPDATE.value
+        )
+        assert (
+            out_replica_relation.local_unit_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.DATABASE_UPDATE.value
+        )
 
     def test_leader_waits_for_replicas(
         self,
@@ -479,8 +489,8 @@ class TestMediaWikiReplicaChanged:
         mediawiki_replica_relation, state_in = self._setup(
             mediawiki_replica_relation,
             active_state,
-            app_ro="true",
-            peers_ro={1: "true", 2: None},
+            app_mode=OperationMode.DATABASE_UPDATE,
+            peer_modes={1: OperationMode.DATABASE_UPDATE, 2: None},
         )
         state_out = ctx.run(
             ctx.on.relation_changed(relation=mediawiki_replica_relation, remote_unit=0), state_in
@@ -488,30 +498,88 @@ class TestMediaWikiReplicaChanged:
         assert isinstance(state_out.unit_status, ops.WaitingStatus)
 
         out_replica_relation = state_out.get_relation(mediawiki_replica_relation.id)
-        assert out_replica_relation.local_app_data[Charm._RO_DATABASE_FLAG] == "true"
-        assert out_replica_relation.local_unit_data[Charm._RO_DATABASE_FLAG] == "true"
+        assert (
+            out_replica_relation.local_app_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.DATABASE_UPDATE.value
+        )
+        assert (
+            out_replica_relation.local_unit_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.DATABASE_UPDATE.value
+        )
 
     def test_database_update(
         self,
         ctx: testing.Context,
         active_state: testing.State,
         mediawiki_replica_relation: testing.PeerRelation,
+        mock_mediawiki: MockType,
     ) -> None:
-        """Test that the motions of a database update occurs once all units indicate a read only mode, and the application level read only database flag is set."""
+        """The leader updates the schema once all units are read-only, then requests normal operation."""
         mediawiki_replica_relation, state_in = self._setup(
             mediawiki_replica_relation,
             active_state,
-            app_ro="true",
-            peers_ro={1: "true", 2: "true"},
+            app_mode=OperationMode.DATABASE_UPDATE,
+            peer_modes={1: OperationMode.DATABASE_UPDATE, 2: OperationMode.DATABASE_UPDATE},
         )
         state_out = ctx.run(
             ctx.on.relation_changed(relation=mediawiki_replica_relation, remote_unit=0), state_in
         )
-        assert isinstance(state_out.unit_status, ops.MaintenanceStatus)
+        assert state_out.unit_status == ops.MaintenanceStatus("Database set to read-only mode")
+        mock_mediawiki.update_database_schema.assert_called_once_with()
+        mock_mediawiki._settings_reconciliation.assert_not_called()
 
         out_replica_relation = state_out.get_relation(mediawiki_replica_relation.id)
-        assert out_replica_relation.local_app_data[Charm._RO_DATABASE_FLAG] == "false"
-        assert out_replica_relation.local_unit_data[Charm._RO_DATABASE_FLAG] == "true"
+        assert (
+            out_replica_relation.local_app_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.NORMAL.value
+        )
+        assert (
+            out_replica_relation.local_unit_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.DATABASE_UPDATE.value
+        )
+
+    def test_leader_acknowledges_normal_operation_on_next_reconciliation(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+    ) -> None:
+        """After completing an operation, the leader applies normal operation like any unit."""
+        mediawiki_replica_relation, state_in = self._setup(
+            mediawiki_replica_relation,
+            active_state,
+            app_mode=OperationMode.NORMAL,
+            peer_modes={1: OperationMode.NORMAL, 2: OperationMode.NORMAL},
+            unit_mode=OperationMode.DATABASE_UPDATE,
+        )
+        state_out = ctx.run(
+            ctx.on.relation_changed(relation=mediawiki_replica_relation, remote_unit=0), state_in
+        )
+        assert state_out.unit_status == ops.ActiveStatus()
+
+        out_replica_relation = state_out.get_relation(mediawiki_replica_relation.id)
+        assert (
+            out_replica_relation.local_unit_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.NORMAL.value
+        )
+
+    def test_leader_does_not_wait_for_replicas_in_normal_mode(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+    ) -> None:
+        """Peers that have not acknowledged normal operation do not hold the leader in waiting."""
+        mediawiki_replica_relation, state_in = self._setup(
+            mediawiki_replica_relation,
+            active_state,
+            app_mode=OperationMode.NORMAL,
+            peer_modes={1: None, 2: OperationMode.DATABASE_UPDATE},
+        )
+        state_out = ctx.run(
+            ctx.on.relation_changed(relation=mediawiki_replica_relation, remote_unit=0), state_in
+        )
+        assert state_out.unit_status == ops.ActiveStatus()
 
     def test_only_leader_performs_update(
         self,
@@ -523,8 +591,8 @@ class TestMediaWikiReplicaChanged:
         mediawiki_replica_relation, state_in = self._setup(
             mediawiki_replica_relation,
             active_state,
-            app_ro="true",
-            peers_ro={1: "true", 2: "true"},
+            app_mode=OperationMode.DATABASE_UPDATE,
+            peer_modes={1: OperationMode.DATABASE_UPDATE, 2: OperationMode.DATABASE_UPDATE},
             leader=False,
         )
         state_out = ctx.run(
@@ -533,8 +601,14 @@ class TestMediaWikiReplicaChanged:
         assert isinstance(state_out.unit_status, ops.MaintenanceStatus)
 
         out_replica_relation = state_out.get_relation(mediawiki_replica_relation.id)
-        assert out_replica_relation.local_app_data[Charm._RO_DATABASE_FLAG] == "true"
-        assert out_replica_relation.local_unit_data[Charm._RO_DATABASE_FLAG] == "true"
+        assert (
+            out_replica_relation.local_app_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.DATABASE_UPDATE.value
+        )
+        assert (
+            out_replica_relation.local_unit_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.DATABASE_UPDATE.value
+        )
 
     def test_update_skipped_when_flag_not_set(
         self,
@@ -547,9 +621,9 @@ class TestMediaWikiReplicaChanged:
         mediawiki_replica_relation, state_in = self._setup(
             mediawiki_replica_relation,
             active_state,
-            app_ro="false",
-            peers_ro={1: "true", 2: "false"},
-            unit_ro="true",
+            app_mode=OperationMode.NORMAL,
+            peer_modes={1: OperationMode.NORMAL, 2: OperationMode.NORMAL},
+            unit_mode=OperationMode.DATABASE_UPDATE,
         )
 
         mock_mediawiki.update_database_schema.side_effect = MediaWikiInstallError(
@@ -562,8 +636,14 @@ class TestMediaWikiReplicaChanged:
         assert isinstance(state_out.unit_status, ops.ActiveStatus)
 
         out_replica_relation = state_out.get_relation(mediawiki_replica_relation.id)
-        assert out_replica_relation.local_app_data[Charm._RO_DATABASE_FLAG] == "false"
-        assert out_replica_relation.local_unit_data[Charm._RO_DATABASE_FLAG] == "false"
+        assert (
+            out_replica_relation.local_app_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.NORMAL.value
+        )
+        assert (
+            out_replica_relation.local_unit_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.NORMAL.value
+        )
 
     def test_database_update_failure(
         self,
@@ -576,8 +656,8 @@ class TestMediaWikiReplicaChanged:
         mediawiki_replica_relation, state_in = self._setup(
             mediawiki_replica_relation,
             active_state,
-            app_ro="true",
-            peers_ro={1: "true", 2: "true"},
+            app_mode=OperationMode.DATABASE_UPDATE,
+            peer_modes={1: OperationMode.DATABASE_UPDATE, 2: OperationMode.DATABASE_UPDATE},
         )
 
         mock_mediawiki.update_database_schema.side_effect = MediaWikiInstallError(
@@ -862,6 +942,469 @@ class TestUpdateDatabaseAction:
 
         assert ctx.action_results is None
 
+    def test_rejected_during_maintenance(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+    ) -> None:
+        """Test that a database update cannot begin during maintenance mode."""
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.MAINTENANCE.value},
+        )
+        state_in = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+
+        with pytest.raises(
+            testing.ActionFailed,
+            match="Disable maintenance mode before requesting a database update",
+        ):
+            ctx.run(ctx.on.action("update-database"), state_in)
+
+
+class TestSetMaintenanceModeAction:
+    """Tests for the set-maintenance-mode action."""
+
+    @pytest.fixture(autouse=True)
+    def set_database_read_only(self, mocker: MockerFixture) -> MockType:
+        """Isolate database operations while exercising real action coordination."""
+        return mocker.patch("relations.database.Database.set_read_only", autospec=True)
+
+    @pytest.fixture(autouse=True)
+    def database_relation_ready(self, mocker: MockerFixture) -> MockType:
+        """Treat the database relation as ready unless a test overrides it."""
+        return mocker.patch(
+            "relations.database.Database.is_relation_ready", autospec=True, return_value=True
+        )
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            MediaWikiWaitingStatusException("Waiting for pebble"),
+            MediaWikiBlockedStatusException("Database relation is not ready"),
+            MediaWikiWaitingStatusException("Waiting for MediaWiki to be installed"),
+        ],
+    )
+    def test_enable_workload_not_ready(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        mock_mediawiki: MockType,
+        set_database_read_only: MockType,
+        error: Exception,
+    ) -> None:
+        """Enabling maintenance mode fails before touching the database or peer state."""
+        mock_mediawiki.ensure_ready.side_effect = error
+        with pytest.raises(testing.ActionFailed, match=str(error)):
+            ctx.run(
+                ctx.on.action("set-maintenance-mode", params={"enabled": True}),
+                active_state,
+            )
+        set_database_read_only.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            MediaWikiWaitingStatusException("Waiting for pebble"),
+            MediaWikiWaitingStatusException("Waiting for MediaWiki to be installed"),
+        ],
+    )
+    def test_disable_when_workload_not_ready(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        mock_mediawiki: MockType,
+        set_database_read_only: MockType,
+        error: Exception,
+    ) -> None:
+        """Disabling maintenance mode only needs the database, so an uninstalled wiki can recover."""
+        mock_mediawiki.ensure_ready.side_effect = error
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={
+                MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.MAINTENANCE.value,
+            },
+        )
+        state_in = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+
+        state_out = ctx.run(
+            ctx.on.action("set-maintenance-mode", params={"enabled": False}),
+            state_in,
+        )
+
+        app_data = state_out.get_relation(relation.id).local_app_data
+        assert app_data[MediaWikiPeers.OPERATION_MODE_KEY] == OperationMode.NORMAL.value
+        assert set_database_read_only.call_args.args[1] is False
+
+    def test_disable_database_relation_not_ready(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        database_relation_ready: MockType,
+        set_database_read_only: MockType,
+    ) -> None:
+        """Disabling maintenance mode fails before touching peer state without a database."""
+        database_relation_ready.return_value = False
+        with pytest.raises(testing.ActionFailed, match="Database relation is not ready"):
+            ctx.run(
+                ctx.on.action("set-maintenance-mode", params={"enabled": False}),
+                active_state,
+            )
+        set_database_read_only.assert_not_called()
+
+    def test_enable_with_message(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        set_database_read_only: MockType,
+    ) -> None:
+        """The leader records maintenance intent and its user-facing message."""
+        state_out = ctx.run(
+            ctx.on.action(
+                "set-maintenance-mode",
+                params={"enabled": True, "message": "Database migration"},
+            ),
+            active_state,
+        )
+
+        app_data = state_out.get_relation(mediawiki_replica_relation.id).local_app_data
+        assert app_data[MediaWikiPeers.OPERATION_MODE_KEY] == OperationMode.MAINTENANCE.value
+        assert app_data[MediaWikiPeers.MAINTENANCE_MESSAGE_KEY] == "Database migration"
+        assert set_database_read_only.call_args.args[1] is True
+
+    def test_enable_without_message(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+    ) -> None:
+        """Without a message, no message is recorded; Juju supplies the action default."""
+        state_out = ctx.run(
+            ctx.on.action("set-maintenance-mode", params={"enabled": True}),
+            active_state,
+        )
+
+        app_data = state_out.get_relation(mediawiki_replica_relation.id).local_app_data
+        assert app_data[MediaWikiPeers.OPERATION_MODE_KEY] == OperationMode.MAINTENANCE.value
+        assert MediaWikiPeers.MAINTENANCE_MESSAGE_KEY not in app_data
+
+    def test_enable_with_empty_message(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+    ) -> None:
+        """An empty message is accepted and represented by an absent peer-data key."""
+        state_out = ctx.run(
+            ctx.on.action(
+                "set-maintenance-mode",
+                params={"enabled": True, "message": ""},
+            ),
+            active_state,
+        )
+
+        app_data = state_out.get_relation(mediawiki_replica_relation.id).local_app_data
+        assert MediaWikiPeers.MAINTENANCE_MESSAGE_KEY not in app_data
+
+    def test_without_enabled_reports_current_state_without_changes(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        set_database_read_only: MockType,
+    ) -> None:
+        """Omitting enabled reports the current state without modifying peer data."""
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={
+                MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.MAINTENANCE.value,
+                MediaWikiPeers.MAINTENANCE_MESSAGE_KEY: "Database migration",
+            },
+        )
+        state_in = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+
+        state_out = ctx.run(ctx.on.action("set-maintenance-mode"), state_in)
+
+        assert ctx.action_results == {"enabled": True, "message": "Database migration"}
+        assert state_out.get_relation(relation.id).local_app_data == relation.local_app_data
+        set_database_read_only.assert_not_called()
+
+    def test_disable_clears_message(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        set_database_read_only: MockType,
+    ) -> None:
+        """Disabling maintenance clears the previous message."""
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={
+                MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.MAINTENANCE.value,
+                MediaWikiPeers.MAINTENANCE_MESSAGE_KEY: "Database migration",
+            },
+        )
+        state_in = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+
+        state_out = ctx.run(
+            ctx.on.action("set-maintenance-mode", params={"enabled": False}),
+            state_in,
+        )
+
+        app_data = state_out.get_relation(relation.id).local_app_data
+        assert app_data[MediaWikiPeers.OPERATION_MODE_KEY] == OperationMode.NORMAL.value
+        assert MediaWikiPeers.MAINTENANCE_MESSAGE_KEY not in app_data
+        assert set_database_read_only.call_args.args[1] is False
+
+    def test_not_leader(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        set_database_read_only: MockType,
+    ) -> None:
+        """A non-leader cannot change application-wide maintenance mode."""
+        state_in = dataclasses.replace(active_state, leader=False)
+        with pytest.raises(
+            testing.ActionFailed,
+            match="Only the leader unit can set maintenance mode",
+        ):
+            ctx.run(
+                ctx.on.action("set-maintenance-mode", params={"enabled": True}),
+                state_in,
+            )
+        set_database_read_only.assert_not_called()
+
+    def test_peer_relation_not_ready(
+        self,
+        ctx: testing.Context,
+        base_state: testing.State,
+        set_database_read_only: MockType,
+    ) -> None:
+        """The action fails before persisting state when peers are unavailable."""
+        with pytest.raises(testing.ActionFailed, match="Peer relation not ready yet"):
+            ctx.run(
+                ctx.on.action("set-maintenance-mode", params={"enabled": True}),
+                base_state,
+            )
+        set_database_read_only.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("mode", "message"),
+        [
+            (
+                OperationMode.DATABASE_UPDATE,
+                "Wait for the database update to complete before {action} maintenance mode",
+            ),
+            (
+                OperationMode.FORCE_RECONCILIATION,
+                "Wait for forced reconciliation to complete before {action} maintenance mode",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(("enabled", "action"), [(True, "enabling"), (False, "disabling")])
+    def test_rejected_during_conflicting_operation(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        set_database_read_only: MockType,
+        mode: OperationMode,
+        message: str,
+        enabled: bool,
+        action: str,
+    ) -> None:
+        """Conflicting operations reject maintenance changes before touching the database."""
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={MediaWikiPeers.OPERATION_MODE_KEY: mode.value},
+        )
+        state_in = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+
+        with pytest.raises(
+            testing.ActionFailed,
+            match=message.format(action=action),
+        ):
+            ctx.run(
+                ctx.on.action("set-maintenance-mode", params={"enabled": enabled}),
+                state_in,
+            )
+        set_database_read_only.assert_not_called()
+
+    def test_enable_rejected_until_units_are_normal(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        set_database_read_only: MockType,
+    ) -> None:
+        """Pending unit transitions are checked before making the schema read-only."""
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            peers_data={1: {MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.MAINTENANCE.value}},
+        )
+        state = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+        with pytest.raises(testing.ActionFailed):
+            ctx.run(ctx.on.action("set-maintenance-mode", params={"enabled": True}), state)
+        set_database_read_only.assert_not_called()
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_repeated_request_still_verifies_database(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        set_database_read_only: MockType,
+        enabled: bool,
+    ) -> None:
+        """Retries verify database protection even when peer intent already matches."""
+        mode = OperationMode.MAINTENANCE if enabled else OperationMode.NORMAL
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={MediaWikiPeers.OPERATION_MODE_KEY: mode.value},
+        )
+        state = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+        ctx.run(ctx.on.action("set-maintenance-mode", params={"enabled": enabled}), state)
+        assert set_database_read_only.call_count == 1
+        assert set_database_read_only.call_args.args[1] is enabled
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    @pytest.mark.parametrize(
+        "error",
+        [
+            MediaWikiBlockedStatusException("Unable to set database read-only mode: denied"),
+            MediaWikiWaitingStatusException("Database relation is not ready"),
+            MediaWikiBlockedStatusException("Unable to verify database read-only state"),
+        ],
+    )
+    def test_database_failure_leaves_peer_state_unchanged(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        set_database_read_only: MockType,
+        mock_mediawiki: MockType,
+        enabled: bool,
+        error: Exception,
+    ) -> None:
+        """Database failures fail the action without publishing intent or reconciling."""
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={
+                MediaWikiPeers.OPERATION_MODE_KEY: (
+                    OperationMode.NORMAL.value if enabled else OperationMode.MAINTENANCE.value
+                ),
+                MediaWikiPeers.MAINTENANCE_MESSAGE_KEY: "Previous message",
+            },
+        )
+        state = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+        set_database_read_only.side_effect = error
+        with ctx(ctx.on.action("set-maintenance-mode", params={"enabled": enabled}), state) as mgr:
+            with pytest.raises(
+                testing.ActionFailed, match="Failed to set database read-only mode"
+            ):
+                mgr.run()
+            peer = mgr.charm.model.get_relation(relation.endpoint)
+            assert peer is not None
+            assert dict(peer.data[mgr.charm.app]) == relation.local_app_data
+        assert set_database_read_only.call_count == 1
+        mock_mediawiki.reconciliation.assert_not_called()
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_database_change_precedes_publishing_intent(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        set_database_read_only: MockType,
+        mock_mediawiki: MockType,
+        enabled: bool,
+    ) -> None:
+        """The database callback completes before either direction changes peer mode."""
+        previous_mode = OperationMode.NORMAL if enabled else OperationMode.MAINTENANCE
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={MediaWikiPeers.OPERATION_MODE_KEY: previous_mode.value},
+        )
+        state = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+        with ctx(ctx.on.action("set-maintenance-mode", params={"enabled": enabled}), state) as mgr:
+
+            def check_previous_mode(*args: Any) -> None:
+                """Inspect peer intent at the point the synchronous operation executes."""
+                peer = mgr.charm.model.get_relation(relation.endpoint)
+                assert peer is not None
+                assert (
+                    peer.data[mgr.charm.app][MediaWikiPeers.OPERATION_MODE_KEY]
+                    == previous_mode.value
+                )
+
+            set_database_read_only.side_effect = check_previous_mode
+            state_out = mgr.run()
+        expected_mode = OperationMode.MAINTENANCE if enabled else OperationMode.NORMAL
+        assert (
+            state_out.get_relation(relation.id).local_app_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == expected_mode.value
+        )
+        assert set_database_read_only.call_count == 1
+        mock_mediawiki.reconciliation.assert_not_called()
+
 
 class TestForceReconciliationAction:
     """Tests for the force-reconciliation action."""
@@ -907,20 +1450,121 @@ class TestForceReconciliationAction:
         call_kwargs = mock_mediawiki.reconciliation.call_args.kwargs
         assert call_kwargs.get("force") is True
 
-    def test_all_units_sets_app_flag(
+    def test_all_units_sets_operation_mode(
         self,
         ctx: testing.Context,
         active_state: testing.State,
         mediawiki_replica_relation: testing.PeerRelation,
         mock_mediawiki: MockType,
     ) -> None:
-        """Test that all-units=true sets the app-level flag without running reconciliation."""
+        """Test that all-units=true requests forced reconciliation as an operation mode."""
         state_out = ctx.run(
             ctx.on.action("force-reconciliation", params={"all-units": True}), active_state
         )
         replica_relation = state_out.get_relation(mediawiki_replica_relation.id)
-        assert replica_relation.local_app_data[Charm._FORCE_RECONCILIATION_FLAG] == "true"
+        assert (
+            replica_relation.local_app_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.FORCE_RECONCILIATION.value
+        )
         mock_mediawiki.reconciliation.assert_not_called()
+
+    def test_all_units_operation_clears_after_reconciliation(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Forced reconciliation requests normal operation after completion."""
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={
+                MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.FORCE_RECONCILIATION.value,
+            },
+        )
+        state_in = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+        replica_relation = state_out.get_relation(relation.id)
+        assert (
+            replica_relation.local_app_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.NORMAL.value
+        )
+        assert (
+            replica_relation.local_unit_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.FORCE_RECONCILIATION.value
+        )
+        peer_state = mock_mediawiki._reconcile_configuration.call_args.args[0]
+        assert peer_state.operation_mode is OperationMode.FORCE_RECONCILIATION
+
+    def test_all_units_rejected_during_maintenance(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+    ) -> None:
+        """Test that forced reconciliation cannot overlap maintenance mode."""
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.MAINTENANCE.value},
+        )
+        state_in = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+
+        with pytest.raises(
+            testing.ActionFailed,
+            match="Wait for maintenance to complete before forcing reconciliation",
+        ):
+            ctx.run(
+                ctx.on.action("force-reconciliation", params={"all-units": True}),
+                state_in,
+            )
+
+    def test_all_units_rejected_while_units_return_to_normal(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+    ) -> None:
+        """A new operation cannot reuse acknowledgments from the previous operation."""
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.NORMAL.value},
+            local_unit_data={
+                MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.FORCE_RECONCILIATION.value
+            },
+            peers_data={
+                1: {MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.FORCE_RECONCILIATION.value}
+            },
+        )
+        state_in = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+
+        with pytest.raises(
+            testing.ActionFailed,
+            match="Wait for all units to return to normal operation",
+        ):
+            ctx.run(
+                ctx.on.action("force-reconciliation", params={"all-units": True}),
+                state_in,
+            )
 
     def test_all_units_not_leader(self, ctx: testing.Context, active_state: testing.State) -> None:
         """Test that all-units=true fails when not the leader."""
@@ -937,6 +1581,110 @@ class TestForceReconciliationAction:
         """Test that all-units=true fails when peer relation is not ready."""
         with pytest.raises(testing.ActionFailed, match="Peer relation not ready yet"):
             ctx.run(ctx.on.action("force-reconciliation", params={"all-units": True}), base_state)
+
+
+class TestUnknownOperationMode:
+    """Tests for application data holding an operation mode this charm does not recognise."""
+
+    @pytest.fixture
+    def state_in(
+        self, active_state: testing.State, mediawiki_replica_relation: testing.PeerRelation
+    ) -> testing.State:
+        """Provide an active state whose peer application data holds an unknown mode."""
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={
+                MediaWikiPeers.OPERATION_MODE_KEY: "future-mode",
+                MediaWikiPeers.MAINTENANCE_MESSAGE_KEY: "Previous message",
+            },
+            local_unit_data={MediaWikiPeers.OPERATION_MODE_KEY: "future-mode"},
+            peers_data={1: {MediaWikiPeers.OPERATION_MODE_KEY: "future-mode"}},
+        )
+        return dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+
+    def test_reconciliation_blocks_without_changing_workload(
+        self,
+        ctx: testing.Context,
+        state_in: testing.State,
+        mock_mediawiki: MockType,
+        mocker: MockerFixture,
+    ) -> None:
+        """The unit is blocked and leaves its services as they are."""
+        reconcile_services = mocker.patch.object(WorkloadMediaWiki, "_reconcile_services")
+
+        state_out = ctx.run(ctx.on.config_changed(), state_in)
+
+        assert state_out.unit_status == ops.BlockedStatus(
+            "Unknown operation mode 'future-mode', run set-maintenance-mode to override it"
+        )
+        reconcile_services.assert_not_called()
+        mock_mediawiki._reconcile_configuration.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("action", "params"),
+        [
+            ("update-database", {}),
+            ("set-maintenance-mode", {}),
+            ("force-reconciliation", {"all-units": True}),
+        ],
+    )
+    def test_actions_fail(
+        self,
+        ctx: testing.Context,
+        state_in: testing.State,
+        mocker: MockerFixture,
+        action: str,
+        params: dict[str, bool],
+    ) -> None:
+        """Actions that read the operation mode fail with the unknown value."""
+        set_database_read_only = mocker.patch(
+            "relations.database.Database.set_read_only", autospec=True
+        )
+        with pytest.raises(testing.ActionFailed, match="Unknown operation mode 'future-mode'"):
+            ctx.run(ctx.on.action(action, params=params), state_in)
+        set_database_read_only.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("enabled", "expected_mode"),
+        [(True, OperationMode.MAINTENANCE), (False, OperationMode.NORMAL)],
+    )
+    def test_set_maintenance_mode_overrides(
+        self,
+        ctx: testing.Context,
+        state_in: testing.State,
+        mocker: MockerFixture,
+        enabled: bool,
+        expected_mode: OperationMode,
+    ) -> None:
+        """Setting maintenance mode replaces the unknown mode and applies the database state."""
+        set_database_read_only = mocker.patch(
+            "relations.database.Database.set_read_only", autospec=True
+        )
+        mocker.patch(
+            "relations.database.Database.is_relation_ready", autospec=True, return_value=True
+        )
+
+        state_out = ctx.run(
+            ctx.on.action(
+                "set-maintenance-mode", params={"enabled": enabled, "message": "Recovering"}
+            ),
+            state_in,
+        )
+
+        relation = state_out.get_relation(
+            next(r.id for r in state_in.relations if r.endpoint == "mediawiki-replica")
+        )
+        assert relation.local_app_data[MediaWikiPeers.OPERATION_MODE_KEY] == expected_mode.value
+        assert relation.local_app_data.get(MediaWikiPeers.MAINTENANCE_MESSAGE_KEY) == (
+            "Recovering" if enabled else None
+        )
+        assert set_database_read_only.call_args.args[1] is enabled
 
 
 class TestRunMaintenanceScriptAction:
@@ -1304,6 +2052,98 @@ class TestPebbleLayer:
                 container.service_statuses.get(service, pebble.ServiceStatus.INACTIVE)
                 == pebble.ServiceStatus.INACTIVE
             )
+
+    def test_maintenance_stops_workers_before_acknowledgement(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """A unit acknowledges maintenance only after job workers are stopped."""
+        mock_mediawiki.runner_queue_service_is_ready.return_value = True
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.MAINTENANCE.value},
+        )
+        state_in = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+
+        state_out = ctx.run(
+            ctx.on.config_changed(),
+            state_in,
+        )
+
+        container = state_out.get_container(Charm._CONTAINER_NAME)
+        assert container.service_statuses[Charm._SERVICE_NAME] == pebble.ServiceStatus.ACTIVE
+        for service in Charm._REDIS_JOB_SERVICES:
+            assert (
+                container.service_statuses.get(service, pebble.ServiceStatus.INACTIVE)
+                == pebble.ServiceStatus.INACTIVE
+            )
+        out_relation = state_out.get_relation(relation.id)
+        assert (
+            out_relation.local_unit_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.MAINTENANCE.value
+        )
+        assert state_out.unit_status == ops.ActiveStatus("MediaWiki maintenance mode enabled")
+
+    def test_workers_restart_before_maintenance_acknowledgement_is_cleared(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Leaving maintenance starts workers before publishing read-write state."""
+        mock_mediawiki.runner_queue_service_is_ready.return_value = True
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.MAINTENANCE.value},
+        )
+        state_in = dataclasses.replace(
+            active_state,
+            relations=[
+                relation,
+                *(item for item in active_state.relations if item.id != relation.id),
+            ],
+        )
+        maintenance_state = ctx.run(
+            ctx.on.config_changed(),
+            state_in,
+        )
+        maintenance_relation = maintenance_state.get_relation(relation.id)
+        disabled_relation = dataclasses.replace(
+            maintenance_relation,
+            local_app_data={MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.NORMAL.value},
+        )
+        state_in = dataclasses.replace(
+            maintenance_state,
+            relations=[
+                disabled_relation,
+                *(item for item in maintenance_state.relations if item.id != disabled_relation.id),
+            ],
+        )
+
+        state_out = ctx.run(
+            ctx.on.config_changed(),
+            state_in,
+        )
+
+        container = state_out.get_container(Charm._CONTAINER_NAME)
+        for service in Charm._REDIS_JOB_SERVICES:
+            assert container.service_statuses[service] == pebble.ServiceStatus.ACTIVE
+        out_relation = state_out.get_relation(disabled_relation.id)
+        assert (
+            out_relation.local_unit_data[MediaWikiPeers.OPERATION_MODE_KEY]
+            == OperationMode.NORMAL.value
+        )
+        assert isinstance(state_out.unit_status, ops.ActiveStatus)
 
     def test_services_stopped_on_pre_reconciliation_failure(
         self,
