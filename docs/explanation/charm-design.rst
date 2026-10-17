@@ -15,6 +15,69 @@ Actions
 
 .. vale Canonical.007-Headings-sentence-case = NO
 
+set-maintenance-mode
+^^^^^^^^^^^^^^^^^^^^
+
+.. vale Canonical.007-Headings-sentence-case = YES
+
+Maintenance work can require wiki data to remain unchanged without taking the site offline for readers. The ``set-maintenance-mode`` :ref:`action <reference_actions>` provides a an operator-controlled mechanism to set the site into a read-only state, minimizing changes to durable states as best as possible.
+
+The application-level `$wgReadOnly <https://www.mediawiki.org/wiki/Manual:$wgReadOnly>`_ while useful, does not guarantee that no database writes occur. The design therefore combines database-level write protection with application-level read-only settings. The database protects against anything that does not respect ``$wgReadOnly``; the MediaWiki setting communicates that editing is unavailable and presents the maintenance reason to users. Background job workers are paused rather than left attempting work against a read-only database.
+
+The leader sets and verifies database protection *before* publishing the requested mode in the ``mediawiki-replica`` peer relation. This ordering makes successful action completion a confirmation of database protection without requiring every unit to have finished reconciliation. Publishing intent first could leave the application requesting maintenance mode even though database protection had failed. The same ordering applies when leaving maintenance mode: database writes are restored before units are asked to resume normal operation.
+
+.. vale off
+
+.. mermaid::
+   :name: set-maintenance-mode-diagram
+
+   sequenceDiagram
+   actor User
+   participant Leader@{ "type" : "entity" }
+   participant DB as Database
+   participant PR as mediawiki-replica
+   participant Replicas@{ "type" : "entity" }
+
+   User->>Leader: set-maintenance-mode enabled=true
+   Leader->>DB: Set database to read-only
+   DB-->>Leader: Verify read-only state
+   Leader->>PR: app operation_mode = "maintenance"<br/>app maintenance_message = message
+   Leader-->>User: action complete
+
+   Note over Leader,Replicas: Units reconcile the requested mode
+
+   Leader->>Leader: Set MediaWiki to read-only<br/>Pause job workers
+   Leader->>PR: unit operation_mode = "maintenance"
+   Replicas->>Replicas: Set MediaWiki to read-only<br/>Pause job workers
+   Replicas->>PR: unit operation_mode = "maintenance"
+
+   Note over Leader,Replicas: Maintenance mode persists until explicitly disabled
+
+   User->>Leader: set-maintenance-mode enabled=false
+   Leader->>DB: Set database to read-write
+   DB-->>Leader: Verify read-write state
+   Leader->>PR: app operation_mode = "normal"<br/>Remove maintenance_message
+   Leader-->>User: action complete
+
+   Note over Leader,Replicas: Units reconcile the requested mode
+
+   Leader->>Leader: Set MediaWiki to read-write<br/>Resume job workers
+   Leader->>PR: unit operation_mode = "normal"
+   Replicas->>Replicas: Set MediaWiki to read-write<br/>Resume job workers
+   Replicas->>PR: unit operation_mode = "normal"
+
+.. vale on
+
+The leader owns the application-wide request so that units do not make independent decisions about whether maintenance is still in progress. Peer application data carries that request across reconciliation cycles, while peer unit data records what each unit has actually applied. Separating requested and applied state allows asynchronous convergence without treating action completion as proof that every unit is ready. Unlike the database-update flow, unit acknowledgements do not trigger a return to ``normal``: only an explicit operator request ends maintenance.
+
+Maintenance and database updates are mutually exclusive because they require different database guarantees: maintenance rejects writes, whereas a schema update must write to the database. A single operation mode also prevents competing workflows from independently restoring normal operation while another operation still needs protection. Maintenance transitions are rejected during application-wide forced reconciliation, and entry from normal operation waits for all units to have acknowledged ``normal``, avoiding overlap with an unfinished transition.
+
+Recovery deliberately has fewer prerequisites than entry. Disabling maintenance requires a ready database relation, but not a working MediaWiki workload, so that a workload failure cannot prevent the operator from restoring database writes. Database verification failures leave the peer request unchanged and fail the action explicitly; they cannot imply that the database change was rolled back.
+
+The protection boundary is the database, not every storage service used by MediaWiki. Valkey and Redis remain available, so maintenance mode is not a guarantee of application-wide storage inactivity. MediaWiki remains responsible for blocking writes such as job queue pushes that have durability requirements in Valkey or Redis.
+
+.. vale Canonical.007-Headings-sentence-case = NO
+
 update-database
 ^^^^^^^^^^^^^^^
 
