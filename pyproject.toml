@@ -146,6 +146,13 @@ skip = "build,lib,venv,icon.svg,.tox,.git,.mypy_cache,.ruff_cache,.coverage,html
 minversion = "6.0"
 log_cli_level = "INFO"
 pythonpath = ["lib", "src"]
+filterwarnings = [
+    "error",
+    # Raised by dpcharmlibs-interfaces 1.2.2 (pydantic Field() on union members).
+    "ignore:The '(default|exclude)' attribute with value",
+    # Raised by the vendored data_interfaces v0 and loki_push_api v1 charm libs.
+    'ignore:JujuVersion.from_environ\(\) is deprecated:DeprecationWarning:charms\.(loki_k8s|data_platform_libs)\.',
+]
 
 [tool.coverage.run]
 branch = true

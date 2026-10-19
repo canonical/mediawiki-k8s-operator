@@ -195,9 +195,8 @@ class TestShellbox:
             manager.charm._shellbox.reconciliation()
             key = manager.charm._shellbox.authentication_key()
             container = manager.charm.unit.get_container("shellbox")
-            assert container.pull(Shellbox.KEY_FILE).read() == (
-                f"[shellbox]\nenv[SHELLBOX_SECRET_KEY] = {key}\n"
-            )
+            with container.pull(Shellbox.KEY_FILE) as key_file:
+                assert key_file.read() == f"[shellbox]\nenv[SHELLBOX_SECRET_KEY] = {key}\n"
             assert container.get_plan().checks["shellbox"].http == {
                 "url": f"{SHELLBOX_URL}/healthz"
             }
