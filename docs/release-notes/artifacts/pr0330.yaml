@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Documented Shellbox architecture and security
+    author: hk21702
+    type: minor
+    description: >-
+      Added documentation explaining how the charm uses Shellbox to run
+      SyntaxHighlight commands, how the Shellbox container is configured and
+      monitored, and how its authentication keys and security boundaries work.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/330"
+      related_doc: "https://documentation.ubuntu.com/mediawiki-k8s-charm/reference/charm-architecture/"
+    visibility: hidden
+    highlight: false
