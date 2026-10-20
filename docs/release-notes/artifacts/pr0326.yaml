@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Documented maintenance-mode design
+    author: hk21702
+    type: minor
+    description: >-
+      Added an explanation of how the set-maintenance-mode action coordinates
+      database protection and unit reconciliation, and why maintenance mode
+      remains active until an operator explicitly disables it.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/326"
+      related_doc: "https://documentation.ubuntu.com/mediawiki-k8s-charm/explanation/charm-design/"
+    visibility: hidden
+    highlight: false
