@@ -39,6 +39,7 @@ from relations.database import Database
 from relations.s3 import S3
 from relations.smtp import Smtp
 from relations.tls import Tls
+from relations.tracing import Tracing
 from shellbox import Shellbox
 from state import CharmConfig, StatefulCharmBase
 from types_ import OperationMode
@@ -89,6 +90,7 @@ class MediaWiki(
         tls: Tls,
         certificate_transfer: CertificateTransfer,
         shellbox: Shellbox,
+        tracing: Tracing,
     ):
         super().__init__(charm.unit.get_container("mediawiki"))
         self._charm = charm
@@ -103,6 +105,7 @@ class MediaWiki(
         self._tunnel_services = TunnelServiceRegistry(ProxyRouteResolver(charm.state.proxy_config))
         self._certificate_transfer = certificate_transfer
         self._shellbox = shellbox
+        self._tracing = tracing
 
     @property
     def _logs_path(self) -> ContainerPath:

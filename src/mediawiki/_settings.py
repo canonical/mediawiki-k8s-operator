@@ -150,6 +150,7 @@ class _SettingsMixin(_MediaWikiBase):
         self._secure_settings_base_path.mkdir(exist_ok=True, parents=True)
         content = self._late_settings_template_file.read_text()
         content += self._get_logging_settings(config)
+        content += self._get_tracing_settings(config)
         content += self._get_proxy_settings()
         content += self._get_database_settings()
         content += self._get_cache_settings()
@@ -241,6 +242,20 @@ class _SettingsMixin(_MediaWikiBase):
             mode=0o640,
             user=constants.WEBROOT_OWNER_USER,
             group=constants.DAEMON_GROUP,
+        )
+
+    def _get_tracing_settings(self, config: CharmConfig) -> str:
+        """Render native tracing settings, overriding any user-supplied configuration."""
+        endpoint = self._tracing.get_endpoint()
+        if endpoint is None:
+            return "$wgOpenTelemetryConfig = null;\n"
+        service_name = utils.escape_php_string(self._charm.app.name)
+        return (
+            "$wgOpenTelemetryConfig = [\n"
+            f"    'samplingProbability' => {config.tracing_sampling_probability},\n"
+            f"    'serviceName' => '{service_name}',\n"
+            f"    'endpoint' => '{utils.escape_php_string(endpoint)}',\n"
+            "];\n"
         )
 
     def _get_logging_settings(self, config: CharmConfig) -> str:

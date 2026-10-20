@@ -21,7 +21,6 @@ from mediawiki import MediaWiki as WorkloadMediaWiki
 from mediawiki import MediaWikiSecrets
 from mediawiki_api import SiteInfo
 from mediawiki_peers import MediaWikiPeers
-from state import CharmConfig
 from tests.unit.conftest import MOCK_COMPOSER_LOCK
 from types_ import CommandExecResult, OperationMode
 
@@ -102,6 +101,8 @@ class TestRelationEventExposure:
             ("_s3", "s3", "credentials_gone"),
             ("_tls", "tls", "certificate_available"),
             ("_tls", "tls", "certificate_denied"),
+            ("_tracing", "tracing", "endpoint_changed"),
+            ("_tracing", "tracing", "endpoint_removed"),
         ],
     )
     def test_reconciliation_subscription(
@@ -201,6 +202,95 @@ class TestCertificatesRelationEvents:
 
         assert isinstance(state_out.unit_status, ops.ActiveStatus)
         mock_mediawiki.reconciliation.assert_called_once()
+
+
+class TestTracingEvents:
+    """Unready tracing relations stop reconciliation until the provider updates its data."""
+
+    @pytest.mark.parametrize("event_name", ["relation_created", "relation_changed"])
+    def test_unavailable_endpoint_stops_reconciliation(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_mediawiki: MockType,
+        event_name: str,
+    ) -> None:
+        """Stop configuration reconciliation before starting workload services."""
+        relation = testing.Relation("tracing")
+        state = dataclasses.replace(active_state, relations=[*active_state.relations, relation])
+        event = getattr(ctx.on, event_name)(relation)
+        with ctx(event, state) as manager:
+            mock_mediawiki._reconcile_configuration.side_effect = lambda *args, **kwargs: (
+                manager.charm._tracing.get_endpoint()
+            )
+            out = manager.run()
+        assert out.unit_status == ops.WaitingStatus("Waiting for tracing relation data")
+        assert "mediawiki" not in out.get_container("mediawiki").service_statuses
+        mock_mediawiki.reconciliation.assert_called_once()
+
+    def test_provider_recovers(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        tracing_relation: testing.Relation,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """A provider advertising its receiver clears tracing Waiting."""
+        pending = dataclasses.replace(tracing_relation, remote_app_data={})
+        state = dataclasses.replace(active_state, relations=[*active_state.relations, pending])
+        with ctx(ctx.on.relation_changed(pending), state) as manager:
+            mock_mediawiki._reconcile_configuration.side_effect = lambda *args, **kwargs: (
+                manager.charm._tracing.get_endpoint()
+            )
+            out = manager.run()
+        assert isinstance(out.unit_status, ops.WaitingStatus)
+        ready = dataclasses.replace(
+            out.get_relation(pending.id), remote_app_data=tracing_relation.remote_app_data
+        )
+        with ctx(
+            ctx.on.relation_changed(ready),
+            dataclasses.replace(
+                out, relations=[r for r in out.relations if r.id != ready.id] + [ready]
+            ),
+        ) as manager:
+            out = manager.run()
+        assert isinstance(out.unit_status, ops.ActiveStatus)
+        assert (
+            out.get_container("mediawiki").service_statuses["mediawiki"]
+            == pebble.ServiceStatus.ACTIVE
+        )
+
+    def test_removal_is_not_waiting(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        tracing_relation: testing.Relation,
+    ) -> None:
+        """Removal is an intentional return to untraced operation."""
+        state = dataclasses.replace(
+            active_state, relations=[*active_state.relations, tracing_relation]
+        )
+        out = ctx.run(ctx.on.relation_broken(tracing_relation), state)
+        assert isinstance(out.unit_status, ops.ActiveStatus)
+
+    def test_database_error_takes_precedence(
+        self, ctx: testing.Context, base_state: testing.State
+    ) -> None:
+        """An unavailable optional tracing provider does not mask mandatory errors."""
+        relation = testing.Relation("tracing")
+        state = dataclasses.replace(base_state, relations=[relation])
+        out = ctx.run(ctx.on.relation_changed(relation), state)
+        assert isinstance(out.unit_status, ops.BlockedStatus)
+        assert "database" in out.unit_status.message
+
+    @pytest.mark.parametrize("value", [-1, 101])
+    def test_invalid_sampling_blocks(
+        self, ctx: testing.Context, active_state: testing.State, value: int
+    ) -> None:
+        """Invalid sampling configuration uses the existing config validation boundary."""
+        state = dataclasses.replace(active_state, config={"tracing-sampling-probability": value})
+        out = ctx.run(ctx.on.config_changed(), state)
+        assert isinstance(out.unit_status, ops.BlockedStatus)
 
 
 class TestPebbleReadyEvent:
@@ -406,6 +496,7 @@ class TestMediaWikiReplicaChanged:
 
     def _setup(
         self,
+        ctx: testing.Context,
         mediawiki_replica_relation: testing.PeerRelation,
         active_state: testing.State,
         app_mode: OperationMode,
@@ -417,6 +508,7 @@ class TestMediaWikiReplicaChanged:
         """Configure workload modes in the replica relation and build the input state.
 
         Args:
+            ctx: The charm testing context used to load effective configuration.
             mediawiki_replica_relation: The base peer relation fixture to configure.
             active_state: The base state to extend with the configured relation.
             app_mode: The application-requested workload mode.
@@ -427,6 +519,8 @@ class TestMediaWikiReplicaChanged:
         Returns:
             The configured (replica_relation, state_in) tuple.
         """
+        with ctx(ctx.on.update_status(), active_state) as manager:
+            state_hash = manager.charm.load_charm_config().state_hash
         peers_data = {
             unit_id: ({MediaWikiPeers.OPERATION_MODE_KEY: mode.value} if mode is not None else {})
             for unit_id, mode in peer_modes.items()
@@ -435,7 +529,7 @@ class TestMediaWikiReplicaChanged:
             "local_app_data": {
                 MediaWikiPeers.OPERATION_MODE_KEY: app_mode.value,
                 Charm._COMPOSER_LOCK_KEY: MOCK_COMPOSER_LOCK,
-                Charm._COMPOSER_CONFIG_HASH_KEY: CharmConfig().state_hash,
+                Charm._COMPOSER_CONFIG_HASH_KEY: state_hash,
             },
             "peers_data": peers_data,
         }
@@ -458,6 +552,7 @@ class TestMediaWikiReplicaChanged:
     ) -> None:
         """Test when the read only database flag is set to true, the unit will also enter read only mode."""
         mediawiki_replica_relation, state_in = self._setup(
+            ctx,
             mediawiki_replica_relation,
             active_state,
             app_mode=OperationMode.DATABASE_UPDATE,
@@ -487,6 +582,7 @@ class TestMediaWikiReplicaChanged:
     ) -> None:
         """Test that the leader unit waits for all replicas to indicate that they are in a read only mode before proceeding with a database update."""
         mediawiki_replica_relation, state_in = self._setup(
+            ctx,
             mediawiki_replica_relation,
             active_state,
             app_mode=OperationMode.DATABASE_UPDATE,
@@ -516,6 +612,7 @@ class TestMediaWikiReplicaChanged:
     ) -> None:
         """The leader updates the schema once all units are read-only, then requests normal operation."""
         mediawiki_replica_relation, state_in = self._setup(
+            ctx,
             mediawiki_replica_relation,
             active_state,
             app_mode=OperationMode.DATABASE_UPDATE,
@@ -546,6 +643,7 @@ class TestMediaWikiReplicaChanged:
     ) -> None:
         """After completing an operation, the leader applies normal operation like any unit."""
         mediawiki_replica_relation, state_in = self._setup(
+            ctx,
             mediawiki_replica_relation,
             active_state,
             app_mode=OperationMode.NORMAL,
@@ -571,6 +669,7 @@ class TestMediaWikiReplicaChanged:
     ) -> None:
         """Peers that have not acknowledged normal operation do not hold the leader in waiting."""
         mediawiki_replica_relation, state_in = self._setup(
+            ctx,
             mediawiki_replica_relation,
             active_state,
             app_mode=OperationMode.NORMAL,
@@ -589,6 +688,7 @@ class TestMediaWikiReplicaChanged:
     ) -> None:
         """Test that only the leader unit performs the database update when the read only database flag is set, even if all units indicate they are in a read only mode."""
         mediawiki_replica_relation, state_in = self._setup(
+            ctx,
             mediawiki_replica_relation,
             active_state,
             app_mode=OperationMode.DATABASE_UPDATE,
@@ -619,6 +719,7 @@ class TestMediaWikiReplicaChanged:
     ) -> None:
         """Test that the database update is skipped if all units indicate they are in a read only mode, but the application level read only database flag is not set."""
         mediawiki_replica_relation, state_in = self._setup(
+            ctx,
             mediawiki_replica_relation,
             active_state,
             app_mode=OperationMode.NORMAL,
@@ -654,6 +755,7 @@ class TestMediaWikiReplicaChanged:
     ) -> None:
         """Test that should a database update fail, the charm enters an error state and a MediaWikiInstallError exception is raised."""
         mediawiki_replica_relation, state_in = self._setup(
+            ctx,
             mediawiki_replica_relation,
             active_state,
             app_mode=OperationMode.DATABASE_UPDATE,
@@ -1448,12 +1550,14 @@ class TestForceReconciliationAction:
         mock_mediawiki: MockType,
     ) -> None:
         """Test that a non-leader can run a forced reconciliation on itself."""
+        with ctx(ctx.on.update_status(), active_state) as manager:
+            state_hash = manager.charm.load_charm_config().state_hash
         # Non-leaders require lock data in peer relation to proceed past the composer gate.
         lock_rel = dataclasses.replace(
             mediawiki_replica_relation,
             local_app_data={
                 Charm._COMPOSER_LOCK_KEY: MOCK_COMPOSER_LOCK,
-                Charm._COMPOSER_CONFIG_HASH_KEY: CharmConfig().state_hash,
+                Charm._COMPOSER_CONFIG_HASH_KEY: state_hash,
             },
         )
         relations_without_peer = [
@@ -2232,11 +2336,13 @@ class TestComposerLockPeerSync:
         mock_mediawiki: MockType,
     ) -> None:
         """Charm does not pass peer Composer state into MediaWiki reconciliation."""
+        with ctx(ctx.on.update_status(), active_state) as manager:
+            state_hash = manager.charm.load_charm_config().state_hash
         lock_rel = dataclasses.replace(
             mediawiki_replica_relation,
             local_app_data={
                 Charm._COMPOSER_LOCK_KEY: MOCK_COMPOSER_LOCK,
-                Charm._COMPOSER_CONFIG_HASH_KEY: CharmConfig().state_hash,
+                Charm._COMPOSER_CONFIG_HASH_KEY: state_hash,
             },
         )
         # Replace the existing peer relation in active_state with one containing lock data.
