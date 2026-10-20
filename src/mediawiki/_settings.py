@@ -28,7 +28,7 @@ from exceptions import (
 from mediawiki import constants
 from mediawiki._base import _MediaWikiBase
 from shellbox import SHELLBOX_URL
-from types_ import PhpTemplate
+from types_ import OperationMode, PhpTemplate
 
 if TYPE_CHECKING:
     from mediawiki._secrets import MediaWikiSecrets
@@ -64,14 +64,16 @@ class _SettingsMixin(_MediaWikiBase):
         self,
         config: CharmConfig,
         secrets: MediaWikiSecrets,
-        ro_database: bool = False,
+        mode: OperationMode = OperationMode.NORMAL,
+        maintenance_message: str | None = None,
     ) -> bool:
         """Reconcile all the MediaWiki settings derived from LocalSettings.php.
 
         Args:
             config (CharmConfig): The charm configuration.
             secrets (MediaWikiSecrets): An instance of MediaWikiSecrets containing secrets synced between units.
-            ro_database: Whether to include settings that put the database into read-only mode for updates. Defaults to False.
+            mode: The operational mode to render into MediaWiki settings.
+            maintenance_message: The reason shown while maintenance mode is enabled.
 
         Returns:
             Whether any of the settings files' content changed.
@@ -84,7 +86,12 @@ class _SettingsMixin(_MediaWikiBase):
         changed = self._push_user_settings(config)
         if changed:
             self._record_settings_change()
-        late_settings_changed = self._push_late_settings(config, secrets, ro_database=ro_database)
+        late_settings_changed = self._push_late_settings(
+            config,
+            secrets,
+            mode=mode,
+            maintenance_message=maintenance_message,
+        )
         changed |= late_settings_changed
         if late_settings_changed:
             self._record_settings_change()
@@ -123,14 +130,19 @@ class _SettingsMixin(_MediaWikiBase):
         )
 
     def _push_late_settings(
-        self, config: CharmConfig, secrets: MediaWikiSecrets, ro_database: bool = False
+        self,
+        config: CharmConfig,
+        secrets: MediaWikiSecrets,
+        mode: OperationMode = OperationMode.NORMAL,
+        maintenance_message: str | None = None,
     ) -> bool:
         """Push the charm-controlled late MediaWiki settings to the container.
 
         Args:
             config: The charm configuration.
             secrets (MediaWikiSecrets): An instance of MediaWikiSecrets containing secrets synced between units.
-            ro_database: Whether to include settings that put the database into read-only mode for updates. Defaults to False.
+            mode: The operational mode to render into MediaWiki settings.
+            maintenance_message: The reason shown while maintenance mode is enabled.
 
         Returns:
             Whether the file content changed.
@@ -167,7 +179,13 @@ class _SettingsMixin(_MediaWikiBase):
             deferred_error = deferred_error or e
             content += "$wgEnableUploads = false;\n"
 
-        if ro_database:
+        if mode is OperationMode.MAINTENANCE:
+            if not maintenance_message:
+                content += "$wgReadOnly = true;\n"
+            else:
+                content += f"$wgReadOnly = '{utils.escape_php_string(maintenance_message)}';\n"
+            content += "$wgAllowSchemaUpdates = false;\n"
+        elif mode is OperationMode.DATABASE_UPDATE:
             # https://www.mediawiki.org/wiki/Manual:Upgrading#Can_my_wiki_stay_online_while_it_is_upgrading?
             content += "$adminTask = ( PHP_SAPI === 'cli' || defined( 'MEDIAWIKI_INSTALL' ) );\n"
             content += "$wgReadOnly = $adminTask ? false : 'Ongoing database update';\n"

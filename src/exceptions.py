@@ -52,6 +52,20 @@ class MediaWikiInstallError(Exception):
     """Exception for unrecoverable errors during MediaWiki installation."""
 
 
+class MediaWikiModeConflictError(Exception):
+    """Exception raised when incompatible workload modes are requested."""
+
+
+class MediaWikiUnknownOperationModeError(
+    MediaWikiBlockedStatusException, MediaWikiModeConflictError
+):
+    """Exception raised when peer data holds an operation mode this charm does not recognise.
+
+    It blocks reconciliation like other status exceptions, and fails actions like other mode
+    conflicts.
+    """
+
+
 class ContainerError(Exception):
     """Exception for unrecoverable errors while executing a container command."""
 

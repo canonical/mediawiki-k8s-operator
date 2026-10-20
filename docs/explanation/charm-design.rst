@@ -34,38 +34,38 @@ It is possible to do a database schema update `while the wiki is still online <h
    participant Replicas@{ "type" : "entity" }
 
    User->>Leader: update-database action
-   Leader->>PR: app ro_db = "true"
+   Leader->>PR: app operation_mode = "database-update"
    Leader-->>User: action complete
 
    Note over Leader,Replicas: relation_changed fires on all units
 
    Leader->>+Leader: Reconciliation<br/>Set wiki to read only
-   Leader->>PR: unit ro_db = "true"
+   Leader->>PR: unit operation_mode = "database-update"
 
    Replicas->>+Replicas: Reconciliation<br/>Set wiki to read only
-   Replicas->>PR: unit ro_db = "true"
+   Replicas->>PR: unit operation_mode = "database-update"
 
    Note over Leader,Replicas: relation_changed fires on leader again
 
-   break Some units have not set unit ro_db = "true"
+   break Some units have not set unit operation_mode = "database-update"
       Leader-->>Leader: WaitingStatus
    end
 
-   Note over Leader: All units confirmed ro_db = "true"
+   Note over Leader: All units confirmed operation_mode = "database-update"
    Leader->>Leader: Update database schema
-   Leader->>PR: app ro_db = "false"
+   Leader->>PR: app operation_mode = "normal"
 
    Note over Leader,Replicas: relation_changed fires on all units again
 
    Leader->>-Leader: Reconciliation<br/>Set wiki to read-write
-   Leader->>PR: unit ro_db = "false"
+   Leader->>PR: unit operation_mode = "normal"
 
    Replicas->>-Replicas: Reconciliation<br/>Set wiki to read-write
-   Replicas->>PR: unit ro_db = "false"
+   Replicas->>PR: unit operation_mode = "normal"
 
-Instead of directly running the database update maintenance script, the ``update-database`` action sets a flag in the peer relation application data to indicate that the database should be updated. All units, including the leader, will react to this event by configuring themselves to enter a read-only mode before setting a flag in the peer relation unit data to indicate that it has done so.
+Instead of directly running the database update maintenance script, the ``update-database`` action sets the workload mode in the peer relation application data to ``database-update``. All units, including the leader, react to this event by configuring themselves to enter a read-only mode before publishing the applied workload mode in their peer relation unit data.
 
-The leader will only proceed with the database update once it determines that all units have set the flag to indicate that they are in read-only mode. Following the database update, it will unset the original application flag to indicate to all units that they can exit read-only mode. As they do so, they will unset their unit flags.
+The leader only proceeds with the database update once every unit reports the requested workload mode. Following the database update, it sets the application workload mode to ``normal``. Each unit then exits read-only mode and reports ``normal`` in its unit data.
 
 Reconciliation
 --------------
