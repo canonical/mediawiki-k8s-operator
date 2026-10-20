@@ -26,6 +26,7 @@ output "requires" {
     s3_parameters   = "s3-parameters"
     saml            = "saml"
     smtp            = "smtp"
+    tracing         = "tracing"
     traefik_route   = "traefik-route"
   }
 }

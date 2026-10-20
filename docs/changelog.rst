@@ -17,6 +17,12 @@ Each revision is versioned by the date of the revision.
 
 - Drop Redis integration support.
 
+2026-10-20
+----------
+
+- Add native MediaWiki web request tracing through the optional ``tracing``
+  relation, with configurable integer-percentage sampling.
+
 2026-10-16
 ----------
 
