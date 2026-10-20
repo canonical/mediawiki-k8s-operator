@@ -325,6 +325,32 @@ actions:
       It is highly recommended to back up your database before running this
       action.
 
+  set-maintenance-mode:
+    description: |
+      Enable or disable application-wide maintenance mode. Must be run on the
+      leader unit. Enabling maintenance mode alters the database to be read-only,
+      sets MediaWiki to be read-only, and pauses background job workers on all units
+      while preserving queued work.
+
+      Maintenance mode does not guarantee that no writes will be made to Valkey/Redis.
+
+      While in maintenance mode, certain user account actions such as logging out may be restricted.
+      Consider rotating secrets following extended maintenance periods to invalidate existing sessions and
+      authentication tokens.
+
+      Maintenance mode and the update database action are mutually exclusive.
+    params:
+      enabled:
+        type: boolean
+        description: |
+          Whether maintenance mode should be enabled. When omitted, the action
+          reports the current maintenance mode without changing it.
+      message:
+        type: string
+        default: MediaWiki is undergoing maintenance
+        description: Optional message shown to users while maintenance mode is enabled.
+    additionalProperties: false
+
   force-reconciliation:
     description: |
       Force a reconciliation run, bypassing redundancy checks.

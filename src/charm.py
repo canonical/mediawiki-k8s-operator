@@ -31,6 +31,7 @@ import log_redaction
 from exceptions import (
     CharmConfigInvalidError,
     MediaWikiInstallError,
+    MediaWikiModeConflictError,
     MediaWikiStatusException,
     MediaWikiWaitingStatusException,
 )
@@ -48,7 +49,7 @@ from relations.tls import Tls
 from relations.valkey import Valkey
 from shellbox import Shellbox
 from state import StatefulCharmBase
-from types_ import ForceReconciliationAction
+from types_ import ForceReconciliationAction, OperationMode, SetMaintenanceModeAction
 
 _ALLOWED_MAINTENANCE_SCRIPTS = frozenset(
     {
@@ -121,8 +122,6 @@ class Charm(StatefulCharmBase):
 
     _PEER_RELATION_NAME = MediaWikiPeers.RELATION_NAME
     _REPLICA_SECRET_LABEL = MediaWikiPeers.SECRET_LABEL
-    _RO_DATABASE_FLAG = MediaWikiPeers.RO_DATABASE_FLAG
-    _FORCE_RECONCILIATION_FLAG = MediaWikiPeers.FORCE_RECONCILIATION_FLAG
     _COMPOSER_LOCK_KEY = MediaWikiPeers.COMPOSER_LOCK_KEY
     _COMPOSER_CONFIG_HASH_KEY = MediaWikiPeers.LEADER_STATE_HASH_KEY
 
@@ -261,6 +260,7 @@ class Charm(StatefulCharmBase):
         )
         self.framework.observe(self.on.create_and_promote_action, self._on_create_and_promote_user)
         self.framework.observe(self.on.update_database_action, self._on_update_database)
+        self.framework.observe(self.on.set_maintenance_mode_action, self._on_set_maintenance_mode)
         self.framework.observe(self.on.force_reconciliation_action, self._on_force_reconciliation)
         self.framework.observe(
             self.on.run_maintenance_script_action, self._on_run_maintenance_script
@@ -385,14 +385,13 @@ class Charm(StatefulCharmBase):
 
         Otherwise, if prerequisite criteria is met, the following actions are attempted:
         - Configure ingress.
-        - Trigger the git-sync reconciliation process
-        - Trigger the MediaWiki workload reconciliation process.
-        - Flag the unit as being in read-only mode if the database was set to read-only mode.
-        - Publish the composer state if needed (leader only).
-        - Trigger the database reconciliation process.
-        - Start the MediaWiki service if it is not running.
-        - Configure OAuth if necessary.
-        - Set the unit status to an appropriate state depending on the outcome of the above actions.
+        - Trigger the git-sync and Shellbox reconciliation processes.
+        - Trigger the MediaWiki workload reconciliation process, which reconciles the workload
+          configuration and services for the requested operation mode (normal, maintenance,
+          database update or forced reconciliation), acknowledges that mode to peers, completes
+          the operation once all units have applied it (leader only), and configures OAuth.
+        - Set the unit status to an appropriate state depending on the outcome of the above
+          actions and the operation mode in effect.
 
         Args:
             _event: The event that triggered the reconciliation.
@@ -412,7 +411,7 @@ class Charm(StatefulCharmBase):
             )
             self._shellbox.reconciliation()
 
-            set_ro_database = self._mediawiki.reconciliation(
+            operation_mode = self._mediawiki.reconciliation(
                 ssh_key=self._ssh_key(self._SSH_KEY_MEDIAWIKI_FIELD),
                 force=force,
             )
@@ -430,7 +429,9 @@ class Charm(StatefulCharmBase):
 
         self.unit.status = (
             MaintenanceStatus("Database set to read-only mode")
-            if set_ro_database
+            if operation_mode is OperationMode.DATABASE_UPDATE
+            else ActiveStatus("MediaWiki maintenance mode enabled")
+            if operation_mode is OperationMode.MAINTENANCE
             else ActiveStatus()
         )
 
@@ -526,10 +527,85 @@ class Charm(StatefulCharmBase):
             event.fail("Only the leader unit can request a database update")
             return
 
-        if not self._peers.request_database_update():
-            event.fail("Peer relation not ready yet")
+        try:
+            if not self._peers.request_database_update():
+                event.fail("Peer relation not ready yet")
+                return
+        except MediaWikiModeConflictError as e:
+            event.fail(str(e))
             return
         event.log("Database update requested")
+
+    def _on_set_maintenance_mode(self, event: ActionEvent) -> None:
+        """Handle the set-maintenance-mode action.
+
+        Args:
+            event: The event that triggered the maintenance mode request.
+        """
+        params = event.load_params(SetMaintenanceModeAction, errors="fail")
+        if params is None:
+            return
+        if not self.unit.is_leader():
+            event.fail("Only the leader unit can set maintenance mode")
+            return
+
+        if params.enabled is None:
+            self._report_maintenance_mode(event)
+            return
+
+        if params.enabled:
+            try:
+                self._mediawiki.ensure_ready()
+            except MediaWikiStatusException as e:
+                event.fail(e.status.message)
+                return
+        elif not self._database.is_relation_ready():
+            # Disabling only needs a database connection, so it stays possible while the
+            # workload is unavailable or MediaWiki is not installed in the read-only database.
+            event.fail("Database relation is not ready")
+            return
+
+        try:
+            if not self._peers.request_maintenance_mode(
+                enabled=params.enabled,
+                message=params.message,
+                set_database_read_only=self._database.set_read_only,
+            ):
+                event.fail("Peer relation not ready yet")
+                return
+        except MediaWikiModeConflictError as e:
+            event.fail(str(e))
+            return
+        except MediaWikiStatusException as e:
+            logger.exception("Failed to set database read-only mode")
+            event.fail(
+                f"Failed to set database read-only mode: {e.status.message}. "
+                "Maintenance request unchanged; database state may have changed. "
+                "Retry the action to verify the requested state."
+            )
+            return
+        event.log(f"Database read-only mode verified: {params.enabled}")
+        event.log("Maintenance mode request recorded")
+
+    def _report_maintenance_mode(self, event: ActionEvent) -> None:
+        """Report the requested maintenance mode as action results.
+
+        Args:
+            event: The set-maintenance-mode action event to report on.
+        """
+        try:
+            maintenance_mode = self._peers.maintenance_mode()
+        except MediaWikiModeConflictError as e:
+            event.fail(str(e))
+            return
+        if maintenance_mode is None:
+            event.fail("Peer relation not ready yet")
+            return
+        enabled, message = maintenance_mode
+        results: dict[str, bool | str] = {"enabled": enabled}
+        if message is not None:
+            results["message"] = message
+        event.set_results(results)
 
     def _on_force_reconciliation(self, event: ActionEvent) -> None:
         """Handle the force-reconciliation action.
@@ -554,8 +630,12 @@ class Charm(StatefulCharmBase):
                 event.fail("The all-units flag requires the action to be run on the leader unit")
                 return
 
-            if not self._peers.request_force_reconciliation():
-                event.fail("Peer relation not ready yet")
+            try:
+                if not self._peers.request_force_reconciliation():
+                    event.fail("Peer relation not ready yet")
+                    return
+            except MediaWikiModeConflictError as e:
+                event.fail(str(e))
                 return
             event.log("Force reconciliation requested for all units")
             return

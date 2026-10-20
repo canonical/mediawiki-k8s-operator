@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Added a maintenance-mode action
+    author: hk21702
+    type: major
+    description: >-
+      Added a leader-only action to put MediaWiki into read-only mode while
+      keeping the deployment running. Operators can provide an optional
+      message, and configured job workers are stopped. This limits writes to
+      the MediaWiki database, but does not guarantee that Valkey or Redis
+      receives no writes.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/325"
+    visibility: public
+    highlight: true
