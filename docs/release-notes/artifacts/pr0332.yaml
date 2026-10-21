@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Added MediaWiki workload tracing
+    author: hk21702
+    type: minor
+    description: >-
+      Added native MediaWiki web request tracing through the optional tracing
+      relation, with configurable sampling and Juju topology included in trace
+      resources.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/332"
+    visibility: public
+    highlight: false
