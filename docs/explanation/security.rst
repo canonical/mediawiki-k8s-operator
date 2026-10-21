@@ -39,7 +39,7 @@ SimpleSAMLphp:
 
 - ``secretsalt`` — used for cryptographic operations
 
-The charm also generates an independent Shellbox authentication key for each unit, stored in a unit-owned Juju secret rather than synchronized between units. The ``rotate-mediawiki-secrets`` action rotates the application secrets listed above, but does not rotate the Shellbox authentication keys.
+The charm also generates an independent Shellbox authentication key for each unit, stored in a unit-owned Juju secret rather than synchronized between units. The ``rotate-secrets`` action rotates the application secrets listed above, but does not rotate the Shellbox authentication keys.
 
 .. _explanation_security_shellbox:
 

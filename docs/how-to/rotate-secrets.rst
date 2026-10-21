@@ -6,11 +6,11 @@
 How to rotate secrets
 =====================
 
-To rotate secrets managed by the MediaWiki charm, run the ``rotate-mediawiki-secrets`` Juju action on the leader unit:
+To rotate secrets managed by the MediaWiki charm, run the ``rotate-secrets`` Juju action on the leader unit:
 
 .. code-block:: bash
 
-   juju run mediawiki-k8s/leader rotate-mediawiki-secrets
+   juju run mediawiki-k8s/leader rotate-secrets
 
 After rotating secrets, session information may be lost. 
 

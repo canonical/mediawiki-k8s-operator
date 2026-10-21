@@ -264,7 +264,7 @@ class TestCredentialLifecycle:
         mocker.patch(
             "mediawiki_peers.MediaWikiPeers.rotate_secrets", autospec=True, side_effect=fail
         )
-        ctx.run(ctx.on.action("rotate-mediawiki-secrets"), state)
+        ctx.run(ctx.on.action("rotate-secrets"), state)
 
         output = _output(log_sink)
         assert credential not in output
@@ -293,7 +293,7 @@ class TestCredentialLifecycle:
             side_effect=lambda _: logging.getLogger("test").error("referenced-credential"),
         )
 
-        ctx.run(ctx.on.action("rotate-mediawiki-secrets"), state)
+        ctx.run(ctx.on.action("rotate-secrets"), state)
 
         assert "referenced-credential" not in _output(log_sink)
         assert "[REDACTED]" in _output(log_sink)
@@ -371,7 +371,7 @@ class TestCredentialLifecycle:
             base_state, secrets=[*base_state.secrets, secret], config={"ssh-key": secret.id}
         )
 
-        with ctx(ctx.on.action("rotate-mediawiki-secrets"), state) as manager:
+        with ctx(ctx.on.action("rotate-secrets"), state) as manager:
             logging.getLogger("ssh").error("ssh-key-payload")
             manager.run()
 
@@ -380,7 +380,7 @@ class TestCredentialLifecycle:
 
     def test_rotation_retains_old_and_new_values(self, ctx, base_state, log_sink):
         old_content = base_state.get_secret(label=Charm._REPLICA_SECRET_LABEL).latest_content
-        with ctx(ctx.on.action("rotate-mediawiki-secrets"), base_state) as manager:
+        with ctx(ctx.on.action("rotate-secrets"), base_state) as manager:
             manager.charm._peers.rotate_secrets()
             new_content = manager.charm.model.get_secret(
                 label=Charm._REPLICA_SECRET_LABEL
