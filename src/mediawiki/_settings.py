@@ -250,12 +250,26 @@ class _SettingsMixin(_MediaWikiBase):
         if endpoint is None:
             return "$wgOpenTelemetryConfig = null;\n"
         service_name = utils.escape_php_string(self._charm.app.name)
+        topology = {
+            "juju_model": self._charm.model.name,
+            "juju_model_uuid": self._charm.model.uuid,
+            "juju_application": self._charm.app.name,
+            "juju_unit": self._charm.unit.name,
+            "juju_charm": self._charm.meta.name,
+        }
+        resource_attributes = "".join(
+            f"    '{key}' => '{utils.escape_php_string(value)}',\n"
+            for key, value in topology.items()
+        )
         return (
             "$wgOpenTelemetryConfig = [\n"
             f"    'samplingProbability' => {config.tracing_sampling_probability},\n"
             f"    'serviceName' => '{service_name}',\n"
             f"    'endpoint' => '{utils.escape_php_string(endpoint)}',\n"
             "];\n"
+            "\\Wikimedia\\Telemetry\\OtlpHttpExporter::setResourceAttributes([\n"
+            f"{resource_attributes}"
+            "]);\n"
         )
 
     def _get_logging_settings(self, config: CharmConfig) -> str:
