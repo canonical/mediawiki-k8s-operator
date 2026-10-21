@@ -1,0 +1,17 @@
+version_schema: 2
+
+changes:
+  - title: Fixed PHP2Shell vulnerability in the MediaWiki and Shellbox images
+    author: DeeKay3
+    type: bugfix
+    description: >-
+      Rebuilt the MediaWiki and Shellbox images with the patched Ubuntu PHP
+      8.5 packages from USN-8948-1, which fix the PHP2Shell remote code
+      execution vulnerabilities (CVE-2026-109618, CVE-2026-109619). Image
+      builds now fail if they would include an unpatched PHP. Refresh existing
+      deployments to the new charm revision to pick up the fixed images.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/333"
+    visibility: public
+    highlight: true
