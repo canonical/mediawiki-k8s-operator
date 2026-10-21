@@ -13,16 +13,19 @@ Charm architecture
    :name: architecture-diagram
 
    flowchart LR
-      subgraph UnitLeader["Unit (*Leader*)"]
+      subgraph UnitLeader["Unit (*Leader*, one Kubernetes pod)"]
          direction TB
 
          CharmContainerL["Container: Charm"]
          MediaWikiContainerL["Container: MediaWiki"]
+         ShellboxContainerL["Container: Shellbox"]
          GitSyncContainerL["Container: git-sync"]
          AssetsL@{ shape: lin-cyl, label: "static-assets-repo<br/>(Filesystem storage)" }
 
          CharmContainerL -->|Control| MediaWikiContainerL
+         CharmContainerL -->|Control| ShellboxContainerL
          CharmContainerL -->|Control| GitSyncContainerL
+         MediaWikiContainerL -->|Authenticated HTTP<br/>over loopback| ShellboxContainerL
          GitSyncContainerL -.->|Sync to| AssetsL
          AssetsL -.->|Serve| MediaWikiContainerL
       end
@@ -30,16 +33,19 @@ Charm architecture
       MediaWikiReplicaRelation@{ shape: bow-rect, label: "mediawiki-replica<br/>(Peer relation)" }
       ReplicaSecret@{ shape: tag-doc, label: "replica-secret<br/>(Application secret)" }
 
-      subgraph Unit["Unit"]
+      subgraph Unit["Unit (one Kubernetes pod)"]
          direction TB
 
          CharmContainer["Container: Charm"]
          MediaWikiContainer["Container: MediaWiki"]
+         ShellboxContainer["Container: Shellbox"]
          GitSyncContainer["Container: git-sync"]
          Assets@{ shape: lin-cyl, label: "static-assets-repo<br/>(Filesystem storage)" }
 
          CharmContainer -->|Control| MediaWikiContainer
+         CharmContainer -->|Control| ShellboxContainer
          CharmContainer -->|Control| GitSyncContainer
+         MediaWikiContainer -->|Authenticated HTTP<br/>over loopback| ShellboxContainer
          GitSyncContainer -.->|Sync to| Assets
          Assets -.->|Serve| MediaWikiContainer
       end
@@ -59,26 +65,27 @@ The charm design leverages the `sidecar <https://kubernetes.io/blog/2015/06/the-
 
 Pebble is a lightweight, API-driven process supervisor that is responsible for configuring processes to run in a container and controlling those processes throughout the workload lifecycle.
 
-Pebble ``services`` are configured through `layers <https://github.com/canonical/pebble#layer-specification>`_, and the following containers each represent a layer forming the effective Pebble configuration, or ``plan``:
+Pebble ``services`` are configured through `layers <https://github.com/canonical/pebble#layer-specification>`_, which form the effective Pebble configuration, or ``plan``. Each workload container has its own Pebble instance and plan:
 
 1. :ref:`MediaWiki <reference_charm_architecture_containers_mediawiki>`, which serves the MediaWiki application.
-2. :ref:`GitSync <reference_charm_architecture_containers_git_sync>`, which handles optional synchronization of static assets from a git repository.
+2. :ref:`Shellbox <reference_charm_architecture_containers_shellbox>`, which executes commands for MediaWiki in a separate container.
+3. :ref:`GitSync <reference_charm_architecture_containers_git_sync>`, which handles optional synchronization of static assets from a git repository.
 
 As a result, if you run ``kubectl get pods`` on a namespace named for the Juju model you've deployed the MediaWiki charm into, you'll see something like the following:
 
 .. code-block:: bash
 
    NAME                             READY   STATUS    RESTARTS   AGE
-   mediawiki-k8s-0                  3/3     Running   0         6h4m
+   mediawiki-k8s-0                  4/4     Running   0         6h4m
 
-This shows there are three containers: MediaWiki, git-sync, and the charm operator.
+This shows there are four containers in the same pod: MediaWiki, Shellbox, git-sync, and the charm operator.
 
 Containers
 ----------
 
 .. _reference_charm_architecture_containers:
 
-The MediaWiki charm is driven by the :ref:`charm operator container <reference_charm_architecture_containers_charm>` that manages the workload sidecars. The core workload is the in the :ref:`MediaWiki container <reference_charm_architecture_containers_mediawiki>`. Supporting it is the :ref:`git-sync workload container <reference_charm_architecture_containers_git_sync>`, which can be optionally used for syncing static assets from a git repository. Both of these containers are managed by :doc:`Pebble <juju:reference/pebble>`.
+The MediaWiki charm is driven by the :ref:`charm operator container <reference_charm_architecture_containers_charm>` that manages the workload sidecars. The core workload is in the :ref:`MediaWiki container <reference_charm_architecture_containers_mediawiki>`. The :ref:`Shellbox container <reference_charm_architecture_containers_shellbox>` provides command execution, while the :ref:`git-sync container <reference_charm_architecture_containers_git_sync>` provides optional synchronization of static assets from a git repository. All three workload containers are managed by :doc:`Pebble <juju:reference/pebble>` and run alongside the charm operator in each unit's Kubernetes pod.
 
 .. vale Canonical.000-US-spellcheck = NO
 
@@ -87,25 +94,43 @@ The MediaWiki charm is driven by the :ref:`charm operator container <reference_c
 
    flowchart TD
       subgraph MediaWikiContainer["Container: MediaWiki"]
-         Pebble1["Pebble<br/>(Process supervisor)"]
+         direction TB
+         Pebble1["Pebble"]
          Apache@{ shape: subproc, label: "Apache Server<br/>(Serves MediaWiki)" }
          PhpFpm@{ shape: subproc, label: "PHP-FPM<br/>(PHP requests)" }
          JobRunner@{ shape: subproc, label: "Job Runner<br/>(Background tasks)" }
 
-         Pebble1 -->|Start/Manage| Apache
-         Pebble1 -->|Start/Manage| PhpFpm
+         Pebble1 -->|Manage| Apache
+         Pebble1 -->|Manage| PhpFpm
          Apache -->|Unix socket| PhpFpm
-         Pebble1 -->|Start/Manage| JobRunner
+         Pebble1 -->|Manage| JobRunner
       end
       
+      subgraph ShellboxContainer["Container: Shellbox"]
+         direction TB
+         Pebble3["Pebble"]
+         ShellboxApache@{ shape: subproc, label: "Apache Server<br/>(Loopback HTTP endpoint)" }
+         ShellboxPhpFpm@{ shape: subproc, label: "PHP-FPM<br/>(Shellbox requests)" }
+         ShellboxCommand@{ shape: subproc, label: "pygmentize<br/>(Syntax highlighting)" }
+         ShellboxExporter@{ shape: subproc, label: "Apache exporter<br/>(Metrics)" }
+
+         Pebble3 -->|Manage| ShellboxApache
+         Pebble3 -->|Manage| ShellboxPhpFpm
+         Pebble3 -->|Manage| ShellboxExporter
+         ShellboxApache -->|Unix socket| ShellboxPhpFpm
+         ShellboxPhpFpm -->|Execute| ShellboxCommand
+      end
+
       subgraph GitSyncContainer["Container: git-sync"]
-         Pebble2["Pebble<br/>(Process supervisor)"]
+         direction TB
+         Pebble2["Pebble"]
          GitSyncApp@{ shape: subproc, label: "git-sync<br/>(Repository sync)" }
 
-         Pebble2 -->|Start/Manage| GitSyncApp
+         Pebble2 -->|Manage| GitSyncApp
       end
       
       subgraph OperatorPlane["Container: Charm"]
+         direction TB
          CharmOp["MediaWiki Operator<br/>(Lifecycle manager)"]
       end
       
@@ -113,6 +138,9 @@ The MediaWiki charm is driven by the :ref:`charm operator container <reference_c
       
       CharmOp -->|Control| Pebble1
       CharmOp -->|Control| Pebble2
+      CharmOp -->|Control| Pebble3
+      PhpFpm -->|Authenticated HTTP<br/>over loopback| ShellboxApache
+      PhpFpm ~~~ Pebble3
       GitSyncApp -.->|Sync to| Assets
       Assets -.->|Serve| Apache
 
@@ -159,6 +187,28 @@ To allow for users to :ref:`install arbitrary extensions and skins <how_to_insta
 
 Similarly, the ``LocalSettings.php`` file is configured to allow inclusions from additional configuration files. This enables custom :ref:`user configurations <how_to_configure_mediawiki>` for the MediaWiki application, which is still also configured through a set of :ref:`charm managed settings <reference_charm_managed_settings>`. With this approach, the configuration files can be stored outside of the webroot for security hardening.
 
+The charm configures the `SyntaxHighlight <https://www.mediawiki.org/wiki/Extension:SyntaxHighlight>`_ extension to execute ``pygmentize`` through the :ref:`Shellbox container <reference_charm_architecture_containers_shellbox>`, rather than in the MediaWiki container.
+
+.. _reference_charm_architecture_containers_shellbox:
+
+Shellbox
+^^^^^^^^
+
+`Shellbox <https://www.mediawiki.org/wiki/Shellbox>`_ provides authenticated command execution outside the MediaWiki container. It runs as an independent workload container in every unit's pod, with its own filesystem and Pebble plan. It does not mount MediaWiki's cache or its static-assets storage.
+
+MediaWiki sends SyntaxHighlight command requests to ``http://127.0.0.1:8080/shellbox``. This endpoint listens only on ``127.0.0.1`` within the pod's shared network and it is not exposed through ingress or a relation to another application. The charm configures the ``syntaxhighlight`` entry in ``$wgShellboxUrls`` and sets ``$wgShellboxSecretKey`` in MediaWiki's ``LateSettings.php``. Other command types are not automatically routed to Shellbox. For more information about MediaWiki's integration with Shellbox, see the upstream `BoxedCommand documentation <https://www.mediawiki.org/wiki/Manual:BoxedCommand>`_.
+
+The charm generates a stable authentication key for each unit and stores it in a unit-owned Juju secret. This is separate from the application secret shared through the peer relation. In the Shellbox container, the key is passed to PHP-FPM through the root-only ``/etc/shellbox/key.conf`` file, rather than through the Pebble service environment.
+
+Pebble manages the following services in this container:
+
+* ``apache2`` serves the Shellbox HTTP endpoint and forwards PHP requests over ``/run/php/shellbox.sock``.
+* ``php-fpm`` runs Shellbox with unprivileged ``www-data`` workers, which execute commands such as ``pygmentize``. Command execution uses ``/tmp/shellbox`` as its temporary directory.
+* ``apache-exporter`` publishes metrics from the container's Apache server. The container also exposes PHP-FPM metrics. For more detail, read the :ref:`Metrics <reference_metrics>` page.
+
+The charm configures a Pebble readiness check on ``http://127.0.0.1:8080/shellbox/healthz``. On repeated check failures, the Apache and PHP-FPM services are restarted. Shellbox is reconciled before MediaWiki, and the unit waits if the charm cannot connect to the Shellbox container.
+
+
 .. _reference_charm_architecture_containers_git_sync:
 
 .. vale Canonical.007-Headings-sentence-case = NO
@@ -180,15 +230,20 @@ This container is the main point-of-contact with the Juju controller. It communi
 OCI images
 ----------
 
-We use :doc:`Rockcraft <rockcraft:index>` to build the OCI Image for the MediaWiki container.
-The image is defined in |mediawiki_rock_link|_. Here, we include :ref:`a set of extensions and skins <reference_included_extensions_and_skins>`, in addition to the ones that MediaWiki bundles by default.
+We use :doc:`Rockcraft <rockcraft:index>` to build the OCI images for the MediaWiki and Shellbox containers.
+The MediaWiki image is defined in |mediawiki_rock_link|_. Here, we include :ref:`a set of extensions and skins <reference_included_extensions_and_skins>`, in addition to those that MediaWiki bundles by default.
 
 .. |mediawiki_rock_link| replace:: ``mediawiki_rock/``
 .. _mediawiki_rock_link: https://github.com/canonical/mediawiki-k8s-operator/tree/main/mediawiki_rock
 
+The Shellbox image is defined in |shellbox_rock_link|_. It includes Shellbox, Apache, PHP-FPM, the Apache exporter, and the ``pygmentize`` command for syntax highlighting. The charm uses this image through the ``shellbox-image`` OCI resource.
+
+.. |shellbox_rock_link| replace:: ``shellbox_rock/``
+.. _shellbox_rock_link: https://github.com/canonical/mediawiki-k8s-operator/tree/main/shellbox_rock
+
 The ``git-sync`` container uses the `official git-sync image <https://github.com/kubernetes/git-sync>`_ with no modifications, other than the addition of Pebble.
 
-Both of these OCI images are published to `Charmhub <https://charmhub.io/>`_, the official repository for charms.
+All three workload OCI images are published to `Charmhub <https://charmhub.io/>`_, the official repository for charms.
 
 Learn more: :ref:`How to publish your charm on Charmhub <charmcraft:publish-a-charm>`
 
