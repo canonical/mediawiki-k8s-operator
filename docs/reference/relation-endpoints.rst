@@ -120,6 +120,28 @@ Example ``metrics-endpoint`` integrate command:
 
    Read more about the metrics provided by the MediaWiki charm on the :doc:`metrics reference documentation </reference/metrics>`.
 
+.. _reference_relation_endpoints_tracing:
+
+Tracing
+-------
+
+* **Interface**: ``tracing``
+* **Supported charms**: `opentelemetry-collector-k8s <https://charmhub.io/opentelemetry-collector-k8s>`_
+
+The optional ``tracing`` relation accepts one provider and requests an OTLP/HTTP
+receiver. MediaWiki's native tracer sends JSON trace data to that receiver's
+``/v1/traces`` path.
+
+HTTPS receivers use certificate verification against the workload's system trust
+store. For a private CA, use the
+:ref:`receive-ca-cert relation <reference_relation_endpoints_certificate_transfer>`.
+
+Example integration:
+
+.. code-block:: bash
+
+   juju integrate mediawiki-k8s:tracing opentelemetry-collector-k8s:receive-traces
+
 .. _reference_relation_endpoints_oauth:
 
 OAuth
