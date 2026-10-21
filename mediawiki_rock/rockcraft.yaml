@@ -7,7 +7,7 @@ description: MediaWiki OCI image for the MediaWiki charm
 base: ubuntu@26.04
 run-user: _daemon_
 license: GPL-3.0
-version: "1.0"
+version: "1.0.1"
 platforms:
   amd64:
 parts:

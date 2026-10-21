@@ -7,7 +7,7 @@ description: Shellbox sidecar runtime for MediaWiki command execution
 base: ubuntu@26.04
 run-user: _daemon_
 license: Apache-2.0
-version: "1.0"
+version: "1.0.1"
 platforms:
   amd64:
 
