@@ -3199,7 +3199,7 @@ class TestTracingSettings:
         tracing_relation: testing.Relation,
         probability: int | None,
     ) -> None:
-        """Render only the supported native keys and preserve configured percentages."""
+        """Render native tracing configuration with the unit's resource topology."""
         state = dataclasses.replace(
             active_state,
             relations=[*active_state.relations, tracing_relation],
@@ -3219,8 +3219,63 @@ class TestTracingSettings:
                 f"    'serviceName' => '{manager.charm.app.name}',\n"
                 "    'endpoint' => 'http://collector:4318/v1/traces',\n"
                 "];\n"
+                "\\Wikimedia\\Telemetry\\OtlpHttpExporter::setResourceAttributes([\n"
+                f"    'juju_model' => '{manager.charm.model.name}',\n"
+                f"    'juju_model_uuid' => '{manager.charm.model.uuid}',\n"
+                f"    'juju_application' => '{manager.charm.app.name}',\n"
+                f"    'juju_unit' => '{manager.charm.unit.name}',\n"
+                f"    'juju_charm' => '{manager.charm.meta.name}',\n"
+                "]);\n"
             )
             assert workload._get_tracing_settings(config) in late
+
+    @pytest.mark.parametrize(
+        ("model_name", "model_uuid", "app_name", "unit_id"),
+        [
+            ("testing", "11111111-1111-4111-8111-111111111111", "wiki", 0),
+            ("production", "22222222-2222-4222-8222-222222222222", "public-wiki", 7),
+        ],
+    )
+    def test_topology_uses_originating_unit(
+        self,
+        meta: dict,
+        active_state: testing.State,
+        tracing_relation: testing.Relation,
+        model_name: str,
+        model_uuid: str,
+        app_name: str,
+        unit_id: int,
+    ) -> None:
+        """Identify the sender independently of collector identity and deployment names."""
+        meta = meta.copy()
+        config = meta.pop("config", None)
+        actions = meta.pop("actions", None)
+        ctx = testing.Context(
+            WrapperCharm,
+            meta=meta,
+            config=config,
+            actions=actions,
+            app_name=app_name,
+            unit_id=unit_id,
+        )
+        state = dataclasses.replace(
+            active_state,
+            model=testing.Model(name=model_name, uuid=model_uuid),
+            relations=[*active_state.relations, tracing_relation],
+        )
+        with ctx(ctx.on.update_status(), state) as manager:
+            settings = manager.charm.mediawiki._get_tracing_settings(
+                manager.charm.load_charm_config()
+            )
+            assert (
+                "\\Wikimedia\\Telemetry\\OtlpHttpExporter::setResourceAttributes([\n"
+                f"    'juju_model' => '{model_name}',\n"
+                f"    'juju_model_uuid' => '{model_uuid}',\n"
+                f"    'juju_application' => '{app_name}',\n"
+                f"    'juju_unit' => '{app_name}/{unit_id}',\n"
+                "    'juju_charm' => 'mediawiki-k8s',\n"
+                "]);\n"
+            ) in settings
 
     def test_disabled_settings_override_user_settings(
         self, ctx: testing.Context, active_state: testing.State
@@ -3236,6 +3291,7 @@ class TestTracingSettings:
                 manager.charm.load_charm_config(), MediaWikiSecrets.generate()
             )
             assert "$wgOpenTelemetryConfig = null;\n" in workload._late_settings_file.read_text()
+            assert "setResourceAttributes" not in workload._late_settings_file.read_text()
             early = workload._local_settings_file.read_text()
             assert early.index(str(workload._user_settings_file)) < early.index(
                 str(workload._late_settings_file)
@@ -3305,6 +3361,7 @@ class TestTracingSettings:
             late = workload._late_settings_file.read_text()
             assert "$wgOpenTelemetryConfig = null;" in late
             assert "collector:4318" not in late
+            assert "setResourceAttributes" not in late
 
 
 class TestSettingsChangeDetection:

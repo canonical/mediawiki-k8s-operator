@@ -17,6 +17,8 @@ Each revision is versioned by the date of the revision.
 
 - Add native MediaWiki web request tracing through the optional ``tracing``
   relation, with configurable integer-percentage sampling.
+- Add originating Juju topology to trace resources through a patch to the
+  bundled MediaWiki exporter.
 
 2026-10-16
 ----------
