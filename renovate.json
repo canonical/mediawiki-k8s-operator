@@ -88,6 +88,9 @@
   "packageRules": [
     {
       "enabled": true,
+      "matchManagers": [
+        "github-actions"
+      ],
       "matchDatasources": [
         "github-tags"
       ],
