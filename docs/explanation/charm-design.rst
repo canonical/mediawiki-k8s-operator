@@ -87,6 +87,8 @@ Occasionally, the `database schema may need to be updated <https://www.mediawiki
 
 It is possible to do a database schema update `while the wiki is still online <https://www.mediawiki.org/wiki/Manual:Upgrading#Can_my_wiki_stay_online_while_it_is_upgrading?>`_, but it is recommended to ensure that the database is read-only during this operation. To achieve this, ``LocalSettings.php`` needs to be updated for all units. Given that :doc:`Juju actions <juju:reference/action>` are run on a single unit and in a synchronous manner, signaling using :ref:`peer relations <juju:peer-relation>` is required.
 
+.. vale off
+
 .. mermaid::
    :name: update-database-diagram
 
@@ -126,6 +128,8 @@ It is possible to do a database schema update `while the wiki is still online <h
    Replicas->>-Replicas: Reconciliation<br/>Set wiki to read-write
    Replicas->>PR: unit operation_mode = "normal"
 
+.. vale on
+
 Instead of directly running the database update maintenance script, the ``update-database`` action sets the workload mode in the peer relation application data to ``database-update``. All units, including the leader, react to this event by configuring themselves to enter a read-only mode before publishing the applied workload mode in their peer relation unit data.
 
 The leader only proceeds with the database update once every unit reports the requested workload mode. Following the database update, it sets the application workload mode to ``normal``. Each unit then exits read-only mode and reports ``normal`` in its unit data.
@@ -138,9 +142,11 @@ Composer and local settings
 
 MediaWiki extensions and skins can be installed with `Composer <https://getcomposer.org/>`_, a PHP dependency manager. The charm manages this through a ``composer.user.json`` file, which is written into the MediaWiki installation directory and merged with the base MediaWiki composer configurations. When libraries are configured by the operator, Composer resolves and installs them.
 
-In a multi-unit deployment, all units must run with identical Composer packages. If each unit independently resolved dependencies, different units could end up on different package versions, potentially leading to inconsistent behavior. To avoid this, the charm ensures that only the leader resolves dependencies (``composer update``) while all other units install exactly what the leader resolved (``composer install`` against the leader-published lock file).
+In a multi-unit deployment, units should converge to identical Composer packages. If each unit independently resolved dependencies, different units could end up on different package versions, potentially leading to inconsistent behavior. Normally, only the leader resolves dependencies (``composer update``) while all other units install exactly what the leader resolved (``composer install`` against the leader-published lock file). Empty replacement workloads have a narrowly scoped recovery exception, described below.
 
-The charm also synchronizes the user-provided ``LocalSettings.php`` content across units. The leader publishes a state hash alongside the Composer lock file. This hash combines the configured Composer dependencies and local settings, allowing non-leader units to verify that their configuration matches the state used to produce the published lock before they reconcile. If it does not match, they enter ``WaitingStatus`` until the leader publishes state for the new configuration.
+The charm also synchronizes the user-provided ``LocalSettings.php`` content across units. The leader publishes a state hash alongside the Composer lock file. This hash combines the configured Composer dependencies and local settings, allowing non-leader units to verify that their configuration matches the state used to produce the published lock before they reconcile. Unless eligible for recovery, they enter ``WaitingStatus`` if it does not match, until the leader publishes state for the new configuration.
+
+.. vale off
 
 .. mermaid::
    :name: composer-sync-diagram
@@ -155,7 +161,10 @@ The charm also synchronizes the user-provided ``LocalSettings.php`` content acro
    rect rgb(245, 245, 245)
    Note over PR,PrePublishReplica: Replica reconciles before leader has published
    PR->>PrePublishReplica: composer_lock + state_hash (absent)
-   break Leader has not yet published
+   alt Eligible empty replacement workload
+      PrePublishReplica->>PrePublishReplica: composer update using local config<br/>Write settings and start web services
+      Note over PR,PrePublishReplica: App lock and hash remain leader-owned
+   else Existing coordination applies
       PrePublishReplica-->>PrePublishReplica: WaitingStatus<br/>(retries on the next event)
    end
    end
@@ -170,20 +179,44 @@ The charm also synchronizes the user-provided ``LocalSettings.php`` content acro
 
    PR->>Replicas: composer_lock + state_hash
    alt local state differs from published state
-      Replicas-->>Replicas: WaitingStatus
+      alt Eligible empty replacement workload
+         Replicas->>Replicas: composer update using local config<br/>Write settings and start web services
+      else Existing coordination applies
+         Replicas-->>Replicas: WaitingStatus
+      end
    else Composer files differ from peer data
       Replicas->>Replicas: write composer.user.json + composer.lock<br/>(from peer data)
       Replicas->>Replicas: composer install<br/>(installs exact versions from lock)
    end
 
+.. vale on
+
 This process is designed according to the following principles:
 
-- **Leader as single source of truth**: Only the leader unit runs ``composer update``, which resolves and pins dependency versions. This prevents version drift between units. The resulting ``composer.lock`` is treated as the authoritative dependency manifest.
+- **Leader as single source of truth**: Normally, only the leader unit runs ``composer update``, which resolves and pins dependency versions. Its resulting ``composer.lock`` remains the authoritative dependency manifest, including after temporary independent recovery.
 - **The leader always publishes the lock and state hash**: At the end of every reconciliation the leader reads ``composer.lock`` and publishes it with a hash of the configured Composer dependencies and local settings, even when ``composer update`` was skipped. This ensures that non-leaders can verify that the lock belongs to their current configuration.
-- **The lock matches the config**: Non-leader units only proceed when their Composer and local-settings configuration matches the state hash published by the leader. This prevents a race condition that could otherwise result in a mismatch between the configuration and lock file on replicas.
-- **Non-leaders installs from the lock**: Non-leader units write the leader-published lock file to disk *before* invoking Composer. This means that Composer installs exactly the packages and versions already resolved by the leader, regardless of what the current charm config resolves to independently.
+- **The lock matches the config**: Outside the recovery exception, non-leader units only proceed when their Composer and local-settings configuration matches the state hash published by the leader. Recovery resolves dependencies locally rather than combining new settings with an incompatible old leader lock.
+- **Non-leaders install from the lock**: Outside the recovery exception, non-leader units write the leader-published lock file to disk *before* invoking Composer. This means that Composer installs exactly the packages and versions already resolved by the leader, regardless of what the current charm config resolves to independently.
 - **Idempotent skipping without halting reconciliation**: Before running Composer, each unit checks whether its on-disk state already matches the desired state. Leaders skip when ``composer.user.json`` matches the current config, while non-leaders skip when both ``composer.user.json`` and ``composer.lock`` match what the leader published. Skipping only short-circuits the Composer step, so the rest of the reconciliation still runs. A stale or missing lock on a non-leader will always trigger a re-install.
-- **Non-leaders wait if state is unavailable or stale**: If the leader has not yet published a lock and matching state hash, or if a non-leader's configuration differs from the published state, it aborts reconciliation and enters ``WaitingStatus`` rather than attempting to resolve dependencies itself.
+- **Configured or running non-leaders wait if state is unavailable or stale**: If the leader has not yet published a lock and matching state hash, or if a non-leader's configuration differs from the published state, it aborts reconciliation and enters ``WaitingStatus`` rather than attempting to resolve dependencies itself. Running web services remain available while the unit waits at this gate.
+
+Recovery of empty replacement workloads
+"""""""""""""""""""""""""""""""""""""""
+
+During a refresh, workload containers can be replaced before the leader reconciles a concurrent configuration change. If all non-leaders wait without starting their replacement workloads, refreshing the leader last can leave no unit serving the wiki.
+
+To reduce this availability gap, a non-leader may reconcile independently when the leader's state hash is missing or stale, but only if all these conditions hold:
+
+- The application operation mode is ``normal``.
+- Neither ``LocalSettings.php`` nor ``composer.user.json`` exists in the workload container.
+- Neither the MediaWiki nor PHP-FPM service is running.
+- The shared database is already initialized.
+
+The unit still requires its peer relation, shared secrets, and ready workload relations. Recovery uses the leader-style Composer update path with the current local configuration, generates settings, rebuilds the localisation cache, and starts web services. Composer retains its normal skip behavior when the user configuration is empty. Recovery does not publish an application lock or hash, change the requested operation mode, or upgrade the database schema.
+
+Dependency versions may temporarily differ from those on other units. Once the leader publishes a matching hash and lock, the recovered unit installs that authoritative lock through normal reconciliation. If synchronized leader inputs are already available, even an empty workload uses the normal install path instead.
+
+This exception does not apply to first installation, configured but stopped workloads, running workloads, or maintenance, database-update, and forced-reconciliation modes. Once a unit has written either its user Composer configuration or settings, it no longer qualifies for independent recovery. The Composer configuration is written before the command runs, so even a failed Composer attempt prevents another independent attempt. Subsequent reconciliation waits for synchronized leader inputs before using the normal install path. Recovery errors surface through the existing blocked or waiting statuses. This behavior reduces one refresh-related availability gap, but does not guarantee uninterrupted service across incompatible image, extension, or database-schema changes.
 
 Localisation cache
 ^^^^^^^^^^^^^^^^^^

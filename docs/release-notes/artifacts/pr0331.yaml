@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Reduced upgrade-related downtime during peer synchronization
+    author: hk21702
+    type: bugfix
+    description: >-
+      Allowed non-leader units to reconcile independently in eligible
+      upgrade scenarios while waiting for peer-synced configuration, reducing
+      the chance of MediaWiki downtime during charm refreshes.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/331"
+    visibility: public
+    highlight: false

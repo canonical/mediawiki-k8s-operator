@@ -2514,6 +2514,275 @@ class TestComposerLockSync:
         """Pretend the database is already initialized so _install() is never entered."""
         mock_database_cursor.fetchone.return_value = ("installed_flag",)
 
+    @pytest.mark.parametrize("leader_inputs", ["stale", "no-hash", "neither"])
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {},
+            {"composer": '{"require": {"mediawiki/example": "^1.0"}}'},
+            {"local-settings": "<?php\n$wgSitename = 'Changed';\n"},
+        ],
+    )
+    def test_non_leader_refresh_recovers_before_leader_publication(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        mocker: MockerFixture,
+        leader_inputs: str,
+        config: dict,
+    ) -> None:
+        """An empty replacement starts serving before the leader reconciles new config."""
+        app_data = {}
+        if leader_inputs in ("stale", "no-hash"):
+            app_data[mediawiki_peers.MediaWikiPeers.COMPOSER_LOCK_KEY] = MOCK_COMPOSER_LOCK
+        if leader_inputs == "stale":
+            app_data[mediawiki_peers.MediaWikiPeers.LEADER_STATE_HASH_KEY] = "stale"
+        relation = dataclasses.replace(mediawiki_replica_relation, local_app_data=app_data)
+        state_in = dataclasses.replace(
+            configured_state,
+            leader=False,
+            config=config,
+            relations=[
+                relation,
+                *(item for item in configured_state.relations if item.id != relation.id),
+            ],
+        )
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            assert not mediawiki._local_settings_file.exists()
+            composer = mocker.spy(mediawiki, "_run_cli")
+            assert mediawiki.reconciliation() is OperationMode.NORMAL
+            assert mediawiki._local_settings_file.exists()
+            assert any(
+                call.args[0] == list(ExecCmd.COMPOSER_UPDATE.value)
+                for call in composer.call_args_list
+            ) == bool(json.loads(config.get("composer", "{}")))
+            state_out = mgr.run()
+
+        container = state_out.get_container(Charm._CONTAINER_NAME)
+        for service in (MediaWiki._SERVICE_NAME, MediaWiki._PHP_FPM_SERVICE_NAME):
+            assert container.service_statuses[service] == pebble.ServiceStatus.ACTIVE
+        assert state_out.get_relation(relation.id).local_app_data == app_data
+
+    def test_non_leader_refresh_waits_for_missing_lock_with_matching_hash(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        mocker: MockerFixture,
+    ) -> None:
+        """A missing lock alone must not opt an empty workload into local resolution."""
+        state_in = dataclasses.replace(configured_state, leader=False)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            peer_state = dataclasses.replace(
+                mediawiki._peers.reconciliation_state(),
+                leader_state_hash=mgr.charm.load_charm_config().state_hash,
+                composer_lock=None,
+            )
+            mocker.patch.object(
+                mediawiki._peers, "reconciliation_state", autospec=True, return_value=peer_state
+            )
+            with pytest.raises(MediaWikiWaitingStatusException, match="composer lock"):
+                mediawiki.reconciliation()
+            assert not mediawiki._user_composer_file.exists()
+            assert not mediawiki._local_settings_file.exists()
+
+    @pytest.mark.parametrize(
+        ("existing_file", "running_service"),
+        [("settings", None), ("composer", None), (None, "mediawiki"), (None, "php-fpm")],
+    )
+    def test_non_leader_refresh_keeps_configured_or_running_units_gated(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        existing_file: str | None,
+        running_service: str | None,
+        mocker: MockerFixture,
+    ) -> None:
+        """Recovery requires missing settings and Composer config with stopped web services."""
+        state_in = dataclasses.replace(configured_state, leader=False)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            if existing_file == "settings":
+                mediawiki._local_settings_file.write_text("<?php\n")
+            elif existing_file == "composer":
+                mediawiki._user_composer_file.write_text("{}")
+            elif running_service is not None:
+                mediawiki._container.add_layer(
+                    "existing",
+                    {"services": {running_service: {"command": "unused", "startup": "disabled"}}},
+                )
+                mediawiki._container.start(running_service)
+            composer = mocker.spy(mediawiki, "_composer_reconciliation")
+            with pytest.raises(MediaWikiWaitingStatusException, match="local settings"):
+                mediawiki.reconciliation()
+            composer.assert_not_called()
+            if running_service is not None:
+                assert mediawiki._container.get_service(running_service).is_running()
+
+    @pytest.mark.parametrize(
+        "mode",
+        [
+            OperationMode.MAINTENANCE,
+            OperationMode.DATABASE_UPDATE,
+            OperationMode.FORCE_RECONCILIATION,
+        ],
+    )
+    def test_non_leader_refresh_preserves_coordinated_modes(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        mode: OperationMode,
+        mocker: MockerFixture,
+    ) -> None:
+        """An empty workload must not bypass an application-wide operation."""
+        state_in = dataclasses.replace(configured_state, leader=False)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            peer_state = dataclasses.replace(
+                mediawiki._peers.reconciliation_state(), operation_mode=mode
+            )
+            mocker.patch.object(
+                mediawiki._peers, "reconciliation_state", autospec=True, return_value=peer_state
+            )
+            composer = mocker.spy(mediawiki, "_composer_reconciliation")
+            with pytest.raises(MediaWikiWaitingStatusException, match="local settings"):
+                mediawiki.reconciliation()
+            composer.assert_not_called()
+
+    @pytest.mark.parametrize("prerequisite", ["installation", "database", "peers", "secrets"])
+    def test_non_leader_refresh_requires_existing_prerequisites(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        mock_database_cursor: MockType,
+        mock_database: MockType,
+        prerequisite: str,
+        mocker: MockerFixture,
+    ) -> None:
+        """Bootstrap cannot bypass installation, relation, or secret requirements."""
+        state_in = dataclasses.replace(configured_state, leader=False)
+        if prerequisite == "installation":
+            mock_database_cursor.fetchone.return_value = None
+        elif prerequisite == "database":
+            mock_database.is_relation_ready.return_value = False
+        elif prerequisite == "peers":
+            state_in = dataclasses.replace(
+                state_in,
+                relations=[r for r in state_in.relations if r.endpoint != "mediawiki-replica"],
+            )
+        else:
+            state_in = dataclasses.replace(state_in, secrets=[])
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            composer = mocker.spy(mediawiki, "_composer_reconciliation")
+            with pytest.raises((MediaWikiBlockedStatusException, MediaWikiWaitingStatusException)):
+                mediawiki.reconciliation()
+            composer.assert_not_called()
+
+    def test_non_leader_refresh_converges_to_leader_lock(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        mediawiki_replica_relation: testing.PeerRelation,
+        mocker: MockerFixture,
+    ) -> None:
+        """Recovery is temporary; a running replica later installs the authoritative lock."""
+        state_in = dataclasses.replace(configured_state, leader=False)
+        leader_lock = '{"packages": [], "_readme": ["Authoritative lock"]}'
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            cli = mocker.spy(mediawiki, "_run_cli")
+            mediawiki.reconciliation()
+            assert mediawiki._container.get_service("mediawiki").is_running()
+
+            cli.reset_mock()
+            with pytest.raises(MediaWikiWaitingStatusException, match="local settings"):
+                mediawiki.reconciliation()
+            assert not any(
+                call.args[0] == list(ExecCmd.COMPOSER_UPDATE.value) for call in cli.call_args_list
+            )
+            assert mediawiki._container.get_service("mediawiki").is_running()
+
+            peer_state = dataclasses.replace(
+                mediawiki._peers.reconciliation_state(),
+                composer_lock=leader_lock,
+                leader_state_hash=mgr.charm.load_charm_config().state_hash,
+            )
+            mocker.patch.object(
+                mediawiki._peers, "reconciliation_state", autospec=True, return_value=peer_state
+            )
+            mediawiki.reconciliation()
+            assert mediawiki._composer_lock_file.read_text() == leader_lock
+            assert any(
+                call.args[0] == list(ExecCmd.COMPOSER_INSTALL.value) for call in cli.call_args_list
+            )
+            assert not any(
+                call.args[0] == list(ExecCmd.COMPOSER_UPDATE.value) for call in cli.call_args_list
+            )
+            assert not mediawiki.localisation_rebuild_pending()
+            for service in ("mediawiki", "php-fpm"):
+                assert mediawiki._container.get_service(service).is_running()
+            state_out = mgr.run()
+
+        assert state_out.get_relation(mediawiki_replica_relation.id).local_app_data == {}
+
+    def test_non_leader_refresh_waits_for_leader_after_failed_local_resolution(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        mocker: MockerFixture,
+    ) -> None:
+        """A failed recovery waits for leader state instead of retrying local resolution."""
+        state_in = dataclasses.replace(configured_state, leader=False)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            real_run_cli = mediawiki._run_cli
+
+            def fail_composer(command, **kwargs):
+                if command == list(ExecCmd.COMPOSER_UPDATE.value):
+                    return CommandExecResult(
+                        return_code=1, stdout="", stderr="Composer resolution failed"
+                    )
+                return real_run_cli(command, **kwargs)
+
+            cli = mocker.patch.object(
+                mediawiki,
+                "_run_cli",
+                autospec=True,
+                side_effect=fail_composer,
+            )
+            with pytest.raises(MediaWikiBlockedStatusException, match="Composer update failed"):
+                mediawiki.reconciliation()
+            assert "_charm_error" in json.loads(mediawiki._user_composer_file.read_text())
+            assert not mediawiki._local_settings_file.exists()
+
+            cli.side_effect = real_run_cli
+            cli.reset_mock()
+            with pytest.raises(MediaWikiWaitingStatusException, match="local settings"):
+                mediawiki.reconciliation()
+            assert not any(
+                call.args[0] == list(ExecCmd.COMPOSER_UPDATE.value) for call in cli.call_args_list
+            )
+            assert "_charm_error" in json.loads(mediawiki._user_composer_file.read_text())
+            assert not mediawiki._local_settings_file.exists()
+
+            peer_state = dataclasses.replace(
+                mediawiki._peers.reconciliation_state(),
+                composer_lock=MOCK_COMPOSER_LOCK,
+                leader_state_hash=mgr.charm.load_charm_config().state_hash,
+            )
+            mocker.patch.object(
+                mediawiki._peers, "reconciliation_state", autospec=True, return_value=peer_state
+            )
+            mediawiki.reconciliation()
+            assert "_charm_error" not in json.loads(mediawiki._user_composer_file.read_text())
+            assert mediawiki._container.get_service("mediawiki").is_running()
+            assert any(
+                call.args[0] == list(ExecCmd.COMPOSER_INSTALL.value) for call in cli.call_args_list
+            )
+
     def test_leader_update_returns_lock_content(
         self,
         ctx: testing.Context,
@@ -2562,6 +2831,7 @@ class TestComposerLockSync:
             ctx(ctx.on.update_status(), state_in) as mgr,
             pytest.raises(MediaWikiWaitingStatusException, match="local settings"),
         ):
+            mgr.charm.mediawiki._local_settings_file.write_text("<?php\n")
             mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
     @pytest.mark.parametrize(
@@ -2590,6 +2860,7 @@ class TestComposerLockSync:
             ctx(ctx.on.update_status(), state_in) as mgr,
             pytest.raises(MediaWikiWaitingStatusException, match="local settings"),
         ):
+            mgr.charm.mediawiki._local_settings_file.write_text("<?php\n")
             mgr.charm.mediawiki._reconcile_configuration(
                 make_mediawiki_peer_state(
                     composer_lock=MOCK_COMPOSER_LOCK,
@@ -2609,6 +2880,7 @@ class TestComposerLockSync:
             ctx(ctx.on.update_status(), state_in) as mgr,
             pytest.raises(MediaWikiWaitingStatusException, match="composer lock"),
         ):
+            mgr.charm.mediawiki._local_settings_file.write_text("<?php\n")
             mgr.charm.mediawiki._reconcile_configuration(
                 make_mediawiki_peer_state(
                     leader_state_hash=mgr.charm.load_charm_config().state_hash,
@@ -3405,25 +3677,37 @@ class TestSettingsChangeDetection:
 class TestComposerChangeDetection:
     """Tests for the "composer ran" indicator returned by composer reconciliation."""
 
-    def test_leader_reports_run_when_config_changes(
-        self, ctx: testing.Context, active_state: testing.State
+    @pytest.mark.parametrize("leader", [True, False])
+    def test_local_resolution_reports_run_when_config_changes(
+        self, ctx: testing.Context, active_state: testing.State, leader: bool
     ) -> None:
-        """Test that a leader composer run (new composer config) is reported."""
-        with ctx(ctx.on.update_status(), active_state) as mgr:
+        """The caller can request local resolution regardless of leadership."""
+        state_in = dataclasses.replace(active_state, leader=leader)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
             ran = mgr.charm.mediawiki._composer_reconciliation(
-                {"require": {"mediawiki/semantic-media-wiki": "^3.2"}}
+                {"require": {"mediawiki/semantic-media-wiki": "^3.2"}},
+                update_dependencies=True,
             )
 
         assert ran is True
+        history = ctx.exec_history.get(Charm._CONTAINER_NAME, [])
+        assert ExecCmd.COMPOSER_UPDATE.ran_in(history)
+        assert not ExecCmd.COMPOSER_INSTALL.ran_in(history)
 
-    def test_leader_skip_reports_no_run(
-        self, ctx: testing.Context, active_state: testing.State
+    @pytest.mark.parametrize("leader", [True, False])
+    def test_local_resolution_skip_reports_no_run(
+        self, ctx: testing.Context, active_state: testing.State, leader: bool
     ) -> None:
-        """Test that a repeated leader composer reconciliation is skipped and not reported."""
+        """Repeated local resolution skips matching config regardless of leadership."""
         composer_json = {"require": {"mediawiki/semantic-media-wiki": "^3.2"}}
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            first = mgr.charm.mediawiki._composer_reconciliation(composer_json)
-            second = mgr.charm.mediawiki._composer_reconciliation(composer_json)
+        state_in = dataclasses.replace(active_state, leader=leader)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            first = mgr.charm.mediawiki._composer_reconciliation(
+                composer_json, update_dependencies=True
+            )
+            second = mgr.charm.mediawiki._composer_reconciliation(
+                composer_json, update_dependencies=True
+            )
 
         assert first is True
         assert second is False
@@ -3434,35 +3718,52 @@ class TestComposerChangeDetection:
         )
         assert composer_runs == 1, "Expected the second reconciliation to skip composer update"
 
-    def test_non_leader_reports_run_on_new_lock(
-        self, ctx: testing.Context, active_state: testing.State
+    @pytest.mark.parametrize("leader", [True, False])
+    def test_install_reports_run_on_new_lock(
+        self, ctx: testing.Context, active_state: testing.State, leader: bool
     ) -> None:
-        """Test that a non-leader composer install on a new lock is reported."""
-        state_in = dataclasses.replace(active_state, leader=False)
+        """The caller can request install regardless of leadership."""
+        state_in = dataclasses.replace(active_state, leader=leader)
         with ctx(ctx.on.update_status(), state_in) as mgr:
             ran = mgr.charm.mediawiki._composer_reconciliation(
                 {"require": {"mediawiki/semantic-media-wiki": "^3.2"}},
+                update_dependencies=False,
                 lock_content='{"changed": "lock"}',
             )
 
         assert ran is True
+        history = ctx.exec_history.get(Charm._CONTAINER_NAME, [])
+        assert ExecCmd.COMPOSER_INSTALL.ran_in(history)
+        assert not ExecCmd.COMPOSER_UPDATE.ran_in(history)
 
-    def test_non_leader_skip_reports_no_run(
-        self, ctx: testing.Context, active_state: testing.State
+    @pytest.mark.parametrize("leader", [True, False])
+    def test_install_skip_reports_no_run(
+        self, ctx: testing.Context, active_state: testing.State, leader: bool
     ) -> None:
-        """Test that a repeated non-leader reconciliation with an unchanged lock is skipped."""
+        """Repeated install skips matching config and lock regardless of leadership."""
         composer_json = {"require": {"mediawiki/semantic-media-wiki": "^3.2"}}
-        state_in = dataclasses.replace(active_state, leader=False)
+        state_in = dataclasses.replace(active_state, leader=leader)
         with ctx(ctx.on.update_status(), state_in) as mgr:
             first = mgr.charm.mediawiki._composer_reconciliation(
-                composer_json, lock_content=MOCK_COMPOSER_LOCK
+                composer_json, update_dependencies=False, lock_content=MOCK_COMPOSER_LOCK
             )
             second = mgr.charm.mediawiki._composer_reconciliation(
-                composer_json, lock_content=MOCK_COMPOSER_LOCK
+                composer_json, update_dependencies=False, lock_content=MOCK_COMPOSER_LOCK
             )
 
         assert first is True
         assert second is False
+
+    @pytest.mark.parametrize("leader", [True, False])
+    def test_install_requires_lock(
+        self, ctx: testing.Context, active_state: testing.State, leader: bool
+    ) -> None:
+        """Install requires a supplied lock even when invoked on the leader."""
+        state_in = dataclasses.replace(active_state, leader=leader)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            with pytest.raises(MediaWikiWaitingStatusException, match="composer lock"):
+                mgr.charm.mediawiki._composer_reconciliation({}, update_dependencies=False)
+            assert not mgr.charm.mediawiki._user_composer_file.exists()
 
 
 class TestCacheDirectory:

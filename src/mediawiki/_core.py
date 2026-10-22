@@ -218,6 +218,9 @@ class MediaWiki(
         published to peers before the localisation cache is rebuilt, so that secondary units
         aren't blocked on this potentially slow rebuild before they can start reconciling.
 
+        Empty non-leader workloads of an initialized wiki may bootstrap in normal mode
+        without synchronized leader inputs, then adopt the authoritative lock later.
+
         Args:
             peer_state: The current state of the MediaWiki peer relation.
             ssh_key: An optional SSH key for accessing private repositories.
@@ -257,7 +260,19 @@ class MediaWiki(
         self._ensure_static_assets_symlink()
         self._ssh_config_reconciliation(config, ssh_key)
 
-        if not self._charm.unit.is_leader() and peer_state.leader_state_hash != config.state_hash:
+        is_leader = self._charm.unit.is_leader()
+        leader_state_stale = peer_state.leader_state_hash != config.state_hash
+        bootstrap = (
+            not is_leader
+            and leader_state_stale
+            and self._can_recover_without_leader_state(peer_state.operation_mode)
+        )
+        if bootstrap:
+            logger.warning(
+                "Bootstrapping an empty non-leader workload with local dependency resolution; "
+                "the unit will adopt the leader's lock once synchronized"
+            )
+        if not is_leader and leader_state_stale and not bootstrap:
             # To prevent any races, we need to ensure that the state we want to reconcile towards is compatible
             # with the composer lock that we were provided by the leader. If we don't match, we should wait for the leader
             # to reconcile, and potentially update the shared composer lock.
@@ -267,6 +282,7 @@ class MediaWiki(
 
         composer_ran = self._composer_reconciliation(
             config.composer,
+            update_dependencies=is_leader or bootstrap,
             lock_content=peer_state.composer_lock,
             force=force,
         )
@@ -290,7 +306,7 @@ class MediaWiki(
             maintenance_message=peer_state.maintenance_message,
         )
 
-        if self._charm.unit.is_leader():
+        if is_leader:
             if not self._composer_lock_file.exists():
                 raise MediaWikiBlockedStatusException("Unable to fetch Composer lock file.")
             self._peers.publish_state(self._composer_lock_file.read_text())
@@ -303,6 +319,27 @@ class MediaWiki(
             composer_ran,
             force=force,
         )
+
+    def _can_recover_without_leader_state(self, mode: OperationMode) -> bool:
+        """Allow recovery without synchronized leader state only for a pristine workload.
+
+        This is to prevent wiki downtime where a refresh is done at the same time as a
+        modification to synced components, and the leader is the last to refresh,
+        potentially resulting in downtime.
+        """
+        if (
+            mode is not OperationMode.NORMAL
+            or self._local_settings_file.exists()
+            or self._user_composer_file.exists()
+        ):
+            return False
+        services = self._container.get_plan().services
+        if any(
+            service in services and self._container.get_service(service).is_running()
+            for service in (self._SERVICE_NAME, self._PHP_FPM_SERVICE_NAME)
+        ):
+            return False
+        return self._is_database_initialized()
 
     def _php_fpm_environment(self) -> dict[str, str]:
         """Build the FPM master environment that sizes the pool shipped in the rock."""
