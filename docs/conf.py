@@ -391,6 +391,7 @@ intersphinx_mapping = {
     "juju": ("https://documentation.ubuntu.com/juju/3.6/", None),
     "observability": ("https://documentation.ubuntu.com/observability/track-2/", None),
     "mysql": ("https://documentation.ubuntu.com/charmed-mysql/8.0/", None),
+    "valkey": ("https://canonical-charmed-valkey.readthedocs-hosted.com/latest/", None),
 }
 
 # We recommend adding the following config value.

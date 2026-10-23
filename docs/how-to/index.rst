@@ -29,14 +29,15 @@ basic operations you can complete with the charm.
     Rotate secrets <rotate-secrets>
     Use static assets <use-static-assets>
 
-Upgrade
--------
+Update and refresh
+------------------
 
-The following guide provides instructions on upgrading your deployment.
+Redeployments and upgrades ensure the MediaWiki charm stays current and benefits from new features and capabilities.
 
 .. toctree::
     :maxdepth: 1
 
+    Redeploy <redeploy>
     Upgrade <upgrade>
 
 Development

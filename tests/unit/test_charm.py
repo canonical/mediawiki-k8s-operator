@@ -23,7 +23,7 @@ from mediawiki_api import SiteInfo
 from mediawiki_peers import MediaWikiPeers
 from state import CharmConfig
 from tests.unit.conftest import MOCK_COMPOSER_LOCK
-from types_ import CommandExecResult, OperationMode
+from types_ import CommandExecResult, DatabaseConfig, DatabaseEndpoint, OperationMode
 
 
 @pytest.fixture(autouse=True)
@@ -2202,10 +2202,56 @@ class TestComposerLockPeerSync:
 
     Note: The actual leader-publishes/non-leader-consumes composer lock logic lives entirely
     inside `MediaWiki._reconcile_configuration`, and is exercised with the real (non-mocked)
-    workload in `tests/unit/test_mediawiki.py::TestComposerLockSync`. The tests here only cover
-    the charm's boundary behaviour: how `MediaWikiWaitingStatusException` from reconciliation
-    surfaces as unit status, and that the charm does not itself pass Composer state as kwargs.
+    workload in `tests/unit/test_mediawiki.py::TestComposerLockSync`. Most tests here cover
+    status propagation and argument forwarding; refresh recovery uses the real workload.
     """
+
+    def test_non_leader_refresh_bootstraps_on_pebble_ready(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        mediawiki_container: testing.Container,
+        mediawiki_replica_relation: testing.PeerRelation,
+        mocker: MockerFixture,
+    ) -> None:
+        """The actual charm event starts an empty replica despite stale leader state."""
+        mocker.patch("charm.MediaWiki", WorkloadMediaWiki)
+        mocker.patch.object(
+            WorkloadMediaWiki, "_is_database_initialized", autospec=True, return_value=True
+        )
+        mocker.patch("charm.Database.is_relation_ready", autospec=True, return_value=True)
+        mocker.patch(
+            "charm.Database.get_relation_data",
+            autospec=True,
+            return_value=DatabaseConfig(
+                endpoints=(DatabaseEndpoint.from_string("database:3306"),),
+                database="wiki",
+                username="wiki",
+                password="test-password",  # nosec: B106
+            ),
+        )
+        relation = dataclasses.replace(
+            mediawiki_replica_relation,
+            local_app_data={
+                MediaWikiPeers.COMPOSER_LOCK_KEY: MOCK_COMPOSER_LOCK,
+                MediaWikiPeers.LEADER_STATE_HASH_KEY: "stale",
+            },
+        )
+        state_in = dataclasses.replace(
+            configured_state,
+            leader=False,
+            relations=[
+                relation,
+                *(r for r in configured_state.relations if r.id != relation.id),
+            ],
+        )
+        state_out = ctx.run(ctx.on.pebble_ready(mediawiki_container), state_in)
+
+        assert state_out.unit_status == ops.ActiveStatus()
+        container = state_out.get_container(Charm._CONTAINER_NAME)
+        for service in ("mediawiki", "php-fpm"):
+            assert container.service_statuses[service] == pebble.ServiceStatus.ACTIVE
+        assert state_out.get_relation(relation.id).local_app_data == relation.local_app_data
 
     def test_non_leader_waits_when_lock_not_in_peer_data(
         self,

@@ -1,0 +1,16 @@
+# Version of the artifact schema
+version_schema: 2
+
+changes:
+  - title: Added MediaWiki redeployment instructions
+    author: hk21702
+    type: minor
+    description: >-
+      Added guidance for offline and read-only redeployments of MediaWiki,
+      including migrating MySQL, Valkey, and optional S3 data before
+      reconnecting the supporting services.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/334"
+    visibility: hidden
+    highlight: false

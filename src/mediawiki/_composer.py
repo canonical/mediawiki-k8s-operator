@@ -43,17 +43,19 @@ class _ComposerMixin(_MediaWikiBase):
         self,
         composer_json: dict[str, Any],
         *,
+        update_dependencies: bool,
         lock_content: Optional[str] = None,
         force: bool = False,
     ) -> bool:
         """Reconcile the composer configuration.
 
-        Routing is determined by the unit's leadership role:
+        The caller selects whether to resolve dependencies locally or install from a lock.
+        Leadership and workload recovery eligibility are not checked here.
 
-        **Leader path**: Writes ``composer.user.json`` and runs ``composer update``.
+        **Update path**: Writes ``composer.user.json`` and runs ``composer update``.
         The ``lock_content`` parameter is ignored.
 
-        **Non-leader path**: If ``lock_content`` is None the unit cannot proceed and raises
+        **Install path**: If ``lock_content`` is None the unit cannot proceed and raises
         :exc:`MediaWikiWaitingStatusException`. Otherwise writes both ``composer.user.json``
         and ``composer.lock`` before running ``composer install``.
 
@@ -62,8 +64,10 @@ class _ComposerMixin(_MediaWikiBase):
 
         Args:
             composer_json: Desired content for ``composer.user.json`` as a dict.
-            lock_content: Pre-generated lock file content from the peer leader. Ignored on
-                the leader; required (non-None) on non-leaders.
+            update_dependencies: Whether to resolve dependencies with update rather than
+                install from the supplied lock.
+            lock_content: Pre-generated lock file content from the peer leader. Ignored
+                during local resolution; otherwise required (non-None).
             force: If True, skip the content-diff check and always run composer.
 
         Returns:
@@ -73,16 +77,13 @@ class _ComposerMixin(_MediaWikiBase):
             signal is cheap and incremental, so that trade-off is accepted for simplicity.
 
         Raises:
-            MediaWikiWaitingStatusException: If this is a non-leader unit and no lock has
-                been published by the leader yet.
+            MediaWikiWaitingStatusException: If install was selected without a lock.
             MediaWikiBlockedStatusException: If the composer command fails.
         """
-        is_leader = self._charm.unit.is_leader()
-
-        # Non-leaders require the lock published by the leader. Capture it in a separately
+        # Installs require a lock. Capture it in a separately
         # typed variable so the later write is statically known to be non-None.
         lock_to_write: Optional[str] = None
-        if not is_leader:
+        if not update_dependencies:
             if lock_content is None:
                 raise MediaWikiWaitingStatusException(
                     "Waiting for leader to publish composer lock"
@@ -91,19 +92,19 @@ class _ComposerMixin(_MediaWikiBase):
 
         # Determine whether we can skip this reconciliation.
         if not force and self._should_skip_composer(
-            composer_json, is_leader=is_leader, lock_content=lock_content
+            composer_json, update_dependencies=update_dependencies, lock_content=lock_content
         ):
             logger.debug(
                 "Composer configuration%s unchanged, skipping %s.",
-                "" if is_leader else " and lock",
-                "update" if is_leader else "install",
+                "" if update_dependencies else " and lock",
+                "update" if update_dependencies else "install",
             )
             return False
 
-        subcommand = "update" if is_leader else "install"
+        subcommand = "update" if update_dependencies else "install"
         logger.info(
             "Starting composer reconciliation (%s: %s).",
-            "leader" if is_leader else "non-leader",
+            "local resolution" if update_dependencies else "leader lock",
             subcommand,
         )
 
@@ -114,7 +115,7 @@ class _ComposerMixin(_MediaWikiBase):
             group=constants.DAEMON_GROUP,
         )
 
-        # Non-leaders also write the lock file before install.
+        # Write the supplied lock file before install.
         if lock_to_write is not None:
             self._composer_lock_file.write_text(
                 lock_to_write,
@@ -136,19 +137,21 @@ class _ComposerMixin(_MediaWikiBase):
         )
 
         if result.return_code != 0:
-            self._handle_composer_failure(composer_json, is_leader=is_leader)
+            self._handle_composer_failure(composer_json, update_dependencies=update_dependencies)
             result.raise_for_status(f"Composer {subcommand}", MediaWikiBlockedStatusException)
 
         logger.info("Composer %s completed successfully:\n%s", subcommand, result.stdout)
         return True
 
-    def _handle_composer_failure(self, composer_json: dict[str, Any], *, is_leader: bool) -> None:
+    def _handle_composer_failure(
+        self, composer_json: dict[str, Any], *, update_dependencies: bool
+    ) -> None:
         """Write a marker after a failed composer command so that the next reconciliation retries.
 
-        For leaders, a ``_charm_error`` key is added to ``composer.user.json``.
-        For non-leaders, the lock file is cleared.
+        For local resolution, a ``_charm_error`` key is added to ``composer.user.json``.
+        For installs from the leader lock, the lock file is cleared.
         """
-        if is_leader:
+        if update_dependencies:
             failed = {**composer_json, "_charm_error": "Composer update failed"}
             self._user_composer_file.write_text(
                 json.dumps(failed),
@@ -168,12 +171,12 @@ class _ComposerMixin(_MediaWikiBase):
         self,
         composer_json: dict[str, Any],
         *,
-        is_leader: bool,
+        update_dependencies: bool,
         lock_content: Optional[str],
     ) -> bool:
         """Return whether or not composer reconciliation can be skipped.
 
-        For leaders, this is true if the current ``composer.user.json`` matches the desired state. For non-leaders, this is true if both the current ``composer.user.json`` matches
+        For local resolution, this is true if the current ``composer.user.json`` matches the desired state. For installs from the leader lock, this is true if both the current ``composer.user.json`` matches
         the desired state and the current ``composer.lock`` matches the leader-published lock.
         """
         if not self._user_composer_file.exists():
@@ -186,7 +189,7 @@ class _ComposerMixin(_MediaWikiBase):
         if current_json != composer_json:
             return False
 
-        if is_leader:
+        if update_dependencies:
             return True
 
         if not self._composer_lock_file.exists():
