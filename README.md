@@ -18,7 +18,7 @@ Refer to the [tutorial present in the documentation](https://canonical-mediawiki
 
 The following actions are available for the charm:
 
-- `rotate-mediawiki-secrets`
+- `rotate-secrets`
 - `create-and-promote`
 - `update-database`
 

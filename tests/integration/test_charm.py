@@ -593,9 +593,9 @@ def test_add_extensions(
 
 
 @pytest.mark.abort_on_fail
-def test_rotate_mediawiki_secrets_action(juju: jubilant.Juju, app: App):
-    """Check that the rotate-mediawiki-secrets action works as expected."""
-    rotate_action = juju.run(f"{app.name}/leader", "rotate-mediawiki-secrets")
+def test_rotate_secrets_action(juju: jubilant.Juju, app: App):
+    """Check that the rotate-secrets action works as expected."""
+    rotate_action = juju.run(f"{app.name}/leader", "rotate-secrets")
     assert rotate_action.status == "completed", (
         f"Action failed with message: {rotate_action.message}"
     )

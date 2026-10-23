@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Renamed the secrets rotation action
+    author: hk21702
+    type: breaking
+    description: >-
+      Renamed the charm action for rotating generated and managed secrets from
+      ``rotate-mediawiki-secrets`` to ``rotate-secrets``. Updated instructions
+      and references to use the new action name. Calls using the old name must
+      be updated.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/335"
+    visibility: public
+    highlight: false

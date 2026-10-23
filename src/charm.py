@@ -255,9 +255,7 @@ class Charm(StatefulCharmBase):
             self.framework.observe(event, self._reconciliation)
 
         # Actions
-        self.framework.observe(
-            self.on.rotate_mediawiki_secrets_action, self._on_rotate_mediawiki_secrets
-        )
+        self.framework.observe(self.on.rotate_secrets_action, self._on_rotate_secrets)
         self.framework.observe(self.on.create_and_promote_action, self._on_create_and_promote_user)
         self.framework.observe(self.on.update_database_action, self._on_update_database)
         self.framework.observe(self.on.set_maintenance_mode_action, self._on_set_maintenance_mode)
@@ -439,8 +437,8 @@ class Charm(StatefulCharmBase):
 
         logger.info("Reconciliation process complete.")
 
-    def _on_rotate_mediawiki_secrets(self, event: ActionEvent) -> None:
-        """Handle the rotate-mediawiki-secrets action.
+    def _on_rotate_secrets(self, event: ActionEvent) -> None:
+        """Handle the rotate-secrets action.
 
         Rotate the secrets shared between MediaWiki replicas.
 

@@ -213,7 +213,7 @@ class TestShellbox:
         key = configured.get_secret(label=utils.UNIT_SECRET_LABEL).latest_content[
             Shellbox.AUTHENTICATION_KEY_CONTENT_KEY
         ]
-        rotated = ctx.run(ctx.on.action("rotate-mediawiki-secrets"), configured)
+        rotated = ctx.run(ctx.on.action("rotate-secrets"), configured)
         reconciled = ctx.run(ctx.on.config_changed(), rotated)
         assert (
             reconciled.get_secret(label=utils.UNIT_SECRET_LABEL).latest_content[

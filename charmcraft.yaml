@@ -245,9 +245,9 @@ config:
       type: string
 
 actions:
-  rotate-mediawiki-secrets:
+  rotate-secrets:
     description: |
-      Rotate the MediaWiki secrets generated and managed by the charm. Must be
+      Rotate secrets generated and managed by the MediaWiki charm. Must be
       run on the leader unit.
 
   create-and-promote:
