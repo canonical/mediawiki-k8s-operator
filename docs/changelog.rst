@@ -12,6 +12,14 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
 Each revision is versioned by the date of the revision.
 
+2026-10-20
+----------
+
+- Add native MediaWiki web request tracing through the optional ``tracing``
+  relation, with configurable integer-percentage sampling.
+- Add originating Juju topology to trace resources through a patch to the
+  bundled MediaWiki exporter.
+
 2026-10-16
 ----------
 

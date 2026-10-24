@@ -18,6 +18,10 @@ from charm import Charm
 from git_sync import GitSync
 from mediawiki import MediaWikiSecrets, constants
 
+DEFAULT_TRACING_SAMPLING_PROBABILITY = yaml.safe_load(
+    (Path(__file__).parents[2] / "charmcraft.yaml").read_text()
+)["config"]["options"]["tracing-sampling-probability"]["default"]
+
 
 class ExecCmd(enum.Enum):
     """Command prefixes for executed commands."""
@@ -147,6 +151,19 @@ def active_state(
     return dataclasses.replace(
         base_state,
         relations=[traefik_route_relation, database_relation, mediawiki_replica_relation],
+    )
+
+
+@pytest.fixture
+def tracing_relation() -> testing.Relation:
+    """Provide a native MediaWiki-compatible OTLP/HTTP receiver."""
+    return testing.Relation(
+        endpoint="tracing",
+        interface="tracing",
+        remote_app_data={
+            "receivers": '[{"protocol": {"name": "otlp_http", "type": "http"}, '
+            '"url": "http://collector:4318"}]',
+        },
     )
 
 

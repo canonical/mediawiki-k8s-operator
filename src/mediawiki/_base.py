@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from relations.database import Database
     from relations.s3 import S3
     from relations.smtp import Smtp
+    from relations.tracing import Tracing
     from shellbox import Shellbox
     from state import StatefulCharmBase
     from types_ import CommandExecResult
@@ -52,6 +53,7 @@ class _MediaWikiBase(ContainerService):
     _smtp: Smtp
     _peers: MediaWikiPeers
     _shellbox: Shellbox
+    _tracing: Tracing
     _tunnel_services: TunnelServiceRegistry
     _SMTP_PROXY_SERVICE_NAME: str
     _SMTP_PROXY_PORT: int

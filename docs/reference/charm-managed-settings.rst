@@ -99,6 +99,9 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
    * - `$wgObjectCaches['redis'] <https://www.mediawiki.org/wiki/Manual:$wgObjectCaches>`__
      - .. centered:: :bdg-warning:`Partially`
      - This is only set when the :ref:`Redis <reference_relation_endpoints_redis>` or :ref:`Valkey <reference_relation_endpoints_valkey>` relation is in use.
+   * - `$wgOpenTelemetryConfig <https://www.mediawiki.org/wiki/Manual:$wgOpenTelemetryConfig>`__
+     - .. centered:: :bdg-danger:`No`
+     - Managed by the :ref:`tracing relation <reference_relation_endpoints_tracing>` and ``tracing-sampling-probability``.
    * - `$wgPasswordSender <https://www.mediawiki.org/wiki/Manual:$wgPasswordSender>`__
      - .. centered:: :bdg-warning:`Partially`
      - This is set when the :ref:`smtp relation <reference_relation_endpoints_smtp>` includes a sender address.

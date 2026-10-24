@@ -46,6 +46,7 @@ from relations.redis import Redis
 from relations.s3 import S3
 from relations.smtp import Smtp
 from relations.tls import Tls
+from relations.tracing import Tracing
 from relations.valkey import Valkey
 from shellbox import Shellbox
 from state import StatefulCharmBase
@@ -119,6 +120,7 @@ class Charm(StatefulCharmBase):
     _VALKEY_RELATION_NAME = "valkey"
     _S3_RELATION_NAME = "s3-parameters"
     _SMTP_RELATION_NAME = "smtp"
+    _TRACING_RELATION_NAME = "tracing"
 
     _PEER_RELATION_NAME = MediaWikiPeers.RELATION_NAME
     _REPLICA_SECRET_LABEL = MediaWikiPeers.SECRET_LABEL
@@ -156,6 +158,7 @@ class Charm(StatefulCharmBase):
             self.unit.get_container(self._CONTAINER_NAME),
         )
         self._shellbox = Shellbox(self)
+        self._tracing = Tracing(self, self._TRACING_RELATION_NAME)
         self._mediawiki = MediaWiki(
             self,
             self._database,
@@ -168,6 +171,7 @@ class Charm(StatefulCharmBase):
             self._tls,
             self._certificate_transfer,
             self._shellbox,
+            self._tracing,
         )
         self._git_sync = GitSync(self)
 
@@ -214,6 +218,9 @@ class Charm(StatefulCharmBase):
 
         # Reconciliation events
         reconciliation_events = [
+            self.on[self._TRACING_RELATION_NAME].relation_created,
+            self._tracing.on.endpoint_changed,
+            self._tracing.on.endpoint_removed,
             self.on.mediawiki_pebble_ready,
             self.on.git_sync_pebble_ready,
             self.on.shellbox_pebble_ready,
@@ -413,7 +420,6 @@ class Charm(StatefulCharmBase):
                 ssh_key=self._ssh_key(self._SSH_KEY_MEDIAWIKI_FIELD),
                 force=force,
             )
-
         except MediaWikiStatusException as e:
             logger.info("Reconciliation process terminated early, status exception raised: %s", e)
             self.unit.status = e.status
