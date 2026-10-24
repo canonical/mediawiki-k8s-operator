@@ -108,6 +108,13 @@ Releases
 Thinking about using the MediaWiki Operator for your next project? 
 `Get in touch <https://matrix.to/#/#charmhub-charmdev:ubuntu.com>`_!
 
+License
+-------
+
+Refer to the charm's `LICENSE <https://github.com/canonical/mediawiki-k8s-operator/blob/main/LICENSE>`_ as well as MediaWiki's `license information <https://phabricator.wikimedia.org/source/mediawiki/browse/master/COPYING>`_. The bundled images contains other software components with their own respective licenses.
+
+MediaWiki and the MediaWiki logo are trademarks of the Wikimedia Foundation. This project is not endorsed by, or affiliated with, the Wikimedia Foundation.
+
 .. vale Canonical.013-Spell-out-numbers-below-10 = NO
 .. vale Canonical.500-Repeated-words = NO
 

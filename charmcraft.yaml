@@ -16,6 +16,8 @@ description: |
   For information about how to deploy, integrate, and manage this charm, see the Official [MediaWiki K8s charm
   documentation](https://canonical-mediawiki-k8s-charm.readthedocs-hosted.com/).
 
+  MediaWiki and the MediaWiki logo are trademarks of the Wikimedia Foundation. This project is not endorsed by, or affiliated with, the Wikimedia Foundation.
+
 base: ubuntu@26.04
 platforms:
   amd64:

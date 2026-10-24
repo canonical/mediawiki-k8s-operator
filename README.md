@@ -71,11 +71,10 @@ Apart from this required integration, the charm can be integrated with other Juj
 | [MediaWiki][mediawiki-site]                        | [GNU General Public License, version 2.0 or later](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html) | See [MediaWiki copyright information](https://www.mediawiki.org/wiki/Copyright)                 |
 | [MediaWiki rock](mediawiki_rock)                   | [GNU General Public License, version 3](https://www.gnu.org/licenses/gpl-3.0.html)                         | Packages and redistributes [MediaWiki][mediawiki-site]                                          |
 | [git-sync](https://github.com/kubernetes/git-sync) | [Apache License, Version 2.0][apache-2.0-site]                                                             | See the upstream [git-sync LICENSE](https://github.com/kubernetes/git-sync/blob/master/LICENSE) |
-| [MediaWiki logo](icon.svg)                         | [CC BY-SA 4.0][cc-by-sa-4.0-site]                                                                          |                                                                                                 |
 
 <!--vale Canonical.013-Spell-out-numbers-below-10 = YES-->
 
-MediaWiki and the MediaWiki logo are trademarks of the Wikimedia Foundation and are used with permission of the Wikimedia Foundation. This project is not endorsed by, or affiliated with, the Wikimedia Foundation.
+MediaWiki and the MediaWiki logo are trademarks of the Wikimedia Foundation. This project is not endorsed by, or affiliated with, the Wikimedia Foundation.
 
 For additional details, please refer to the [LICENSE](LICENSE).
 
