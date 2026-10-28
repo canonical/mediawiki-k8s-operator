@@ -239,6 +239,16 @@ config:
         If not set, the entire repository is checked out.
       type: string
 
+    tracing-sampling-probability:
+      description: |
+        Percentage of new MediaWiki web request traces to sample, from 0 to 100.
+        Requires a tracing relation.
+
+        By default, all newly sampled root traces are exported so the collector can control
+        retention. Lower this value to reduce source-side tracing and network overhead.
+      type: int
+      default: 100
+
     url-origin:
       description: |
         The URL origin for the MediaWiki deployment. It should either be protocol-relative or specify either http:// or https://. For example, '//my-wiki.example.com' or 'https://my-wiki.example.com'. This is used for '$wgServer' and configuring ingress.
@@ -412,6 +422,10 @@ requires:
     limit: 1
   logging:
     interface: loki_push_api
+    optional: true
+  tracing:
+    interface: tracing
+    limit: 1
     optional: true
   oauth:
     interface: oauth

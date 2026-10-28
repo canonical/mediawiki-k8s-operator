@@ -1,0 +1,57 @@
+# Patch to add support for setting arbitrary OpenTelemetry resource attributes in the OtlpHttpExporter class.
+# This is implemented in a way to avoid files that are likely to be overwritten by MediaWiki updates.
+--- a/includes/libs/Telemetry/OtlpHttpExporter.php
++++ b/includes/libs/Telemetry/OtlpHttpExporter.php
+@@ -4,2 +4,3 @@
+ use GuzzleHttp\Psr7\Utils;
++use InvalidArgumentException;
+ use Psr\Http\Client\ClientExceptionInterface;
+@@ -38,2 +39,11 @@
+ 
++	/**
++	 * Default resource attributes for subsequently constructed exporters.
++	 * @var array<string,bool|float|int|string>
++	 */
++	private static array $defaultResourceAttributes = [];
++
++	/** @var array<string,bool|float|int|string> */
++	private array $resourceAttributes;
++
+ 	public function __construct(
+@@ -52,2 +62,3 @@
+ 		$this->hostName = $hostName;
++		$this->resourceAttributes = self::$defaultResourceAttributes;
+ 	}
+@@ -54,2 +65,22 @@
+ 
++	/**
++	 * Set the resource attributes for subsequently constructed exporters.
++	 *
++	 * @param array<string,bool|float|int|string> $resourceAttributes Additional resource attributes.
++	 * Built-in resource attributes take precedence.
++	 * @throws InvalidArgumentException If resource attribute keys or values are invalid.
++	 */
++	public static function setResourceAttributes( array $resourceAttributes ): void {
++		foreach ( $resourceAttributes as $key => $value ) {
++			if ( !is_string( $key ) || $key === '' || !is_scalar( $value ) ||
++				( is_float( $value ) && !is_finite( $value ) )
++			) {
++				throw new InvalidArgumentException(
++					'Resource attributes must map non-empty string keys to finite scalar values.'
++				);
++			}
++		}
++		self::$defaultResourceAttributes = $resourceAttributes;
++	}
++
+ 	/** @inheritDoc */
+@@ -62,7 +93,7 @@
+-		$resourceInfo = array_filter( [
++		$resourceInfo = array_merge( $this->resourceAttributes, array_filter( [
+ 			'service.name' => $this->serviceName,
+ 			'host.name' => $this->hostName,
+ 			"server.socket.address" => $_SERVER['SERVER_ADDR'] ?? null,
+-		] );
++		] ) );
+ 
+ 		$data = [

@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from state import CharmConfig, ProxyConfig, State
+from tests.unit.conftest import DEFAULT_TRACING_SAMPLING_PROBABILITY
 
 
 class TestState:
@@ -68,6 +69,7 @@ class TestCharmConfig:
     def make_config(**overrides: Any) -> CharmConfig:
         """Build a CharmConfig with test defaults and optional overrides."""
         base_config: dict[str, Any] = {
+            "tracing_sampling_probability": DEFAULT_TRACING_SAMPLING_PROBABILITY,
             "composer": "{}",
             "static_assets_git_repo": "",
             "static_assets_git_ref": "",
@@ -77,6 +79,24 @@ class TestCharmConfig:
         }
 
         return CharmConfig(**(base_config | overrides))
+
+    def test_tracing_sampling_is_required(self) -> None:
+        """Defaults belong to charm metadata, not the Python model."""
+        with pytest.raises(ValidationError, match="tracing_sampling_probability"):
+            CharmConfig()
+
+    @pytest.mark.parametrize("value", [0, 100])
+    def test_tracing_sampling_boundaries(self, value: int) -> None:
+        """Pass valid integer percentages through without conversion."""
+        config = self.make_config(tracing_sampling_probability=value)
+        assert config.tracing_sampling_probability == value
+        assert config.state_hash == self.make_config().state_hash
+
+    @pytest.mark.parametrize("value", [-1, 101, 0.1, 1.0, float("inf"), float("nan"), True])
+    def test_tracing_sampling_rejects_invalid_values(self, value: Any) -> None:
+        """Reject out-of-range and non-integer probabilities instead of coercing them."""
+        with pytest.raises(ValidationError):
+            self.make_config(tracing_sampling_probability=value)
 
     def test_php_fpm_defaults(self) -> None:
         """Use the agreed worker ceiling and recycling defaults."""

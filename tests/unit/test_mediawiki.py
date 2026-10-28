@@ -24,10 +24,11 @@ from mediawiki import MediaWiki, MediaWikiSecrets, constants
 from mediawiki_api import SiteInfo
 from mediawiki_peers import MediaWikiPeerState
 from relations import auth, cache, certificate_transfer, database, redis, s3, smtp, tls, valkey
+from relations.tracing import Tracing
 from relations.valkey import ValkeyConnectionInfo
 from shellbox import SHELLBOX_URL, Shellbox
-from state import CharmConfig, CharmConfigInvalidError, StatefulCharmBase
-from tests.unit.conftest import MOCK_COMPOSER_LOCK, ExecCmd
+from state import CharmConfigInvalidError, StatefulCharmBase
+from tests.unit.conftest import DEFAULT_TRACING_SAMPLING_PROBABILITY, MOCK_COMPOSER_LOCK, ExecCmd
 from types_ import (
     CommandExecResult,
     DatabaseConfig,
@@ -56,6 +57,7 @@ class WrapperCharm(StatefulCharmBase):
             self, "receive-ca-cert", self.unit.get_container("mediawiki")
         )
         self.shellbox = Shellbox(self)
+        self.tracing = Tracing(self, "tracing")
         self.mediawiki = MediaWiki(
             self,
             self.database,
@@ -68,6 +70,7 @@ class WrapperCharm(StatefulCharmBase):
             self.tls,
             self.certificate_transfer,
             self.shellbox,
+            self.tracing,
         )
 
 
@@ -2849,10 +2852,8 @@ class TestComposerLockSync:
         stale_value: str,
     ) -> None:
         """Non-leader path: waits when Composer or local settings differ from the leader."""
-        leader_config = CharmConfig(
-            composer=configured_state.config["composer"],
-            local_settings=configured_state.config["local-settings"],
-        )
+        with ctx(ctx.on.update_status(), configured_state) as manager:
+            leader_config = manager.charm.load_charm_config()
         stale_config = {**configured_state.config, config_key: stale_value}
         state_in = dataclasses.replace(configured_state, leader=False, config=stale_config)
 
@@ -3457,6 +3458,182 @@ class TestMediaWikiVersion:
             pytest.raises(MediaWikiInstallError),
         ):
             mgr.charm.mediawiki.version()
+
+
+class TestTracingSettings:
+    """Native tracing settings use relation data and effective charm configuration."""
+
+    @pytest.mark.parametrize("probability", [None, 0, 100])
+    def test_native_settings(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        tracing_relation: testing.Relation,
+        probability: int | None,
+    ) -> None:
+        """Render native tracing configuration with the unit's resource topology."""
+        state = dataclasses.replace(
+            active_state,
+            relations=[*active_state.relations, tracing_relation],
+            config={} if probability is None else {"tracing-sampling-probability": probability},
+        )
+        with ctx(ctx.on.update_status(), state) as manager:
+            config = manager.charm.load_charm_config()
+            workload = manager.charm.mediawiki
+            workload._settings_reconciliation(config, MediaWikiSecrets.generate())
+            late = workload._late_settings_file.read_text()
+            expected_probability = (
+                DEFAULT_TRACING_SAMPLING_PROBABILITY if probability is None else probability
+            )
+            assert workload._get_tracing_settings(config) == (
+                "$wgOpenTelemetryConfig = [\n"
+                f"    'samplingProbability' => {expected_probability},\n"
+                f"    'serviceName' => '{manager.charm.app.name}',\n"
+                "    'endpoint' => 'http://collector:4318/v1/traces',\n"
+                "];\n"
+                "\\Wikimedia\\Telemetry\\OtlpHttpExporter::setResourceAttributes([\n"
+                f"    'juju_model' => '{manager.charm.model.name}',\n"
+                f"    'juju_model_uuid' => '{manager.charm.model.uuid}',\n"
+                f"    'juju_application' => '{manager.charm.app.name}',\n"
+                f"    'juju_unit' => '{manager.charm.unit.name}',\n"
+                f"    'juju_charm' => '{manager.charm.meta.name}',\n"
+                "]);\n"
+            )
+            assert workload._get_tracing_settings(config) in late
+
+    @pytest.mark.parametrize(
+        ("model_name", "model_uuid", "app_name", "unit_id"),
+        [
+            ("testing", "11111111-1111-4111-8111-111111111111", "wiki", 0),
+            ("production", "22222222-2222-4222-8222-222222222222", "public-wiki", 7),
+        ],
+    )
+    def test_topology_uses_originating_unit(
+        self,
+        meta: dict,
+        active_state: testing.State,
+        tracing_relation: testing.Relation,
+        model_name: str,
+        model_uuid: str,
+        app_name: str,
+        unit_id: int,
+    ) -> None:
+        """Identify the sender independently of collector identity and deployment names."""
+        meta = meta.copy()
+        config = meta.pop("config", None)
+        actions = meta.pop("actions", None)
+        ctx = testing.Context(
+            WrapperCharm,
+            meta=meta,
+            config=config,
+            actions=actions,
+            app_name=app_name,
+            unit_id=unit_id,
+        )
+        state = dataclasses.replace(
+            active_state,
+            model=testing.Model(name=model_name, uuid=model_uuid),
+            relations=[*active_state.relations, tracing_relation],
+        )
+        with ctx(ctx.on.update_status(), state) as manager:
+            settings = manager.charm.mediawiki._get_tracing_settings(
+                manager.charm.load_charm_config()
+            )
+            assert (
+                "\\Wikimedia\\Telemetry\\OtlpHttpExporter::setResourceAttributes([\n"
+                f"    'juju_model' => '{model_name}',\n"
+                f"    'juju_model_uuid' => '{model_uuid}',\n"
+                f"    'juju_application' => '{app_name}',\n"
+                f"    'juju_unit' => '{app_name}/{unit_id}',\n"
+                "    'juju_charm' => 'mediawiki-k8s',\n"
+                "]);\n"
+            ) in settings
+
+    def test_disabled_settings_override_user_settings(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """No tracing relation disables even user-configured tracing."""
+        state = dataclasses.replace(
+            active_state,
+            config={"local-settings": "<?php\n$wgOpenTelemetryConfig = ['endpoint' => 'old'];"},
+        )
+        with ctx(ctx.on.update_status(), state) as manager:
+            workload = manager.charm.mediawiki
+            workload._settings_reconciliation(
+                manager.charm.load_charm_config(), MediaWikiSecrets.generate()
+            )
+            assert "$wgOpenTelemetryConfig = null;\n" in workload._late_settings_file.read_text()
+            assert "setResourceAttributes" not in workload._late_settings_file.read_text()
+            early = workload._local_settings_file.read_text()
+            assert early.index(str(workload._user_settings_file)) < early.index(
+                str(workload._late_settings_file)
+            )
+
+    def test_unready_relation_stops_settings_reconciliation(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """Wait for provider data instead of writing disabled tracing settings."""
+        state = dataclasses.replace(
+            active_state,
+            relations=[*active_state.relations, testing.Relation("tracing")],
+        )
+        with ctx(ctx.on.update_status(), state) as manager:
+            workload = manager.charm.mediawiki
+            with pytest.raises(MediaWikiWaitingStatusException, match="tracing relation data"):
+                workload._settings_reconciliation(
+                    manager.charm.load_charm_config(), MediaWikiSecrets.generate()
+                )
+            assert not workload._late_settings_file.exists()
+
+    def test_endpoint_is_escaped(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        tracing_relation: testing.Relation,
+    ) -> None:
+        """Escape receiver path characters before inserting into PHP."""
+        relation = dataclasses.replace(
+            tracing_relation,
+            remote_app_data={
+                "receivers": json.dumps(
+                    [
+                        {
+                            "protocol": {"name": "otlp_http", "type": "http"},
+                            "url": "https://collector:4318/quote'and\\slash",
+                        }
+                    ]
+                )
+            },
+        )
+        state = dataclasses.replace(active_state, relations=[*active_state.relations, relation])
+        with ctx(ctx.on.update_status(), state) as manager:
+            settings = manager.charm.mediawiki._get_tracing_settings(
+                manager.charm.load_charm_config()
+            )
+            assert "https://collector:4318/quote\\'and\\\\slash/v1/traces" in settings
+
+    def test_removal_clears_settings(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        tracing_relation: testing.Relation,
+    ) -> None:
+        """Overwrite a previously enabled configuration when the relation disappears."""
+        state = dataclasses.replace(
+            active_state, relations=[*active_state.relations, tracing_relation]
+        )
+        secrets = MediaWikiSecrets.generate()
+        with ctx(ctx.on.update_status(), state) as manager:
+            workload = manager.charm.mediawiki
+            workload._settings_reconciliation(manager.charm.load_charm_config(), secrets)
+            assert "'endpoint'" in workload._late_settings_file.read_text()
+        with ctx(ctx.on.relation_broken(tracing_relation), state) as manager:
+            workload = manager.charm.mediawiki
+            workload._settings_reconciliation(manager.charm.load_charm_config(), secrets)
+            late = workload._late_settings_file.read_text()
+            assert "$wgOpenTelemetryConfig = null;" in late
+            assert "collector:4318" not in late
+            assert "setResourceAttributes" not in late
 
 
 class TestSettingsChangeDetection:
