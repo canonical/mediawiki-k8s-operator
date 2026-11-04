@@ -7,7 +7,7 @@ import logging
 from typing import ClassVar, cast
 from urllib.parse import urlparse
 
-from charms.hydra.v0.oauth import (
+from charmlibs.interfaces.oauth import (
     ClientConfig,
     OauthProviderConfig,
     OAuthRequirer,
