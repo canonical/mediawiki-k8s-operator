@@ -76,6 +76,7 @@ def test_connection_info_includes_tls_ca() -> None:
     [
         _response(endpoints=""),
         _response(endpoints="valkey-primary"),
+        _response(endpoints="valkey-primary:invalid"),
         _response(username=""),
         _response(password=""),  # nosec: B106
     ],
@@ -94,17 +95,17 @@ def test_no_relation_is_unavailable() -> None:
     valkey, relation_handler = _handler()
     relation_handler.relations = []
 
-    assert valkey.is_relation_available() is False
     assert valkey.get_connection_info() is None
 
 
-def test_string_tls_flag_is_supported() -> None:
-    """The v0-compatible string representation of the TLS flag is accepted."""
+@pytest.mark.parametrize("tls", [True, False, "true", "false"])
+def test_tls_flag_is_supported(tls: bool | str) -> None:
+    """Boolean and string TLS flags preserve the provider's transport choice."""
     valkey, relation_handler = _handler()
     relation_handler.relations = [Mock()]
-    valkey._get_response = Mock(return_value=_response(tls="true"))
+    valkey._get_response = Mock(return_value=_response(tls=tls))
 
     connection = valkey.get_connection_info()
 
     assert connection is not None
-    assert connection.tls is True
+    assert connection.tls is (tls is True or tls == "true")

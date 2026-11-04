@@ -64,8 +64,8 @@ CACHE_STORAGE_NAME = "cache"
 CACHE_STORAGE_MOUNT = "/mnt/cache"
 CACHE_DIR = CACHE_STORAGE_MOUNT + "/mediawiki"
 
-# Pebble services for the Redis-backed job queue, which read their configuration at startup
-REDIS_JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
+# Pebble services for the Valkey-backed job queue, which read their configuration at startup
+JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
 
 # Pending work markers
 #

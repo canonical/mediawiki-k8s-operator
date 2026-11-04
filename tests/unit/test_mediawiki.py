@@ -23,7 +23,7 @@ from exceptions import (
 from mediawiki import MediaWiki, MediaWikiSecrets, constants
 from mediawiki_api import SiteInfo
 from mediawiki_peers import MediaWikiPeerState
-from relations import auth, cache, certificate_transfer, database, redis, s3, smtp, tls, valkey
+from relations import auth, certificate_transfer, database, s3, smtp, tls, valkey
 from relations.valkey import ValkeyConnectionInfo
 from shellbox import SHELLBOX_URL, Shellbox
 from state import CharmConfig, CharmConfigInvalidError, StatefulCharmBase
@@ -45,9 +45,7 @@ class WrapperCharm(StatefulCharmBase):
         self.database = database.Database(self, "database", Charm._CONTAINER_NAME)
         self.oauth = auth.OAuth(self, "oauth")
         self.saml = auth.Saml(self, "saml")
-        self.redis = redis.Redis(self, "redis")
         self.valkey = valkey.Valkey(self, "valkey")
-        self.cache = cache.Cache(self, self.redis, self.valkey)
         self.s3 = s3.S3(self, "s3-parameters")
         self.smtp = smtp.Smtp(self, "smtp")
         self.peers = mediawiki_peers.MediaWikiPeers(self)
@@ -61,7 +59,7 @@ class WrapperCharm(StatefulCharmBase):
             self.database,
             self.oauth,
             self.saml,
-            self.cache,
+            self.valkey,
             self.s3,
             self.smtp,
             self.peers,
@@ -177,21 +175,6 @@ def mock_s3(mocker: MockerFixture) -> MockType:
 
 
 @pytest.fixture(autouse=True)
-def mock_redis(mocker: MockerFixture) -> MockType:
-    """Base Redis class mock.
-
-    By default, Redis is unavailable (no relation, no endpoint).
-    """
-    mock_redis_cls = mocker.patch("relations.redis.Redis", autospec=True)
-    mock_instance = mock_redis_cls.return_value
-
-    mock_instance.is_relation_available.return_value = False
-    mock_instance.get_endpoint.return_value = None
-
-    return mock_instance
-
-
-@pytest.fixture(autouse=True)
 def mock_valkey(mocker: MockerFixture) -> MockType:
     """Base Valkey class mock.
 
@@ -199,9 +182,20 @@ def mock_valkey(mocker: MockerFixture) -> MockType:
     """
     mock_valkey_cls = mocker.patch("relations.valkey.Valkey", autospec=True)
     mock_instance = mock_valkey_cls.return_value
-    mock_instance.is_relation_available.return_value = False
     mock_instance.get_connection_info.return_value = None
     return mock_instance
+
+
+@pytest.fixture
+def valkey_connection() -> ValkeyConnectionInfo:
+    """Return a complete authenticated Valkey connection without TLS."""
+    return ValkeyConnectionInfo(
+        host="valkey-host",
+        port=6379,
+        username="valkey-user",
+        password="valkey-password",  # nosec: B106
+        tls=False,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -406,7 +400,7 @@ class TestReconciliation:
             mocker.patch.object(mediawiki._certificate_transfer, "reconcile", return_value=True)
             mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
-            assert mediawiki.pending_service_restarts() == set(MediaWiki._REDIS_JOB_SERVICES)
+            assert mediawiki.pending_service_restarts() == set(MediaWiki._JOB_SERVICES)
 
     def test_pending_restart_survives_tls_reconciliation_failure(
         self, ctx: testing.Context, configured_state: testing.State, mocker: MockerFixture
@@ -439,7 +433,7 @@ class TestReconciliation:
             mediawiki._reconcile_configuration(peer_state)
             mediawiki._reconcile_services(workload_active=True, run_job_workers=True)
 
-            restart.assert_called_once_with(*sorted(MediaWiki._REDIS_JOB_SERVICES))
+            restart.assert_called_once_with(*sorted(MediaWiki._JOB_SERVICES))
             assert not mediawiki.service_restart_pending()
 
     def test_pending_restart_survives_an_aborted_reconciliation(
@@ -476,7 +470,7 @@ class TestReconciliation:
             mediawiki._reconcile_configuration(peer_state)
             mediawiki._reconcile_services(workload_active=True, run_job_workers=True)
 
-            restart.assert_called_once_with(*sorted(MediaWiki._REDIS_JOB_SERVICES))
+            restart.assert_called_once_with(*sorted(MediaWiki._JOB_SERVICES))
             assert not mediawiki.service_restart_pending()
 
     def test_reconciliation_owns_services(
@@ -519,7 +513,7 @@ class TestReconciliation:
             state_out = mgr.run()
 
         container = state_out.get_container(Charm._CONTAINER_NAME)
-        for service in MediaWiki._REDIS_JOB_SERVICES:
+        for service in MediaWiki._JOB_SERVICES:
             assert container.service_statuses[service] == pebble.ServiceStatus.INACTIVE
         relation = state_out.get_relation(mediawiki_replica_relation.id)
         assert mediawiki_peers.MediaWikiPeers.OPERATION_MODE_KEY not in relation.local_unit_data
@@ -564,7 +558,7 @@ class TestReconciliation:
             state_out = mgr.run()
 
         container = state_out.get_container(Charm._CONTAINER_NAME)
-        for service in MediaWiki._REDIS_JOB_SERVICES:
+        for service in MediaWiki._JOB_SERVICES:
             assert (
                 container.service_statuses.get(service, pebble.ServiceStatus.INACTIVE)
                 == pebble.ServiceStatus.INACTIVE
@@ -1897,7 +1891,7 @@ class TestS3Settings:
 
 
 class TestCacheSettings:
-    """Tests for Redis cache and job runner configuration in LateSettings.php."""
+    """Tests for Valkey cache and job runner configuration in LateSettings.php."""
 
     def _get_late_settings(self, ctx: testing.Context, state_out: testing.State) -> str:
         return (
@@ -1905,12 +1899,12 @@ class TestCacheSettings:
             / "etc/mediawiki/LateSettings.php"
         ).read_text()
 
-    def test_no_redis_uses_default_cache(
+    def test_no_valkey_uses_default_cache(
         self,
         ctx: testing.Context,
         active_state: testing.State,
     ) -> None:
-        """Test that default cache settings are used when Redis is not available."""
+        """Test that default cache settings are used when Valkey is not available."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
@@ -1921,15 +1915,15 @@ class TestCacheSettings:
         assert "'redis'" not in late_settings
         assert "JobQueueRedis" not in late_settings
 
-    def test_redis_available_sets_redis_cache(
+    def test_valkey_available_sets_valkey_cache(
         self,
         ctx: testing.Context,
         active_state: testing.State,
-        mock_redis: MockType,
+        mock_valkey: MockType,
+        valkey_connection: ValkeyConnectionInfo,
     ) -> None:
-        """Test that Redis cache settings are rendered when Redis is available."""
-        mock_redis.is_relation_available.return_value = True
-        mock_redis.get_endpoint.return_value = "redis-host:6379"
+        """Test that Valkey cache settings are rendered when Valkey is available."""
+        mock_valkey.get_connection_info.return_value = valkey_connection
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
@@ -1938,17 +1932,17 @@ class TestCacheSettings:
         late_settings = self._get_late_settings(ctx, state_out)
         assert "$wgMainCacheType = 'redis';" in late_settings
         assert "$wgSessionCacheType = 'redis';" in late_settings
-        assert "'servers'              => [ 'redis-host:6379' ]" in late_settings
+        assert "'servers'              => [ 'valkey-host:6379' ]" in late_settings
 
-    def test_redis_available_sets_job_queue(
+    def test_valkey_available_sets_job_queue(
         self,
         ctx: testing.Context,
         active_state: testing.State,
-        mock_redis: MockType,
+        mock_valkey: MockType,
+        valkey_connection: ValkeyConnectionInfo,
     ) -> None:
-        """Test that the Redis job queue settings are rendered in LateSettings.php."""
-        mock_redis.is_relation_available.return_value = True
-        mock_redis.get_endpoint.return_value = "redis-host:6379"
+        """Test that the Valkey job queue settings are rendered in LateSettings.php."""
+        mock_valkey.get_connection_info.return_value = valkey_connection
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
@@ -1958,17 +1952,17 @@ class TestCacheSettings:
         assert "$wgJobRunRate = 0;" in late_settings
         assert "$wgJobTypeConf['default']" in late_settings
         assert "'class'          => 'JobQueueRedis'" in late_settings
-        assert "'redisServer'    => 'redis-host:6379'" in late_settings
+        assert "'redisServer'    => 'valkey-host:6379'" in late_settings
 
-    def test_redis_available_writes_job_runner_config(
+    def test_valkey_available_writes_job_runner_config(
         self,
         ctx: testing.Context,
         active_state: testing.State,
-        mock_redis: MockType,
+        mock_valkey: MockType,
+        valkey_connection: ValkeyConnectionInfo,
     ) -> None:
-        """Test that the job runner config JSON file is written when Redis is available."""
-        mock_redis.is_relation_available.return_value = True
-        mock_redis.get_endpoint.return_value = "redis-host:6379"
+        """Test that the job runner config JSON file is written when Valkey is available."""
+        mock_valkey.get_connection_info.return_value = valkey_connection
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
@@ -1977,29 +1971,41 @@ class TestCacheSettings:
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
         config_path = container_fs / constants.JOB_RUNNER_CONFIG_PATH.lstrip("/")
         assert config_path.exists(), (
-            "JobRunnerConfig.json should be written when Redis is available"
+            "JobRunnerConfig.json should be written when Valkey is available"
         )
 
         config = json.loads(config_path.read_text())
-        assert config["redis"]["aggregators"] == ["redis-host:6379"]
-        assert config["redis"]["queues"] == ["redis-host:6379"]
+        assert config["redis"]["aggregators"] == ["valkey-host:6379"]
+        assert config["redis"]["queues"] == ["valkey-host:6379"]
+        assert config["redis"]["password"] == ["valkey-user", "valkey-password"]
+        assert "tls" not in config["redis"]
 
+    @pytest.mark.parametrize(
+        "changes",
+        [
+            {"host": "other-valkey-host"},
+            {"username": "other-valkey-user"},
+            {"password": "other-valkey-password"},  # nosec: B105
+            {"tls": True},
+        ],
+    )
     def test_job_runner_config_change_restarts_runners(
         self,
         ctx: testing.Context,
         active_state: testing.State,
-        mock_redis: MockType,
+        mock_valkey: MockType,
+        valkey_connection: ValkeyConnectionInfo,
+        changes: dict,
     ) -> None:
         """Only a changed job runner configuration owes the runners a restart."""
-        mock_redis.is_relation_available.return_value = True
-        mock_redis.get_endpoint.return_value = "redis-host:6379"
+        mock_valkey.get_connection_info.return_value = valkey_connection
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mediawiki = mgr.charm.mediawiki
             config = mgr.charm.load_charm_config()
             secrets = MediaWikiSecrets.generate()
             mediawiki._settings_reconciliation(config, secrets)
-            assert set(MediaWiki._REDIS_JOB_SERVICES) <= mediawiki.pending_service_restarts()
+            assert set(MediaWiki._JOB_SERVICES) <= mediawiki.pending_service_restarts()
 
             mediawiki.clear_service_restart()
             changed_config = config.model_copy(update={"mediawiki_debug_log": True})
@@ -2007,35 +2013,46 @@ class TestCacheSettings:
             assert not mediawiki.service_restart_pending()
 
             mediawiki.clear_service_restart()
-            mock_redis.get_endpoint.return_value = "other-redis-host:6379"
+            mock_valkey.get_connection_info.return_value = dataclasses.replace(
+                valkey_connection, **changes
+            )
             mediawiki._settings_reconciliation(changed_config, secrets)
-            assert set(MediaWiki._REDIS_JOB_SERVICES) <= mediawiki.pending_service_restarts()
+            assert set(MediaWiki._JOB_SERVICES) <= mediawiki.pending_service_restarts()
 
-    def test_no_redis_removes_job_runner_config(
+    def test_no_valkey_removes_job_runner_config(
         self,
         ctx: testing.Context,
         active_state: testing.State,
+        mock_valkey: MockType,
+        valkey_connection: ValkeyConnectionInfo,
     ) -> None:
-        """Test that the job runner config is removed when Redis is not available."""
+        """Test that the job runner config is removed when Valkey is not available."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
+            mock_valkey.get_connection_info.return_value = valkey_connection
             mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            assert mgr.charm.mediawiki.runner_queue_service_is_ready()
+            mock_valkey.get_connection_info.return_value = None
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            assert not mgr.charm.mediawiki.runner_queue_service_is_ready()
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
         config_path = container_fs / constants.JOB_RUNNER_CONFIG_PATH.lstrip("/")
         assert not config_path.exists(), (
-            "JobRunnerConfig.json should not exist when Redis is unavailable"
+            "JobRunnerConfig.json should not exist when Valkey is unavailable"
         )
+        late_settings = self._get_late_settings(ctx, state_out)
+        assert "$wgMainCacheType = CACHE_NONE;" in late_settings
+        assert "$wgSessionCacheType = CACHE_DB;" in late_settings
 
-    def test_redis_no_endpoint_uses_default_cache(
+    def test_valkey_no_endpoint_uses_default_cache(
         self,
         ctx: testing.Context,
         active_state: testing.State,
-        mock_redis: MockType,
+        mock_valkey: MockType,
     ) -> None:
-        """Test that default cache is used when Redis relation exists but has no endpoint."""
-        mock_redis.is_relation_available.return_value = True
-        mock_redis.get_endpoint.return_value = None
+        """Test that default cache is used when Valkey relation exists but has no endpoint."""
+        mock_valkey.get_connection_info.return_value = None
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
@@ -2052,7 +2069,6 @@ class TestCacheSettings:
         mock_valkey: MockType,
     ) -> None:
         """Valkey credentials and TLS transport are rendered for every consumer."""
-        mock_valkey.is_relation_available.return_value = True
         mock_valkey.get_connection_info.return_value = ValkeyConnectionInfo(
             host="valkey-primary",
             port=6380,
@@ -2082,6 +2098,7 @@ class TestCacheSettings:
         )
         assert runner_config["redis"]["aggregators"] == ["valkey-primary:6380"]
         assert runner_config["redis"]["password"] == ["valkey-user", "valkey-password"]
+        assert runner_config["redis"]["tls"] == {}
 
     def test_valkey_credentials_are_escaped(
         self,
@@ -2090,7 +2107,6 @@ class TestCacheSettings:
         mock_valkey: MockType,
     ) -> None:
         """Valkey credentials are escaped before entering PHP settings."""
-        mock_valkey.is_relation_available.return_value = True
         mock_valkey.get_connection_info.return_value = ValkeyConnectionInfo(
             host="valkey-primary",
             port=6379,
@@ -2111,12 +2127,12 @@ class TestCacheSettings:
 class TestRunnerQueueServiceIsReady:
     """Tests for the runner_queue_service_is_ready method."""
 
-    def test_false_when_no_redis_relation(
+    def test_false_when_no_valkey_relation(
         self,
         ctx: testing.Context,
         active_state: testing.State,
     ) -> None:
-        """Test that runner queue is not ready when Redis relation is unavailable."""
+        """Test that runner queue is not ready when Valkey relation is unavailable."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             assert mgr.charm.mediawiki.runner_queue_service_is_ready() is False
 
@@ -2124,11 +2140,10 @@ class TestRunnerQueueServiceIsReady:
         self,
         ctx: testing.Context,
         active_state: testing.State,
-        mock_redis: MockType,
+        mock_valkey: MockType,
     ) -> None:
-        """Test that runner queue is not ready when Redis has no endpoint."""
-        mock_redis.is_relation_available.return_value = True
-        mock_redis.get_endpoint.return_value = None
+        """Test that runner queue is not ready when Valkey has no endpoint."""
+        mock_valkey.get_connection_info.return_value = None
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
             assert mgr.charm.mediawiki.runner_queue_service_is_ready() is False
@@ -2137,32 +2152,32 @@ class TestRunnerQueueServiceIsReady:
         self,
         ctx: testing.Context,
         active_state: testing.State,
-        mock_redis: MockType,
+        mock_valkey: MockType,
+        valkey_connection: ValkeyConnectionInfo,
     ) -> None:
         """Test that runner queue is not ready when the config file doesn't exist yet."""
-        mock_redis.is_relation_available.return_value = True
-        mock_redis.get_endpoint.return_value = "redis-host:6379"
+        mock_valkey.get_connection_info.return_value = valkey_connection
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
             assert mgr.charm.mediawiki.runner_queue_service_is_ready() is False
 
-    def test_true_after_reconciliation_with_redis(
+    def test_true_after_reconciliation_with_valkey(
         self,
         ctx: testing.Context,
         active_state: testing.State,
-        mock_redis: MockType,
+        mock_valkey: MockType,
+        valkey_connection: ValkeyConnectionInfo,
     ) -> None:
         """Test that runner queue is ready after reconciliation writes the config file."""
-        mock_redis.is_relation_available.return_value = True
-        mock_redis.get_endpoint.return_value = "redis-host:6379"
+        mock_valkey.get_connection_info.return_value = valkey_connection
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             assert mgr.charm.mediawiki.runner_queue_service_is_ready() is True
 
 
-class TestSamlRequiresRedis:
-    """Tests for the SAML + Redis requirement behavior."""
+class TestSamlRequiresValkey:
+    """Tests for the SAML + Valkey requirement behavior."""
 
     def _get_late_settings(self, ctx: testing.Context, state_out: testing.State) -> str:
         return (
@@ -2189,15 +2204,15 @@ class TestSamlRequiresRedis:
         mock_saml.get_relation_data.return_value = saml_data
         return mock_saml
 
-    def test_saml_with_redis_available_writes_config_files(
+    def test_saml_with_valkey_available_writes_config_files(
         self,
         ctx: testing.Context,
         active_state: testing.State,
-        mock_redis: MockType,
+        mock_valkey: MockType,
+        valkey_connection: ValkeyConnectionInfo,
     ) -> None:
-        """Test that SimpleSAMLphp config files are written when SAML and Redis are both available."""
-        mock_redis.is_relation_available.return_value = True
-        mock_redis.get_endpoint.return_value = "redis-host:6379"
+        """Test that SimpleSAMLphp config files are written when SAML and Valkey are both available."""
+        mock_valkey.get_connection_info.return_value = valkey_connection
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
@@ -2210,10 +2225,10 @@ class TestSamlRequiresRedis:
         assert "'default-sp'" in authsources.read_text()
 
         config_php = container_fs / "etc/simplesamlphp/charm-config.php"
-        assert config_php.exists(), "charm-config.php should be written when Redis is available"
+        assert config_php.exists(), "charm-config.php should be written when Valkey is available"
         config_content = config_php.read_text()
         assert "$config['store.type'] = 'redis';" in config_content
-        assert "$config['store.redis.host'] = 'redis-host';" in config_content
+        assert "$config['store.redis.host'] = 'valkey-host';" in config_content
         assert "$config['store.redis.port'] = 6379;" in config_content
         assert "$config['store.redis.prefix'] = 'SimpleSAMLphp';" in config_content
         assert "$config['application'] = [ 'baseURL' =>" in config_content
@@ -2230,7 +2245,6 @@ class TestSamlRequiresRedis:
         mock_valkey: MockType,
     ) -> None:
         """Test that SimpleSAMLphp verifies a TLS-enabled Valkey store."""
-        mock_valkey.is_relation_available.return_value = True
         mock_valkey.get_connection_info.return_value = ValkeyConnectionInfo(
             host="valkey-primary",
             port=6380,
@@ -2251,15 +2265,15 @@ class TestSamlRequiresRedis:
         assert "$config['store.redis.password'] = 'valkey-password';" in config_content
         assert "$config['store.redis.tls'] = true;" in config_content
 
-    def test_saml_with_redis_available_loads_extension(
+    def test_saml_with_valkey_available_loads_extension(
         self,
         ctx: testing.Context,
         active_state: testing.State,
-        mock_redis: MockType,
+        mock_valkey: MockType,
+        valkey_connection: ValkeyConnectionInfo,
     ) -> None:
-        """Test that SimpleSAMLphp extension is loaded in LateSettings when SAML and Redis are available."""
-        mock_redis.is_relation_available.return_value = True
-        mock_redis.get_endpoint.return_value = "redis-host:6379"
+        """Test that SimpleSAMLphp extension is loaded in LateSettings when SAML and Valkey are available."""
+        mock_valkey.get_connection_info.return_value = valkey_connection
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
@@ -2283,13 +2297,13 @@ class TestSamlRequiresRedis:
         self,
         ctx: testing.Context,
         active_state: testing.State,
-        mock_redis: MockType,
+        mock_valkey: MockType,
+        valkey_connection: ValkeyConnectionInfo,
         url_origin: str,
         expected_base_url: str,
     ) -> None:
         """Test that an HTTPS (or protocol-neutral) url-origin yields an HTTPS SimpleSAMLphp config."""
-        mock_redis.is_relation_available.return_value = True
-        mock_redis.get_endpoint.return_value = "redis-host:6379"
+        mock_valkey.get_connection_info.return_value = valkey_connection
         state_in = dataclasses.replace(
             active_state, config={**active_state.config, "url-origin": url_origin}
         )
@@ -2323,12 +2337,12 @@ class TestSamlRequiresRedis:
         self,
         ctx: testing.Context,
         active_state: testing.State,
-        mock_redis: MockType,
+        mock_valkey: MockType,
+        valkey_connection: ValkeyConnectionInfo,
         url_origin: str,
     ) -> None:
         """Test that a non-HTTPS url-origin blocks SAML and does not write charm-config.php."""
-        mock_redis.is_relation_available.return_value = True
-        mock_redis.get_endpoint.return_value = "redis-host:6379"
+        mock_valkey.get_connection_info.return_value = valkey_connection
         state_in = dataclasses.replace(
             active_state, config={**active_state.config, "url-origin": url_origin}
         )
@@ -2344,28 +2358,37 @@ class TestSamlRequiresRedis:
             "charm-config.php should not be written for a non-HTTPS url-origin"
         )
 
-    def test_saml_without_redis_raises_blocked(
+    def test_saml_without_valkey_raises_blocked(
         self,
         ctx: testing.Context,
         active_state: testing.State,
     ) -> None:
-        """Test that charm raises blocked status when SAML is configured but Redis is unavailable."""
+        """Test that charm raises blocked status when SAML is configured but Valkey is unavailable."""
         with (
             ctx(ctx.on.update_status(), active_state) as mgr,
             pytest.raises(
                 MediaWikiBlockedStatusException,
-                match="SAML requires a Redis or Valkey relation",
+                match="SAML requires a Valkey relation",
             ),
         ):
             mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
 
-    def test_saml_without_redis_removes_charm_config_php(
+    def test_saml_without_valkey_removes_charm_config_php(
         self,
         ctx: testing.Context,
         active_state: testing.State,
+        mock_valkey: MockType,
+        valkey_connection: ValkeyConnectionInfo,
     ) -> None:
-        """Test that charm-config.php is removed when SAML is configured but Redis is unavailable."""
+        """Test that charm-config.php is removed when SAML is configured but Valkey is unavailable."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
+            mock_valkey.get_connection_info.return_value = valkey_connection
+            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+            with mgr.charm.mediawiki._container.pull(
+                "/etc/simplesamlphp/charm-config.php"
+            ) as config:
+                assert "store.redis.host" in config.read()
+            mock_valkey.get_connection_info.return_value = None
             with pytest.raises(MediaWikiBlockedStatusException):
                 mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             state_out = mgr.run()
@@ -2373,10 +2396,10 @@ class TestSamlRequiresRedis:
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
         config_php = container_fs / "etc/simplesamlphp/charm-config.php"
         assert not config_php.exists(), (
-            "charm-config.php should be removed when Redis is not available"
+            "charm-config.php should be removed when Valkey is not available"
         )
 
-    def test_saml_without_redis_still_writes_late_settings(
+    def test_saml_without_valkey_still_writes_late_settings(
         self,
         ctx: testing.Context,
         active_state: testing.State,
@@ -2393,12 +2416,12 @@ class TestSamlRequiresRedis:
             "LateSettings.php should be written even when SAML is blocked"
         )
 
-    def test_saml_without_redis_does_not_load_extension(
+    def test_saml_without_valkey_does_not_load_extension(
         self,
         ctx: testing.Context,
         active_state: testing.State,
     ) -> None:
-        """Test that SimpleSAMLphp extension is NOT loaded when Redis is unavailable."""
+        """Test that SimpleSAMLphp extension is NOT loaded when Valkey is unavailable."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             with pytest.raises(MediaWikiBlockedStatusException):
                 mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
@@ -2408,17 +2431,17 @@ class TestSamlRequiresRedis:
         late_settings = (container_fs / "etc/mediawiki/LateSettings.php").read_text()
         assert "wfLoadExtension( 'SimpleSAMLphp' )" not in late_settings
 
-    def test_no_saml_no_simplesamlphp_regardless_of_redis(
+    def test_no_saml_no_simplesamlphp_regardless_of_valkey(
         self,
         ctx: testing.Context,
         active_state: testing.State,
         mock_saml: MockType,
-        mock_redis: MockType,
+        mock_valkey: MockType,
+        valkey_connection: ValkeyConnectionInfo,
     ) -> None:
         """Test that no SimpleSAMLphp config is written when SAML is not configured."""
         mock_saml.get_relation_data.return_value = None
-        mock_redis.is_relation_available.return_value = True
-        mock_redis.get_endpoint.return_value = "redis-host:6379"
+        mock_valkey.get_connection_info.return_value = valkey_connection
 
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())

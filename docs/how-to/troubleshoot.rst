@@ -89,7 +89,7 @@ To view a summary of all Kubernetes pods associated with a Juju model:
       mediawiki-2                      3/3     Running   0              1d
       modeloperator-5668865b78-s99zw   1/1     Running   0              1d
       otelcol-0                        2/2     Running   0              1d
-      redis-0                          3/3     Running   0              1d
+      valkey-0                         3/3     Running   0              1d
       s3-integrator-0                  1/1     Running   0              1d
       saml-integrator-0                1/1     Running   0              1d
       self-signed-certificates-0       1/1     Running   0              1d

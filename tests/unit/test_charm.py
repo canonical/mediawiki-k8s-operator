@@ -136,23 +136,48 @@ class TestRelationEventExposure:
                 == 1
             )
 
-    def test_redis_relation_changed_subscription(
+    @pytest.mark.parametrize(
+        "event_name",
+        [
+            "resource_created",
+            "endpoints_changed",
+            "authentication_updated",
+            "relation_changed",
+            "relation_broken",
+        ],
+    )
+    def test_valkey_reconciliation_subscription(
         self,
         ctx: testing.Context,
         active_state: testing.State,
         mocker: MockerFixture,
+        event_name: str,
     ) -> None:
-        """Reconcile on raw redis relation-changed so app-data leader-host updates apply."""
+        """Reconcile on Valkey data updates and relation lifecycle events."""
         observe = mocker.spy(ops.Framework, "observe")
 
         with ctx(ctx.on.update_status(), active_state) as manager:
-            event = manager.charm.on[manager.charm._REDIS_RELATION_NAME].relation_changed
+            charm = manager.charm
+            events = (
+                charm.on[charm._VALKEY_RELATION_NAME]
+                if event_name.startswith("relation_")
+                else charm._valkey.on
+            )
+            event = getattr(events, event_name)
             assert any(
                 call.args[1].emitter is event.emitter
                 and call.args[1].event_kind == event.event_kind
                 and call.args[2] == manager.charm._reconciliation
                 for call in observe.call_args_list
             )
+
+    def test_valkey_is_the_only_key_value_relation(
+        self, ctx: testing.Context, active_state: testing.State
+    ) -> None:
+        """The charm metadata exposes Valkey but no legacy Redis endpoint."""
+        with ctx(ctx.on.update_status(), active_state) as manager:
+            assert "redis" not in manager.charm.meta.requires
+            assert manager.charm.meta.requires["valkey"].interface_name == "valkey_client"
 
 
 class TestGeneralEvents:
@@ -2026,7 +2051,7 @@ class TestPebbleLayer:
         active_state: testing.State,
         mock_mediawiki: MockType,
     ) -> None:
-        """Test that all services are running when reconciliation succeeds and redis is ready."""
+        """Test that all services are running when reconciliation succeeds and Valkey is ready."""
         mock_mediawiki.runner_queue_service_is_ready.return_value = True
 
         state_out = ctx.run(ctx.on.config_changed(), active_state)
@@ -2041,16 +2066,16 @@ class TestPebbleLayer:
         assert plan.services[Charm._CLAMD_SERVICE_NAME].startup == "enabled"
         # Conditional services are explicitly started
         assert container.service_statuses[Charm._SERVICE_NAME] == pebble.ServiceStatus.ACTIVE
-        for service in Charm._REDIS_JOB_SERVICES:
+        for service in Charm._JOB_SERVICES:
             assert container.service_statuses[service] == pebble.ServiceStatus.ACTIVE
 
-    def test_redis_services_stopped_when_not_ready(
+    def test_job_services_stopped_when_not_ready(
         self,
         ctx: testing.Context,
         active_state: testing.State,
         mock_mediawiki: MockType,
     ) -> None:
-        """Test that redis job services are stopped when runner queue is not ready."""
+        """Test that job services are stopped when runner queue is not ready."""
         mock_mediawiki.runner_queue_service_is_ready.return_value = False
 
         state_out = ctx.run(ctx.on.config_changed(), active_state)
@@ -2065,8 +2090,8 @@ class TestPebbleLayer:
         assert plan.services[Charm._CLAMD_SERVICE_NAME].startup == "enabled"
         # MediaWiki is started
         assert container.service_statuses[Charm._SERVICE_NAME] == pebble.ServiceStatus.ACTIVE
-        # Redis job services are stopped
-        for service in Charm._REDIS_JOB_SERVICES:
+        # Job services are stopped
+        for service in Charm._JOB_SERVICES:
             assert (
                 container.service_statuses.get(service, pebble.ServiceStatus.INACTIVE)
                 == pebble.ServiceStatus.INACTIVE
@@ -2100,7 +2125,7 @@ class TestPebbleLayer:
 
         container = state_out.get_container(Charm._CONTAINER_NAME)
         assert container.service_statuses[Charm._SERVICE_NAME] == pebble.ServiceStatus.ACTIVE
-        for service in Charm._REDIS_JOB_SERVICES:
+        for service in Charm._JOB_SERVICES:
             assert (
                 container.service_statuses.get(service, pebble.ServiceStatus.INACTIVE)
                 == pebble.ServiceStatus.INACTIVE
@@ -2155,7 +2180,7 @@ class TestPebbleLayer:
         )
 
         container = state_out.get_container(Charm._CONTAINER_NAME)
-        for service in Charm._REDIS_JOB_SERVICES:
+        for service in Charm._JOB_SERVICES:
             assert container.service_statuses[service] == pebble.ServiceStatus.ACTIVE
         out_relation = state_out.get_relation(disabled_relation.id)
         assert (
@@ -2171,7 +2196,7 @@ class TestPebbleLayer:
         mediawiki_container: testing.Container,
         mock_mediawiki: MockType,
     ) -> None:
-        """Test that mediawiki and redis services are stopped when pre-reconciliation fails (no database)."""
+        """Test that mediawiki and job services are stopped when pre-reconciliation fails (no database)."""
         mock_mediawiki.runner_queue_service_is_ready.return_value = True
 
         # No database relation means _reconcile_services(enabled=False) is called
@@ -2190,7 +2215,7 @@ class TestPebbleLayer:
             container.service_statuses.get(Charm._SERVICE_NAME, pebble.ServiceStatus.INACTIVE)
             == pebble.ServiceStatus.INACTIVE
         )
-        for service in Charm._REDIS_JOB_SERVICES:
+        for service in Charm._JOB_SERVICES:
             assert (
                 container.service_statuses.get(service, pebble.ServiceStatus.INACTIVE)
                 == pebble.ServiceStatus.INACTIVE

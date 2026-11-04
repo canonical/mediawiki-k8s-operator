@@ -146,26 +146,6 @@ Example ``oauth`` integrate command:
 
    Read more about the `Canonical Identity Platform <https://canonical-identity.readthedocs-hosted.com>`_.
 
-.. _reference_relation_endpoints_redis:
-
-Redis
------
-
-* **Interface**: `redis <https://charmhub.io/integrations/redis>`_
-* **Supported charms**: `redis-k8s <https://charmhub.io/redis-k8s>`_
-
-The ``redis`` relation connects MediaWiki to a Redis instance, allowing for caching of MediaWiki data in Redis. This can improve the performance of your MediaWiki instance. Use the :ref:`Valkey <reference_relation_endpoints_valkey>` relation for new deployments.
-
-Example ``redis`` integrate command:
-
-.. code-block:: bash
-
-   juju integrate mediawiki-k8s redis-k8s:redis
-
-.. seealso::
-
-   Read more about how MediaWiki uses Redis as an object cache backend: `Redis <https://www.mediawiki.org/wiki/Redis>`__
-
 .. _reference_relation_endpoints_valkey:
 
 Valkey
@@ -174,7 +154,9 @@ Valkey
 * **Interface**: `valkey_client <https://charmhub.io/integrations/valkey_client>`_
 * **Supported charms**: `valkey <https://charmhub.io/valkey>`_
 
-The ``valkey`` relation connects MediaWiki to a Valkey instance for caching and asynchronous job execution. Redis and Valkey are mutually exclusive.
+The ``valkey`` relation connects MediaWiki to a Valkey instance for caching and asynchronous job execution. Valkey is the only supported key-value store charm.
+
+MediaWiki and SimpleSAMLphp use Redis-compatible clients to connect to Valkey. Their configuration keys and job-runner service names retain Redis terminology; this does not indicate support for the Redis charm.
 
 Example ``valkey`` integrate command:
 
@@ -198,7 +180,7 @@ This is accomplished using the `SimpleSAMLphp MediaWiki extension <https://www.m
    While the ``saml`` relation will function while configuring MediaWiki to use a HTTP or protocol-relative URL, it is **highly** recommended to explicitly allow only HTTPS in a production environment.
 
 .. important::
-   The :ref:`Redis <reference_relation_endpoints_redis>` or :ref:`Valkey <reference_relation_endpoints_valkey>` relation is **required** when using SAML, as SimpleSAMLphp uses the cache relation as its session store.
+   The :ref:`Valkey <reference_relation_endpoints_valkey>` relation is **required** when using SAML, as SimpleSAMLphp uses Valkey as its session store.
 
 Example ``saml`` integrate command:
 
