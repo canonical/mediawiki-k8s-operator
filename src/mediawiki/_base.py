@@ -19,11 +19,11 @@ if TYPE_CHECKING:
     from egress import TunnelServiceRegistry
     from mediawiki_peers import MediaWikiPeers
     from relations.auth import OAuth, Saml
-    from relations.cache import Cache
     from relations.certificate_transfer import CertificateTransfer
     from relations.database import Database
     from relations.s3 import S3
     from relations.smtp import Smtp
+    from relations.valkey import Valkey
     from shellbox import Shellbox
     from state import StatefulCharmBase
     from types_ import CommandExecResult
@@ -43,7 +43,7 @@ class _MediaWikiBase(ContainerService):
 
     # Collaborator objects (assigned by MediaWiki.__init__)
     _charm: StatefulCharmBase
-    _cache: Cache
+    _valkey: Valkey
     _certificate_transfer: CertificateTransfer
     _database: Database
     _oauth: OAuth

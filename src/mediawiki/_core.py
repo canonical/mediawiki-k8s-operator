@@ -33,12 +33,12 @@ from mediawiki_peers import (
     MediaWikiPeerState,
 )
 from relations.auth import OAuth, Saml
-from relations.cache import Cache
 from relations.certificate_transfer import CertificateTransfer
 from relations.database import Database
 from relations.s3 import S3
 from relations.smtp import Smtp
 from relations.tls import Tls
+from relations.valkey import Valkey
 from shellbox import Shellbox
 from state import CharmConfig, StatefulCharmBase
 from types_ import OperationMode
@@ -64,7 +64,7 @@ class MediaWiki(
     _PHP_FPM_COMMAND = "/usr/local/bin/mediawiki-php-fpm"
     _LOGROTATE_SERVICE_NAME = "logrotate"
     _APACHE_EXPORTER_SERVICE_NAME = "apache-exporter"
-    _REDIS_JOB_SERVICES = constants.REDIS_JOB_SERVICES
+    _JOB_SERVICES = constants.JOB_SERVICES
     _APACHE_EXPORTER_PORT = 9117
     _APACHE_STATUS_PORT = 8090
     _FRESHCLAM_SERVICE_NAME = "freshclam"
@@ -82,7 +82,7 @@ class MediaWiki(
         database: Database,
         oauth: OAuth,
         saml: Saml,
-        cache: Cache,
+        valkey: Valkey,
         s3: S3,
         smtp: Smtp,
         peers: MediaWikiPeers,
@@ -95,7 +95,7 @@ class MediaWiki(
         self._database = database
         self._oauth = oauth
         self._saml = saml
-        self._cache = cache
+        self._valkey = valkey
         self._s3 = s3
         self._smtp = smtp
         self._peers = peers
@@ -171,7 +171,6 @@ class MediaWiki(
             raise MediaWikiWaitingStatusException("Waiting for cache storage to be attached")
 
         try:
-            self._cache.validate()
             if not self._database.has_relation():
                 raise MediaWikiBlockedStatusException(
                     f"Waiting for relation {self._database.db.relation_name}."
@@ -234,7 +233,7 @@ class MediaWiki(
             raise MediaWikiBlockedStatusException("Database relation is not ready")
         config = self._charm.load_charm_config()
         force = force or peer_state.operation_mode is OperationMode.FORCE_RECONCILIATION
-        cache_connection = self._cache.get_connection_info()
+        cache_connection = self._valkey.get_connection_info()
         additional_certificates = (
             [cache_connection.tls_ca]
             if cache_connection is not None and cache_connection.tls_ca
@@ -246,7 +245,7 @@ class MediaWiki(
         if certificate_transfer_changed:
             # PHP-FPM workers load the trust store per connection; the long-lived job runners
             # are restarted so their connections are re-established against the new bundle.
-            self.request_service_restart(*self._REDIS_JOB_SERVICES)
+            self.request_service_restart(*self._JOB_SERVICES)
         if self._tls_reconciliation():
             self.request_service_restart(self._SERVICE_NAME)
         self._logs_path.mkdir(
@@ -390,7 +389,7 @@ class MediaWiki(
                         "group": constants.DAEMON_GROUP,
                         "environment": self._charm.state.get_proxy_env({}),
                     }
-                    for service in self._REDIS_JOB_SERVICES
+                    for service in self._JOB_SERVICES
                 },
                 "mediawikiLogs": {
                     "override": "replace",
@@ -493,7 +492,7 @@ class MediaWiki(
         all_conditional_services = {
             self._SERVICE_NAME,
             self._PHP_FPM_SERVICE_NAME,
-            *self._REDIS_JOB_SERVICES,
+            *self._JOB_SERVICES,
         }
         services_to_run = {self._SERVICE_NAME, self._PHP_FPM_SERVICE_NAME}
         previously_running = {
@@ -506,7 +505,7 @@ class MediaWiki(
             services_to_run.clear()
             self._reconcile_checks(active=False)
         elif run_job_workers:
-            services_to_run.update(self._REDIS_JOB_SERVICES)
+            services_to_run.update(self._JOB_SERVICES)
 
         services_to_stop = all_conditional_services - services_to_run
         services = self._container.get_plan().services
@@ -530,7 +529,7 @@ class MediaWiki(
     def _stop_job_workers(self) -> None:
         """Stop job workers without changing the rest of the workload plan."""
         services = self._container.get_plan().services
-        for service in self._REDIS_JOB_SERVICES:
+        for service in self._JOB_SERVICES:
             if service in services and self._container.get_service(service).is_running():
                 self._container.stop(service)
 
@@ -637,7 +636,7 @@ class MediaWiki(
 
     def runner_queue_service_is_ready(self) -> bool:
         """Returns whether or not the runner queue services should be enabled."""
-        if not self._cache.get_connection_info():
+        if not self._valkey.get_connection_info():
             return False
 
         return self._job_runner_config.exists()

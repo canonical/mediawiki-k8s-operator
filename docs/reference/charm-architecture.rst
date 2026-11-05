@@ -176,7 +176,7 @@ parent process launches unprivileged ``_daemon_`` workers.
 Job runner
 """""""""""
 
-When Redis or Valkey is used, Pebble runs a set of supporting `job runner services <https://github.com/wikimedia/mediawiki-services-jobrunner>`_ which performs MediaWiki's `long-running tasks asynchronously <https://www.mediawiki.org/wiki/Manual:Job_queue>`_. Without those services, these long-running tasks would otherwise only be run at the `end of a web request <https://www.mediawiki.org/wiki/Manual:$wgJobRunRate>`_.
+When Valkey is used, Pebble runs a set of supporting `job runner services <https://github.com/wikimedia/mediawiki-services-jobrunner>`_ which performs MediaWiki's `long-running tasks asynchronously <https://www.mediawiki.org/wiki/Manual:Job_queue>`_. Without those services, these long-running tasks would otherwise only be run at the `end of a web request <https://www.mediawiki.org/wiki/Manual:$wgJobRunRate>`_.
 
 MediaWiki application
 """""""""""""""""""""

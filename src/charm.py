@@ -14,7 +14,6 @@ import ops
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v1.loki_push_api import LogForwarder
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.redis_k8s.v0.redis import RedisRelationCharmEvents
 from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
 from ops import (
     ActionEvent,
@@ -39,10 +38,8 @@ from git_sync import GitSync
 from mediawiki import MediaWiki
 from mediawiki_peers import MediaWikiPeers
 from relations.auth import OAuth, Saml
-from relations.cache import Cache
 from relations.certificate_transfer import CertificateTransfer
 from relations.database import Database
-from relations.redis import Redis
 from relations.s3 import S3
 from relations.smtp import Smtp
 from relations.tls import Tls
@@ -99,7 +96,7 @@ class Charm(StatefulCharmBase):
     _SERVICE_NAME = "mediawiki"
     _LOGROTATE_SERVICE_NAME = "logrotate"
     _APACHE_EXPORTER_SERVICE_NAME = "apache-exporter"
-    _REDIS_JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
+    _JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
 
     _APACHE_EXPORTER_PORT = 9117
     _PHP_FPM_STATUS_PORT = 8091
@@ -115,7 +112,6 @@ class Charm(StatefulCharmBase):
 
     _OAUTH_RELATION_NAME = "oauth"
     _SAML_RELATION_NAME = "saml"
-    _REDIS_RELATION_NAME = "redis"
     _VALKEY_RELATION_NAME = "valkey"
     _S3_RELATION_NAME = "s3-parameters"
     _SMTP_RELATION_NAME = "smtp"
@@ -129,8 +125,6 @@ class Charm(StatefulCharmBase):
     _SSH_KEY_GIT_SYNC_FIELD = "git-sync"
     _SSH_KEY_FIELDS = frozenset({_SSH_KEY_MEDIAWIKI_FIELD, _SSH_KEY_GIT_SYNC_FIELD})
 
-    on = RedisRelationCharmEvents()  # pyright: ignore[reportAssignmentType,reportIncompatibleMethodOverride]
-
     def __init__(self, *args: typing.Any):
         log_redaction.install()
         super().__init__(*args)
@@ -139,9 +133,7 @@ class Charm(StatefulCharmBase):
         self._database = Database(self, self._DATABASE_RELATION_NAME, self._DATABASE_NAME)
         self._oauth = OAuth(self, self._OAUTH_RELATION_NAME)
         self._saml = Saml(self, self._SAML_RELATION_NAME)
-        self._redis = Redis(self, self._REDIS_RELATION_NAME)
         self._valkey = Valkey(self, self._VALKEY_RELATION_NAME)
-        self._cache = Cache(self, self._redis, self._valkey)
         self._s3 = S3(self, self._S3_RELATION_NAME)
         self._smtp = Smtp(self, self._SMTP_RELATION_NAME)
         self._peers = MediaWikiPeers(
@@ -161,7 +153,7 @@ class Charm(StatefulCharmBase):
             self._database,
             self._oauth,
             self._saml,
-            self._cache,
+            self._valkey,
             self._s3,
             self._smtp,
             self._peers,
@@ -226,8 +218,6 @@ class Charm(StatefulCharmBase):
             self._oauth.on.oauth_info_removed,
             self._saml.on.saml_data_available,
             self.on[self._SAML_RELATION_NAME].relation_broken,
-            self.on.redis_relation_updated,
-            self.on[self._REDIS_RELATION_NAME].relation_changed,
             self._valkey.on.resource_created,
             self._valkey.on.endpoints_changed,
             self._valkey.on.authentication_updated,

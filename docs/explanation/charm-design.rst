@@ -74,7 +74,7 @@ Maintenance and database updates are mutually exclusive because they require dif
 
 Recovery deliberately has fewer prerequisites than entry. Disabling maintenance requires a ready database relation, but not a working MediaWiki workload, so that a workload failure cannot prevent the operator from restoring database writes. Database verification failures leave the peer request unchanged and fail the action explicitly; they cannot imply that the database change was rolled back.
 
-The protection boundary is the database, not every storage service used by MediaWiki. Valkey and Redis remain available, so maintenance mode is not a guarantee of application-wide storage inactivity. MediaWiki remains responsible for blocking writes such as job queue pushes that have durability requirements in Valkey or Redis.
+The protection boundary is the database, not every storage service used by MediaWiki. Valkey remains available, so maintenance mode is not a guarantee of application-wide storage inactivity. MediaWiki remains responsible for blocking writes such as job queue pushes that have durability requirements in Valkey.
 
 .. vale Canonical.007-Headings-sentence-case = NO
 

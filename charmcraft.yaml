@@ -35,8 +35,6 @@ charm-libs:
     version: "1"
   - lib: prometheus_k8s.prometheus_scrape
     version: "0"
-  - lib: redis_k8s.redis
-    version: "0"
   - lib: saml_integrator.saml
     version: "0"
   - lib: smtp_integrator.smtp
@@ -332,7 +330,7 @@ actions:
       sets MediaWiki to be read-only, and pauses background job workers on all units
       while preserving queued work.
 
-      Maintenance mode does not guarantee that no writes will be made to Valkey/Redis.
+      Maintenance mode does not guarantee that no writes will be made to Valkey.
 
       While in maintenance mode, certain user account actions such as logging out may be restricted.
       Consider rotating secrets following extended maintenance periods to invalidate existing sessions and
@@ -417,10 +415,6 @@ requires:
     optional: true
   valkey:
     interface: valkey_client
-    limit: 1
-    optional: true
-  redis:
-    interface: redis
     limit: 1
     optional: true
   s3-parameters:

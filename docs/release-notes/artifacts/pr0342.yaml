@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Dropped support for the Redis charm
+    author: hk21702
+    type: breaking
+    description: >-
+      Removed support for integrating with the Redis charm, which is deprecated
+      and has not been closely tested since Valkey support was introduced.
+      Deployments that use Redis must migrate to the Valkey charm.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/342"
+    visibility: public
+    highlight: false

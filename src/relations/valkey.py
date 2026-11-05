@@ -63,10 +63,6 @@ class Valkey(Object):
         """Expose relation events from the data interface handler."""
         return self._handler.on  # type: ignore[return-value]
 
-    def is_relation_available(self) -> bool:
-        """Return whether a Valkey relation exists."""
-        return bool(self._handler.relations)
-
     def _get_response(self) -> ValkeyResponseModel | None:
         """Return the first response from the Valkey provider."""
         if not (relations := self._handler.relations):
