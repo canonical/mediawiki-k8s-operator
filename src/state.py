@@ -38,6 +38,7 @@ class CharmConfig(BaseModel):
     static_assets_git_repo: str = Field("")
     static_assets_git_ref: str = Field("")
     static_assets_git_sparse_checkout: str = Field("")
+    tracing_sampling_probability: int = Field(ge=0, le=100, strict=True)
     url_origin: str = Field("")
     oauth_extra_scopes: str = Field("")
     local_settings: str = Field("")
