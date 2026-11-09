@@ -35,6 +35,7 @@ from mediawiki_peers import (
 from relations.auth import OAuth, Saml
 from relations.certificate_transfer import CertificateTransfer
 from relations.database import Database
+from relations.metrics import Metrics
 from relations.s3 import S3
 from relations.smtp import Smtp
 from relations.tls import Tls
@@ -65,6 +66,7 @@ class MediaWiki(
     _PHP_FPM_COMMAND = "/usr/local/bin/mediawiki-php-fpm"
     _LOGROTATE_SERVICE_NAME = "logrotate"
     _APACHE_EXPORTER_SERVICE_NAME = "apache-exporter"
+    _STATSD_EXPORTER_SERVICE_NAME = "statsd-exporter"
     _JOB_SERVICES = constants.JOB_SERVICES
     _APACHE_EXPORTER_PORT = 9117
     _APACHE_STATUS_PORT = 8090
@@ -72,6 +74,7 @@ class MediaWiki(
     _CLAMD_SERVICE_NAME = "clamd"
     _MEDIAWIKI_API_READY_CHECK = "mediawiki-api-ready"
     _PHP_FPM_READY_CHECK = "php-fpm-ready"
+    _STATSD_EXPORTER_CHECK = "statsd-exporter-up"
     _PHP_FPM_STATUS_PORT = 8091
     _MEDIAWIKI_CHECKS = (_MEDIAWIKI_API_READY_CHECK, _PHP_FPM_READY_CHECK)
     _SMTP_PROXY_SERVICE_NAME = "smtp-proxy"
@@ -91,6 +94,7 @@ class MediaWiki(
         certificate_transfer: CertificateTransfer,
         shellbox: Shellbox,
         tracing: Tracing,
+        metrics: Metrics,
     ):
         super().__init__(charm.unit.get_container("mediawiki"))
         self._charm = charm
@@ -106,6 +110,7 @@ class MediaWiki(
         self._certificate_transfer = certificate_transfer
         self._shellbox = shellbox
         self._tracing = tracing
+        self._metrics = metrics
 
     @property
     def _logs_path(self) -> ContainerPath:
@@ -422,6 +427,19 @@ class MediaWiki(
                     "user": constants.DAEMON_USER,
                     "group": constants.DAEMON_GROUP,
                 },
+                self._STATSD_EXPORTER_SERVICE_NAME: {
+                    "override": "replace",
+                    "summary": "Native MediaWiki metrics exporter",
+                    "command": (
+                        "/usr/bin/statsd_exporter"
+                        f" --statsd.listen-udp=127.0.0.1:{constants.STATSD_PORT}"
+                        " --statsd.listen-tcp= --statsd.listen-unixgram="
+                        f" --web.listen-address=:{constants.STATSD_EXPORTER_PORT}"
+                    ),
+                    "startup": "disabled",
+                    "user": constants.DAEMON_USER,
+                    "group": constants.DAEMON_GROUP,
+                },
                 self._FRESHCLAM_SERVICE_NAME: {
                     "override": "replace",
                     "summary": "FreshClam service",
@@ -463,20 +481,29 @@ class MediaWiki(
                     "level": "alive",
                     "http": {"url": f"http://localhost:{self._APACHE_EXPORTER_PORT}/metrics"},
                 },
+                self._STATSD_EXPORTER_CHECK: {
+                    "override": "replace",
+                    "level": "alive",
+                    "startup": "disabled",
+                    "http": {"url": f"http://127.0.0.1:{constants.STATSD_EXPORTER_PORT}/metrics"},
+                },
             },
         }
 
     def _reconcile_checks(self, *, active: bool) -> None:
         """Start or stop MediaWiki health checks."""
-        checks = self._container.get_plan().checks
         for check in self._MEDIAWIKI_CHECKS:
-            if check not in checks:
-                continue
-            status = self._container.get_check(check).status
-            if active and status == pebble.CheckStatus.INACTIVE:
-                self._container.start_checks(check)
-            elif not active and status != pebble.CheckStatus.INACTIVE:
-                self._container.stop_checks(check)
+            self._reconcile_check(check, active=active)
+
+    def _reconcile_check(self, check: str, *, active: bool) -> None:
+        """Start or stop a health check when its desired state changes."""
+        if check not in self._container.get_plan().checks:
+            return
+        status = self._container.get_check(check).status
+        if active and status == pebble.CheckStatus.INACTIVE:
+            self._container.start_checks(check)
+        elif not active and status != pebble.CheckStatus.INACTIVE:
+            self._container.stop_checks(check)
 
     def _reconcile_services(
         self,
@@ -492,9 +519,11 @@ class MediaWiki(
         self._container.add_layer(self._SERVICE_NAME, self._pebble_layer(), combine=True)
         self._container.replan()
 
+        metrics_enabled = self._metrics.has_relation()
         all_conditional_services = {
             self._SERVICE_NAME,
             self._PHP_FPM_SERVICE_NAME,
+            self._STATSD_EXPORTER_SERVICE_NAME,
             *self._JOB_SERVICES,
         }
         services_to_run = {self._SERVICE_NAME, self._PHP_FPM_SERVICE_NAME}
@@ -509,6 +538,8 @@ class MediaWiki(
             self._reconcile_checks(active=False)
         elif run_job_workers:
             services_to_run.update(self._JOB_SERVICES)
+        if metrics_enabled:
+            services_to_run.add(self._STATSD_EXPORTER_SERVICE_NAME)
 
         services_to_stop = all_conditional_services - services_to_run
         services = self._container.get_plan().services
@@ -523,9 +554,12 @@ class MediaWiki(
             if service in services and not self._container.get_service(service).is_running()
         )
         if running_to_stop:
+            if self._STATSD_EXPORTER_SERVICE_NAME in running_to_stop:
+                self._reconcile_check(self._STATSD_EXPORTER_CHECK, active=False)
             self._container.stop(*running_to_stop)
         if stopped_to_start:
             self._container.start(*stopped_to_start)
+        self._reconcile_check(self._STATSD_EXPORTER_CHECK, active=metrics_enabled)
         if workload_active:
             self._finish_active_service_reconciliation(services_to_run & previously_running)
 

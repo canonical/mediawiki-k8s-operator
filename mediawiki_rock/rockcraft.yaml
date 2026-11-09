@@ -145,6 +145,15 @@ parts:
     source-tag: v1.1.1
     source-depth: 1
 
+  statsd-exporter:
+    plugin: go
+    build-snaps:
+      - go/1.25/stable
+    source: https://github.com/prometheus/statsd_exporter.git
+    source-type: git
+    source-tag: v0.31.0
+    source-depth: 1
+
   mediawiki:
     after:
       - apache2

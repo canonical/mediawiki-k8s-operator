@@ -67,6 +67,10 @@ CACHE_DIR = CACHE_STORAGE_MOUNT + "/mediawiki"
 # Pebble services for the Valkey-backed job queue, which read their configuration at startup
 JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
 
+# Native MediaWiki metrics
+STATSD_EXPORTER_PORT = 9102
+STATSD_PORT = 9125
+
 # Pending work markers
 #
 # Each marker records that the workload is behind the state the charm has already written,

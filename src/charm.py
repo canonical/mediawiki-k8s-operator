@@ -13,7 +13,6 @@ from urllib.parse import urlparse
 import ops
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v1.loki_push_api import LogForwarder
-from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
 from ops import (
     ActionEvent,
@@ -36,10 +35,12 @@ from exceptions import (
 )
 from git_sync import GitSync
 from mediawiki import MediaWiki
+from mediawiki import constants as mediawiki_constants
 from mediawiki_peers import MediaWikiPeers
 from relations.auth import OAuth, Saml
 from relations.certificate_transfer import CertificateTransfer
 from relations.database import Database
+from relations.metrics import Metrics
 from relations.s3 import S3
 from relations.smtp import Smtp
 from relations.tls import Tls
@@ -117,6 +118,7 @@ class Charm(StatefulCharmBase):
     _S3_RELATION_NAME = "s3-parameters"
     _SMTP_RELATION_NAME = "smtp"
     _TRACING_RELATION_NAME = "tracing"
+    _METRICS_RELATION_NAME = "metrics-endpoint"
 
     _PEER_RELATION_NAME = MediaWikiPeers.RELATION_NAME
     _REPLICA_SECRET_LABEL = MediaWikiPeers.SECRET_LABEL
@@ -151,20 +153,6 @@ class Charm(StatefulCharmBase):
         )
         self._shellbox = Shellbox(self)
         self._tracing = Tracing(self, self._TRACING_RELATION_NAME)
-        self._mediawiki = MediaWiki(
-            self,
-            self._database,
-            self._oauth,
-            self._saml,
-            self._valkey,
-            self._s3,
-            self._smtp,
-            self._peers,
-            self._tls,
-            self._certificate_transfer,
-            self._shellbox,
-            self._tracing,
-        )
         self._git_sync = GitSync(self)
 
         self._ingress_requirer = TraefikRouteRequirer(
@@ -175,10 +163,17 @@ class Charm(StatefulCharmBase):
 
         self._grafana_dashboards = GrafanaDashboardProvider(self)
         self._logging = LogForwarder(self, relation_name="logging")
-        self._metrics = MetricsEndpointProvider(
+        self._metrics = Metrics(
             self,
-            relation_name="metrics-endpoint",
+            relation_name=self._METRICS_RELATION_NAME,
             jobs=[
+                {
+                    "job_name": "mediawiki_stats",
+                    "metrics_path": "/metrics",
+                    "static_configs": [
+                        {"targets": [f"*:{mediawiki_constants.STATSD_EXPORTER_PORT}"]}
+                    ],
+                },
                 {
                     "job_name": "apache_exporter",
                     "static_configs": [{"targets": [f"*:{self._APACHE_EXPORTER_PORT}"]}],
@@ -206,10 +201,27 @@ class Charm(StatefulCharmBase):
                 self.on.config_changed,
             ],
         )
+        self._mediawiki = MediaWiki(
+            self,
+            self._database,
+            self._oauth,
+            self._saml,
+            self._valkey,
+            self._s3,
+            self._smtp,
+            self._peers,
+            self._tls,
+            self._certificate_transfer,
+            self._shellbox,
+            self._tracing,
+            self._metrics,
+        )
         self.framework.observe(self.on.leader_elected, self._peers.setup_replica_data)
 
         # Reconciliation events
         reconciliation_events = [
+            self.on[self._METRICS_RELATION_NAME].relation_created,
+            self.on[self._METRICS_RELATION_NAME].relation_broken,
             self.on[self._TRACING_RELATION_NAME].relation_created,
             self._tracing.on.endpoint_changed,
             self._tracing.on.endpoint_removed,

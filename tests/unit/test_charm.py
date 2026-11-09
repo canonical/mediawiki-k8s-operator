@@ -2457,6 +2457,130 @@ class TestMetricsEndpoint:
             for job in TestMetricsEndpoint._published_jobs(state_out, relation_id)
         ]
 
+    def test_native_job_published(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        metrics_relation: testing.Relation,
+    ) -> None:
+        """Publish the per-unit native exporter alongside every existing scrape job."""
+        state = dataclasses.replace(
+            active_state, relations=[*active_state.relations, metrics_relation]
+        )
+        out = ctx.run(ctx.on.relation_created(metrics_relation), state)
+        out = ctx.run(ctx.on.relation_joined(metrics_relation), out)
+        jobs = self._published_jobs(out, metrics_relation.id)
+        job = next(job for job in jobs if job["job_name"] == "mediawiki_stats")
+        assert job["metrics_path"] == "/metrics"
+        assert job["static_configs"] == [{"targets": ["*:9102"]}]
+        assert {
+            "mediawiki_stats",
+            "apache_exporter",
+            "mediawiki_php_fpm",
+            "shellbox_apache_exporter",
+            "shellbox_php_fpm",
+        } <= set(self._published_job_names(out, metrics_relation.id))
+        assert (
+            out.get_container("mediawiki").service_statuses[
+                WorkloadMediaWiki._STATSD_EXPORTER_SERVICE_NAME
+            ]
+            == pebble.ServiceStatus.ACTIVE
+        )
+
+    @pytest.mark.parametrize("blocker", ["git-sync", "configuration"])
+    def test_removal_follows_normal_reconciliation(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        metrics_relation: testing.Relation,
+        mock_git_sync: MockType,
+        mock_mediawiki: MockType,
+        blocker: str,
+    ) -> None:
+        """A blocked cycle leaves the previous state until workload reconciliation resumes."""
+        state = dataclasses.replace(
+            active_state, relations=[*active_state.relations, metrics_relation]
+        )
+        state = ctx.run(ctx.on.relation_created(metrics_relation), state)
+        mock_mediawiki.reconciliation.reset_mock()
+        if blocker == "git-sync":
+            mock_git_sync.is_ready.return_value = False
+        else:
+            mock_mediawiki._reconcile_configuration.side_effect = MediaWikiWaitingStatusException(
+                "Waiting for workload configuration"
+            )
+        out = ctx.run(ctx.on.relation_broken(metrics_relation), state)
+        assert isinstance(out.unit_status, ops.WaitingStatus)
+        assert mock_mediawiki.reconciliation.call_count == (0 if blocker == "git-sync" else 1)
+        container = out.get_container("mediawiki")
+        assert (
+            container.service_statuses[WorkloadMediaWiki._STATSD_EXPORTER_SERVICE_NAME]
+            == pebble.ServiceStatus.ACTIVE
+        )
+        assert (
+            next(
+                check
+                for check in container.check_infos
+                if check.name == WorkloadMediaWiki._STATSD_EXPORTER_CHECK
+            ).status
+            != pebble.CheckStatus.INACTIVE
+        )
+
+        mock_git_sync.is_ready.return_value = True
+        mock_mediawiki._reconcile_configuration.side_effect = None
+        out = dataclasses.replace(
+            out,
+            relations=[
+                relation for relation in out.relations if relation.id != metrics_relation.id
+            ],
+        )
+        out = ctx.run(ctx.on.config_changed(), out)
+        assert isinstance(out.unit_status, ops.ActiveStatus)
+        container = out.get_container("mediawiki")
+        assert (
+            container.service_statuses[WorkloadMediaWiki._STATSD_EXPORTER_SERVICE_NAME]
+            == pebble.ServiceStatus.INACTIVE
+        )
+        assert (
+            next(
+                check
+                for check in container.check_infos
+                if check.name == WorkloadMediaWiki._STATSD_EXPORTER_CHECK
+            ).status
+            == pebble.CheckStatus.INACTIVE
+        )
+
+    def test_reconnect_applies_relation_state(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        metrics_relation: testing.Relation,
+    ) -> None:
+        """Apply metrics after Pebble reconnects, rather than losing a relation event."""
+        state = dataclasses.replace(
+            active_state,
+            relations=[*active_state.relations, metrics_relation],
+            containers=[
+                dataclasses.replace(container, can_connect=False)
+                if container.name == "mediawiki"
+                else container
+                for container in active_state.containers
+            ],
+        )
+        state = ctx.run(ctx.on.relation_created(metrics_relation), state)
+        assert state.unit_status == ops.WaitingStatus("Waiting for pebble")
+        container = dataclasses.replace(state.get_container("mediawiki"), can_connect=True)
+        state = dataclasses.replace(
+            state, containers=[container, *[c for c in state.containers if c.name != "mediawiki"]]
+        )
+        out = ctx.run(ctx.on.pebble_ready(container), state)
+        assert (
+            out.get_container("mediawiki").service_statuses[
+                WorkloadMediaWiki._STATSD_EXPORTER_SERVICE_NAME
+            ]
+            == pebble.ServiceStatus.ACTIVE
+        )
+
     def test_php_fpm_job_published_as_openmetrics(
         self,
         ctx: testing.Context,

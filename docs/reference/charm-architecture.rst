@@ -99,11 +99,13 @@ The MediaWiki charm is driven by the :ref:`charm operator container <reference_c
          Apache@{ shape: subproc, label: "Apache Server<br/>(Serves MediaWiki)" }
          PhpFpm@{ shape: subproc, label: "PHP-FPM<br/>(PHP requests)" }
          JobRunner@{ shape: subproc, label: "Job Runner<br/>(Background tasks)" }
+         StatsDExporter@{ shape: subproc, label: "StatsD exporter<br/>(Metrics)" }
 
          Pebble1 -->|Manage| Apache
          Pebble1 -->|Manage| PhpFpm
          Apache -->|Unix socket| PhpFpm
          Pebble1 -->|Manage| JobRunner
+         Pebble1 -->|Manage| StatsDExporter
       end
       
       subgraph ShellboxContainer["Container: Shellbox"]
@@ -177,6 +179,18 @@ Job runner
 """""""""""
 
 When Valkey is used, Pebble runs a set of supporting `job runner services <https://github.com/wikimedia/mediawiki-services-jobrunner>`_ which performs MediaWiki's `long-running tasks asynchronously <https://www.mediawiki.org/wiki/Manual:Job_queue>`_. Without those services, these long-running tasks would otherwise only be run at the `end of a web request <https://www.mediawiki.org/wiki/Manual:$wgJobRunRate>`_.
+
+StatsD exporter
+"""""""""""""""
+
+The StatsD exporter Pebble service runs as ``_daemon_`` only while a
+``metrics-endpoint`` consumer is related. It receives native MediaWiki DogStatsD
+metrics over UDP at ``127.0.0.1:9125`` and exposes them for scraping on port
+``9102``. The charm manages its service alongside the other MediaWiki services
+and writes the StatsLib settings into ``LateSettings.php``. Relation changes are
+applied during normal workload reconciliation, so other readiness prerequisites
+can delay them.
+See :ref:`metrics <reference_metrics>` for details.
 
 MediaWiki application
 """""""""""""""""""""

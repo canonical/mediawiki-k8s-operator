@@ -151,6 +151,7 @@ class _SettingsMixin(_MediaWikiBase):
         content = self._late_settings_template_file.read_text()
         content += self._get_logging_settings(config)
         content += self._get_tracing_settings(config)
+        content += self._get_metrics_settings()
         content += self._get_proxy_settings()
         content += self._get_database_settings()
         content += self._get_cache_settings()
@@ -243,6 +244,16 @@ class _SettingsMixin(_MediaWikiBase):
             user=constants.WEBROOT_OWNER_USER,
             group=constants.DAEMON_GROUP,
         )
+
+    def _get_metrics_settings(self) -> str:
+        """Render native metrics settings, overriding user-supplied configuration."""
+        settings = (
+            "$wgStatsFormat = 'dogstatsd';\n"
+            f"$wgStatsTarget = 'udp://127.0.0.1:{constants.STATSD_PORT}';\n"
+            if self._metrics.has_relation()
+            else "$wgStatsFormat = null;\n$wgStatsTarget = null;\n"
+        )
+        return settings + "$wgStatsPrefix = 'mediawiki';\n"
 
     def _get_tracing_settings(self, config: CharmConfig) -> str:
         """Render native tracing settings, overriding any user-supplied configuration."""
