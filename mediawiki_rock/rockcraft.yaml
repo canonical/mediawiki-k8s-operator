@@ -154,6 +154,7 @@ parts:
     build-environment:
       - MW_VERSION: 1.46.2
     build-packages:
+      - git
       - php-curl
     override-pull: |
       craftctl default
@@ -182,9 +183,14 @@ parts:
       tar -xzf mediawiki.tar.gz --strip-components=1
       rm mediawiki.tar.gz mediawiki.tar.gz.sig
     override-build: |
+      git -C "${CRAFT_PART_BUILD}" apply \
+        "${CRAFT_PROJECT_DIR}/files/patches/mediawiki-otel-resource-attributes.patch"
+
       # Compose MediaWiki extensions
       COMPOSER_ALLOW_SUPERUSER=1 \
       composer update --no-dev -n -d "${CRAFT_PART_BUILD}"
+
+      php "${CRAFT_PROJECT_DIR}/tests/tracing-resource-attributes.php" "${CRAFT_PART_BUILD}"
 
       craftctl default
     organize:
