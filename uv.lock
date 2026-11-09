@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -506,14 +506,14 @@ wheels = [
 
 [[package]]
 name = "charmlibs-pathops"
-version = "1.3.0.post0"
+version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ops" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/09/1f/37cd5c74fd6adbb01f4947651af55b8ff8461eed034de3f6d018988022ab/charmlibs_pathops-1.3.0.post0.tar.gz", hash = "sha256:36ac11b0c7c55b71341a549a1803f5c8d61c2279204862b8d50736041b782f59", size = 22140, upload-time = "2026-06-16T05:39:49.177Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/53/7632ae919d8cf4ee69333443d6042e6d4c0f4ba63e52759ffb26f4359777/charmlibs_pathops-1.4.0.tar.gz", hash = "sha256:f1591783099dd6fe3739cb87d37cd6151dd9b099c14535c97181cd6cd5b705f8", size = 22660, upload-time = "2026-11-08T20:11:37.841Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4c/ae/04b8e77ecbc84ef605feb8a35137570facbc191cbff37ca2b024ea8be466/charmlibs_pathops-1.3.0.post0-py3-none-any.whl", hash = "sha256:c6fc3e3460ffa03a7d4273cc7784c9d74378609a098c728cd9bbb2ed90bdfa5b", size = 27246, upload-time = "2026-06-16T05:39:48.074Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/6e/a103453e49e35c810f4912ec0545f1871880cfa3563ba2bbc7b5dd4e03e3/charmlibs_pathops-1.4.0-py3-none-any.whl", hash = "sha256:010faea22ec5a2ad47afed8c3ee51d338299714706b8cb291db2c4aad7847cbc", size = 27691, upload-time = "2026-11-08T20:11:36.659Z" },
 ]
 
 [[package]]
@@ -1289,7 +1289,7 @@ requires-dist = [
     { name = "charmlibs-interfaces-oauth", specifier = ">=1.2.0" },
     { name = "charmlibs-interfaces-tls-certificates", specifier = ">=1.10.1" },
     { name = "charmlibs-interfaces-tracing", specifier = ">=1.0.0" },
-    { name = "charmlibs-pathops", specifier = "==1.3.0.post0" },
+    { name = "charmlibs-pathops", specifier = "==1.4.0" },
     { name = "cosl", specifier = ">=1.9.1" },
     { name = "dpcharmlibs-interfaces", specifier = "==1.2.2" },
     { name = "email-validator", specifier = ">=2.0" },
