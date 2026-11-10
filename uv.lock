@@ -506,14 +506,14 @@ wheels = [
 
 [[package]]
 name = "charmlibs-pathops"
-version = "1.4.0"
+version = "1.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ops" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/94/53/7632ae919d8cf4ee69333443d6042e6d4c0f4ba63e52759ffb26f4359777/charmlibs_pathops-1.4.0.tar.gz", hash = "sha256:f1591783099dd6fe3739cb87d37cd6151dd9b099c14535c97181cd6cd5b705f8", size = 22660, upload-time = "2026-11-08T20:11:37.841Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/2a/93d0c5dc9a4055ba74233e4574e9b27fa609b07f5926579b4f9c8bc1d642/charmlibs_pathops-1.4.1.tar.gz", hash = "sha256:443fa7f6a9b818c0030a674e7fe8622ea2a4d253c3820b4e414bfa84dd221f12", size = 23018, upload-time = "2026-11-10T07:15:42.309Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f2/6e/a103453e49e35c810f4912ec0545f1871880cfa3563ba2bbc7b5dd4e03e3/charmlibs_pathops-1.4.0-py3-none-any.whl", hash = "sha256:010faea22ec5a2ad47afed8c3ee51d338299714706b8cb291db2c4aad7847cbc", size = 27691, upload-time = "2026-11-08T20:11:36.659Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/6c/91f89642f07d6865651ec8528206a86d0b105b2bb3fca61d83b752231f3a/charmlibs_pathops-1.4.1-py3-none-any.whl", hash = "sha256:ceb960fbc1ac58b337cb7fcb561d6a56a1952d4f6c7a009cc6f754aaaa6964d5", size = 28072, upload-time = "2026-11-10T07:15:41.164Z" },
 ]
 
 [[package]]
@@ -1289,7 +1289,7 @@ requires-dist = [
     { name = "charmlibs-interfaces-oauth", specifier = ">=1.2.0" },
     { name = "charmlibs-interfaces-tls-certificates", specifier = ">=1.10.1" },
     { name = "charmlibs-interfaces-tracing", specifier = ">=1.0.0" },
-    { name = "charmlibs-pathops", specifier = "==1.4.0" },
+    { name = "charmlibs-pathops", specifier = "==1.4.1" },
     { name = "cosl", specifier = ">=1.9.1" },
     { name = "dpcharmlibs-interfaces", specifier = "==1.2.2" },
     { name = "email-validator", specifier = ">=2.0" },
