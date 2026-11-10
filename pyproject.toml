@@ -17,7 +17,7 @@ dependencies = [
   "charmlibs-interfaces-oauth>=1.2.0",
   "charmlibs-interfaces-tls-certificates>=1.10.1",
   "charmlibs-interfaces-tracing>=1.0.0",
-  "charmlibs-pathops==1.4.0",
+  "charmlibs-pathops==1.4.1",
   "cosl>=1.9.1",
   "dpcharmlibs-interfaces==1.2.2",
   "email-validator>=2.0",
