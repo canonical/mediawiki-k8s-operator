@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import shlex
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
@@ -336,6 +337,71 @@ def test_shellbox_pebble_plan_hides_key(juju: jubilant.Juju, app: App):
     if result["plan_status"] == 200:
         assert result["valid_plan"] is True, result
     assert result["contains_key"] is False, result
+
+
+MEDIAWIKI_SAMPLE = re.compile(
+    r"^mediawiki_[a-zA-Z0-9_:]+(?:\{[^\n]*\})?[ \t]+"
+    r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+    r"(?:[ \t]+\d+)?[ \t]*$",
+    re.MULTILINE,
+)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def metrics_consumer(juju: jubilant.Juju, early_app: App) -> Generator[App, None, None]:
+    """Enable native metrics before the app fixture's ordinary readiness traffic."""
+    consumer = App(name="any-metrics")
+    juju.deploy("any-charm", app=consumer.name, channel="beta")
+    try:
+        juju.integrate(
+            f"{early_app.name}:metrics-endpoint", f"{consumer.name}:require-prometheus-scrape"
+        )
+        juju.wait(
+            jubilant.all_active,
+            timeout=5 * 60,
+            error=any_error_after(fail_fast_apps=[early_app.name, consumer.name]),
+        )
+        yield consumer
+    finally:
+        juju.remove_application(consumer.name)
+        juju.wait(
+            lambda status: consumer.name not in status.apps and jubilant.all_active(status),
+            timeout=5 * 60,
+            error=any_error_after(fail_fast_apps=[early_app.name]),
+        )
+
+
+def test_mediawiki_metric_reaches_exporter(juju: jubilant.Juju, app: App) -> None:
+    """Require a native sample without COS, synthetic traffic, or exporter self-metrics."""
+    scrapes: dict[str, str] = {}
+
+    def has_native_sample(status: jubilant.Status) -> bool:
+        if not jubilant.all_active(status, app.name):
+            return False
+        for unit in status.apps[app.name].units:
+            scrapes[unit] = juju_exec(
+                juju,
+                app,
+                "/usr/bin/php -r '$metrics = file_get_contents("
+                '"http://127.0.0.1:9102/metrics"); '
+                'if ($metrics === false) { fwrite(STDERR, "Metrics fetch failed\\n"); exit(1); } '
+                "echo $metrics;'",
+                unit=unit,
+            )
+            if MEDIAWIKI_SAMPLE.search(scrapes[unit]):
+                return True
+        return False
+
+    try:
+        juju.wait(
+            has_native_sample,
+            timeout=60,
+            successes=1,
+            error=any_error_after(fail_fast_apps=[app.name]),
+        )
+    finally:
+        for unit, scrape in scrapes.items():
+            logger.info("StatsD exporter metrics from %s:\n%s", unit, scrape)
 
 
 @pytest.mark.abort_on_fail
