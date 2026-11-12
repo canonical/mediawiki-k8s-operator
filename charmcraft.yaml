@@ -430,7 +430,7 @@ requires:
   valkey:
     interface: valkey_client
     limit: 1
-    optional: true
+    optional: false
   s3-parameters:
     interface: s3
     limit: 1

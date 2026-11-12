@@ -82,11 +82,11 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
      - .. centered:: :bdg-danger:`No`
      - 
    * - `$wgJobRunRate <https://www.mediawiki.org/wiki/Manual:$wgJobRunRate>`__
-     - .. centered:: :bdg-warning:`Partially`
-     - This is set to 0 when the :ref:`Valkey <reference_relation_endpoints_valkey>` relation is in use, disabling web request triggered job runs. Instead, jobs are handled by an asynchronous job runner.
+     - .. centered:: :bdg-danger:`No`
+     - Set to 0, disabling web request triggered job runs. Jobs are handled by an asynchronous job runner using :ref:`Valkey <reference_relation_endpoints_valkey>`.
    * - `$wgJobTypeConf['default'] <https://www.mediawiki.org/wiki/Manual:$wgJobTypeConf>`__
-     - .. centered:: :bdg-warning:`Partially`
-     - This is only set when the :ref:`Valkey <reference_relation_endpoints_valkey>` relation is in use.
+     - .. centered:: :bdg-danger:`No`
+     - Configures the Valkey-backed job queue.
    * - `$wgLocalisationCacheConf['manualRecache'] <https://www.mediawiki.org/wiki/Manual:$wgLocalisationCacheConf>`__
      - .. centered:: :bdg-danger:`No`
      - Set to ``true``. The localisation cache is automatically rebuilt asynchronously when required.
@@ -97,8 +97,8 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
      - .. centered:: :bdg-danger:`No`
      - 
    * - `$wgObjectCaches['redis'] <https://www.mediawiki.org/wiki/Manual:$wgObjectCaches>`__
-     - .. centered:: :bdg-warning:`Partially`
-     - This is only set when the :ref:`Valkey <reference_relation_endpoints_valkey>` relation is in use.
+     - .. centered:: :bdg-danger:`No`
+     - Configures the cache using the required :ref:`Valkey <reference_relation_endpoints_valkey>` integration.
    * - `$wgOpenTelemetryConfig <https://www.mediawiki.org/wiki/Manual:$wgOpenTelemetryConfig>`__
      - .. centered:: :bdg-danger:`No`
      - Managed by the :ref:`tracing relation <reference_relation_endpoints_tracing>` and ``tracing-sampling-probability``.

@@ -925,16 +925,27 @@ def test_relations(
         )
     )
 
-    # Removing Valkey does not block
+    # Removing Valkey blocks and stops the web application and job workers.
     juju.remove_relation(app.name, valkey.name)
     juju.wait(
         lambda status: (
-            jubilant.all_active(status)
-            and is_reachable()
+            jubilant.all_blocked(status, app.name)
+            and not is_reachable()
             and "valkey" not in status.apps[app.name].relations
         ),
         successes=5,
     )
+
+    for unit_name in juju.status().apps[app.name].units:
+        for service in ("mediawiki", "php-fpm", "redisJobRunnerService", "redisJobChronService"):
+            service_output = juju.ssh(
+                unit_name,
+                f"pebble services {service}",
+                container="mediawiki",
+            )
+            assert re.search(
+                rf"^{service}\s+disabled\s+inactive\b", service_output, re.MULTILINE
+            ), f"Expected {service} to be inactive on {unit_name}: {service_output}"
 
     juju.integrate(f"{app.name}:valkey", f"{valkey.name}:valkey-client")
     juju.wait(
@@ -945,3 +956,13 @@ def test_relations(
         ),
         successes=5,
     )
+    for unit_name in juju.status().apps[app.name].units:
+        for service in ("mediawiki", "php-fpm", "redisJobRunnerService", "redisJobChronService"):
+            service_output = juju.ssh(
+                unit_name,
+                f"pebble services {service}",
+                container="mediawiki",
+            )
+            assert re.search(rf"^{service}\s+disabled\s+active\b", service_output, re.MULTILINE), (
+                f"Expected {service} to be active on {unit_name}: {service_output}"
+            )

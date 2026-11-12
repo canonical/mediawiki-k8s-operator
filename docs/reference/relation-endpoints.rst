@@ -176,7 +176,9 @@ Valkey
 * **Interface**: `valkey_client <https://charmhub.io/integrations/valkey_client>`_
 * **Supported charms**: `valkey <https://charmhub.io/valkey>`_
 
-The ``valkey`` relation connects MediaWiki to a Valkey instance for caching and asynchronous job execution. Valkey is the only supported key-value store charm.
+The mandatory ``valkey`` relation connects MediaWiki to a Valkey instance for caching, session storage, and asynchronous job execution. Valkey is the only supported key-value store charm.
+
+The charm is blocked when this relation is missing and waits when connection data is incomplete. In either state, MediaWiki and its job workers are stopped. The charm uses the supplied connection data without probing Valkey connectivity or credentials.
 
 MediaWiki and SimpleSAMLphp use Redis-compatible clients to connect to Valkey. Their configuration keys and job-runner service names retain Redis terminology; this does not indicate support for the Redis charm.
 
@@ -201,8 +203,7 @@ This is accomplished using the `SimpleSAMLphp MediaWiki extension <https://www.m
 .. warning::
    While the ``saml`` relation will function while configuring MediaWiki to use a HTTP or protocol-relative URL, it is **highly** recommended to explicitly allow only HTTPS in a production environment.
 
-.. important::
-   The :ref:`Valkey <reference_relation_endpoints_valkey>` relation is **required** when using SAML, as SimpleSAMLphp uses Valkey as its session store.
+SimpleSAMLphp uses the required :ref:`Valkey <reference_relation_endpoints_valkey>` integration as its session store.
 
 Example ``saml`` integrate command:
 

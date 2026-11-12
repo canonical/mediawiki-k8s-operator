@@ -10,7 +10,7 @@ import mysql.connector
 import pytest
 from charmlibs.pathops import ensure_contents
 from charms.smtp_integrator.v0.smtp import AuthType, SmtpRelationData, TransportSecurity
-from ops import pebble, testing
+from ops import MaintenanceStatus, pebble, testing
 from pytest_mock import MockerFixture, MockType
 
 import mediawiki_peers
@@ -183,14 +183,16 @@ def mock_s3(mocker: MockerFixture) -> MockType:
 
 
 @pytest.fixture(autouse=True)
-def mock_valkey(mocker: MockerFixture) -> MockType:
+def mock_valkey(mocker: MockerFixture, valkey_connection: ValkeyConnectionInfo) -> MockType:
     """Base Valkey class mock.
 
-    By default, Valkey is unavailable (no relation or response).
+    By default, the required Valkey connection is ready.
     """
     mock_valkey_cls = mocker.patch("relations.valkey.Valkey", autospec=True)
     mock_instance = mock_valkey_cls.return_value
-    mock_instance.get_connection_info.return_value = None
+    mock_instance.get_connection_info.return_value = valkey_connection
+    mock_instance.has_relation.return_value = True
+    mock_instance.ensure_ready.return_value = None
     return mock_instance
 
 
@@ -1084,6 +1086,28 @@ class TestReconciliation:
 
 
 class TestEnsureReady:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            MediaWikiBlockedStatusException("Valkey relation is required."),
+            MediaWikiWaitingStatusException("Valkey relation is not ready."),
+        ],
+    )
+    def test_valkey_not_ready(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mock_valkey: MockType,
+        error: MediaWikiBlockedStatusException | MediaWikiWaitingStatusException,
+    ) -> None:
+        """Actions cannot use an installed workload without its required Valkey data."""
+        mock_valkey.ensure_ready.side_effect = error
+        with (
+            ctx(ctx.on.update_status(), active_state) as mgr,
+            pytest.raises(type(error)),
+        ):
+            mgr.charm.mediawiki.ensure_ready()
+
     def test_ready(
         self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
     ) -> None:
@@ -2116,21 +2140,74 @@ class TestCacheSettings:
             / "etc/mediawiki/LateSettings.php"
         ).read_text()
 
-    def test_no_valkey_uses_default_cache(
+    @pytest.mark.parametrize(
+        "error",
+        [
+            MediaWikiBlockedStatusException("Valkey relation is required."),
+            MediaWikiWaitingStatusException("Valkey relation is not ready."),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "mode", [OperationMode.NORMAL, OperationMode.MAINTENANCE, OperationMode.DATABASE_UPDATE]
+    )
+    def test_unavailable_valkey_preserves_settings_and_stops_services(
         self,
         ctx: testing.Context,
         active_state: testing.State,
+        mock_valkey: MockType,
+        error: MediaWikiBlockedStatusException | MediaWikiWaitingStatusException,
+        mode: OperationMode,
+        mocker: MockerFixture,
     ) -> None:
-        """Test that default cache settings are used when Valkey is not available."""
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+        """Losing Valkey stops the workload without switching storage backends."""
+        state = dataclasses.replace(
+            active_state, unit_status=MaintenanceStatus("Reconciling charm state")
+        )
+        with ctx(ctx.on.update_status(), state) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            mocker.patch.object(
+                mediawiki._peers,
+                "reconciliation_state",
+                autospec=True,
+                return_value=make_mediawiki_peer_state(
+                    maintenance_enabled=mode is OperationMode.MAINTENANCE,
+                    database_update_requested=mode is OperationMode.DATABASE_UPDATE,
+                ),
+            )
+            mediawiki.reconciliation()
+            settings = mediawiki._late_settings_file.read_text()
+            runner_config = mediawiki._job_runner_config.read_text()
+            mock_valkey.ensure_ready.side_effect = error
+
+            with pytest.raises(type(error)):
+                mediawiki.reconciliation()
+            assert mediawiki._late_settings_file.read_text() == settings
+            assert mediawiki._job_runner_config.read_text() == runner_config
+            for service in (
+                MediaWiki._SERVICE_NAME,
+                MediaWiki._PHP_FPM_SERVICE_NAME,
+                *MediaWiki._JOB_SERVICES,
+            ):
+                assert not mediawiki._container.get_service(service).is_running()
+            for check in mediawiki._MEDIAWIKI_CHECKS:
+                assert mediawiki._container.get_check(check).status == pebble.CheckStatus.INACTIVE
+
+            mock_valkey.ensure_ready.side_effect = None
+            mediawiki.reconciliation()
             state_out = mgr.run()
 
-        late_settings = self._get_late_settings(ctx, state_out)
-        assert "$wgMainCacheType = CACHE_NONE;" in late_settings
-        assert "$wgSessionCacheType = CACHE_DB;" in late_settings
-        assert "'redis'" not in late_settings
-        assert "JobQueueRedis" not in late_settings
+        container = state_out.get_container(Charm._CONTAINER_NAME)
+        for service in (
+            MediaWiki._SERVICE_NAME,
+            MediaWiki._PHP_FPM_SERVICE_NAME,
+        ):
+            assert container.service_statuses[service] == pebble.ServiceStatus.ACTIVE
+        for service in MediaWiki._JOB_SERVICES:
+            assert container.service_statuses.get(service, pebble.ServiceStatus.INACTIVE) == (
+                pebble.ServiceStatus.ACTIVE
+                if mode.allows_job_workers
+                else pebble.ServiceStatus.INACTIVE
+            )
 
     def test_valkey_available_sets_valkey_cache(
         self,
@@ -2236,49 +2313,6 @@ class TestCacheSettings:
             mediawiki._settings_reconciliation(changed_config, secrets)
             assert set(MediaWiki._JOB_SERVICES) <= mediawiki.pending_service_restarts()
 
-    def test_no_valkey_removes_job_runner_config(
-        self,
-        ctx: testing.Context,
-        active_state: testing.State,
-        mock_valkey: MockType,
-        valkey_connection: ValkeyConnectionInfo,
-    ) -> None:
-        """Test that the job runner config is removed when Valkey is not available."""
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            mock_valkey.get_connection_info.return_value = valkey_connection
-            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
-            assert mgr.charm.mediawiki.runner_queue_service_is_ready()
-            mock_valkey.get_connection_info.return_value = None
-            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
-            assert not mgr.charm.mediawiki.runner_queue_service_is_ready()
-            state_out = mgr.run()
-
-        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
-        config_path = container_fs / constants.JOB_RUNNER_CONFIG_PATH.lstrip("/")
-        assert not config_path.exists(), (
-            "JobRunnerConfig.json should not exist when Valkey is unavailable"
-        )
-        late_settings = self._get_late_settings(ctx, state_out)
-        assert "$wgMainCacheType = CACHE_NONE;" in late_settings
-        assert "$wgSessionCacheType = CACHE_DB;" in late_settings
-
-    def test_valkey_no_endpoint_uses_default_cache(
-        self,
-        ctx: testing.Context,
-        active_state: testing.State,
-        mock_valkey: MockType,
-    ) -> None:
-        """Test that default cache is used when Valkey relation exists but has no endpoint."""
-        mock_valkey.get_connection_info.return_value = None
-
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
-            state_out = mgr.run()
-
-        late_settings = self._get_late_settings(ctx, state_out)
-        assert "$wgMainCacheType = CACHE_NONE;" in late_settings
-        assert "JobQueueRedis" not in late_settings
-
     def test_valkey_available_sets_authenticated_tls_cache(
         self,
         ctx: testing.Context,
@@ -2341,60 +2375,8 @@ class TestCacheSettings:
         assert "pass\\'\\\\word" in late_settings
 
 
-class TestRunnerQueueServiceIsReady:
-    """Tests for the runner_queue_service_is_ready method."""
-
-    def test_false_when_no_valkey_relation(
-        self,
-        ctx: testing.Context,
-        active_state: testing.State,
-    ) -> None:
-        """Test that runner queue is not ready when Valkey relation is unavailable."""
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            assert mgr.charm.mediawiki.runner_queue_service_is_ready() is False
-
-    def test_false_when_no_endpoint(
-        self,
-        ctx: testing.Context,
-        active_state: testing.State,
-        mock_valkey: MockType,
-    ) -> None:
-        """Test that runner queue is not ready when Valkey has no endpoint."""
-        mock_valkey.get_connection_info.return_value = None
-
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            assert mgr.charm.mediawiki.runner_queue_service_is_ready() is False
-
-    def test_false_when_config_file_missing(
-        self,
-        ctx: testing.Context,
-        active_state: testing.State,
-        mock_valkey: MockType,
-        valkey_connection: ValkeyConnectionInfo,
-    ) -> None:
-        """Test that runner queue is not ready when the config file doesn't exist yet."""
-        mock_valkey.get_connection_info.return_value = valkey_connection
-
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            assert mgr.charm.mediawiki.runner_queue_service_is_ready() is False
-
-    def test_true_after_reconciliation_with_valkey(
-        self,
-        ctx: testing.Context,
-        active_state: testing.State,
-        mock_valkey: MockType,
-        valkey_connection: ValkeyConnectionInfo,
-    ) -> None:
-        """Test that runner queue is ready after reconciliation writes the config file."""
-        mock_valkey.get_connection_info.return_value = valkey_connection
-
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
-            assert mgr.charm.mediawiki.runner_queue_service_is_ready() is True
-
-
-class TestSamlRequiresValkey:
-    """Tests for the SAML + Valkey requirement behavior."""
+class TestSamlSettings:
+    """Tests for SAML configuration using the required Valkey session store."""
 
     def _get_late_settings(self, ctx: testing.Context, state_out: testing.State) -> str:
         return (
@@ -2575,80 +2557,34 @@ class TestSamlRequiresValkey:
             "charm-config.php should not be written for a non-HTTPS url-origin"
         )
 
-    def test_saml_without_valkey_raises_blocked(
-        self,
-        ctx: testing.Context,
-        active_state: testing.State,
-    ) -> None:
-        """Test that charm raises blocked status when SAML is configured but Valkey is unavailable."""
-        with (
-            ctx(ctx.on.update_status(), active_state) as mgr,
-            pytest.raises(
-                MediaWikiBlockedStatusException,
-                match="SAML requires a Valkey relation",
-            ),
-        ):
-            mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
-
-    def test_saml_without_valkey_removes_charm_config_php(
+    def test_saml_settings_preserved_without_valkey(
         self,
         ctx: testing.Context,
         active_state: testing.State,
         mock_valkey: MockType,
         valkey_connection: ValkeyConnectionInfo,
     ) -> None:
-        """Test that charm-config.php is removed when SAML is configured but Valkey is unavailable."""
+        """Losing Valkey leaves the SAML configuration unchanged."""
         with ctx(ctx.on.update_status(), active_state) as mgr:
             mock_valkey.get_connection_info.return_value = valkey_connection
             mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
             with mgr.charm.mediawiki._container.pull(
                 "/etc/simplesamlphp/charm-config.php"
             ) as config:
-                assert "store.redis.host" in config.read()
-            mock_valkey.get_connection_info.return_value = None
+                original_config = config.read()
+                assert "store.redis.host" in original_config
+            mock_valkey.ensure_ready.side_effect = MediaWikiBlockedStatusException(
+                "Valkey relation is required."
+            )
             with pytest.raises(MediaWikiBlockedStatusException):
-                mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
+                mgr.charm.mediawiki.reconciliation()
             state_out = mgr.run()
 
         container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
         config_php = container_fs / "etc/simplesamlphp/charm-config.php"
-        assert not config_php.exists(), (
-            "charm-config.php should be removed when Valkey is not available"
-        )
+        assert config_php.read_text() == original_config
 
-    def test_saml_without_valkey_still_writes_late_settings(
-        self,
-        ctx: testing.Context,
-        active_state: testing.State,
-    ) -> None:
-        """Test that LateSettings.php is still written even when SAML blocks (deferred pattern)."""
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            with pytest.raises(MediaWikiBlockedStatusException):
-                mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
-            state_out = mgr.run()
-
-        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
-        late_settings_path = container_fs / "etc/mediawiki/LateSettings.php"
-        assert late_settings_path.exists(), (
-            "LateSettings.php should be written even when SAML is blocked"
-        )
-
-    def test_saml_without_valkey_does_not_load_extension(
-        self,
-        ctx: testing.Context,
-        active_state: testing.State,
-    ) -> None:
-        """Test that SimpleSAMLphp extension is NOT loaded when Valkey is unavailable."""
-        with ctx(ctx.on.update_status(), active_state) as mgr:
-            with pytest.raises(MediaWikiBlockedStatusException):
-                mgr.charm.mediawiki._reconcile_configuration(make_mediawiki_peer_state())
-            state_out = mgr.run()
-
-        container_fs = state_out.get_container(Charm._CONTAINER_NAME).get_filesystem(ctx)
-        late_settings = (container_fs / "etc/mediawiki/LateSettings.php").read_text()
-        assert "wfLoadExtension( 'SimpleSAMLphp' )" not in late_settings
-
-    def test_no_saml_no_simplesamlphp_regardless_of_valkey(
+    def test_no_saml_no_simplesamlphp(
         self,
         ctx: testing.Context,
         active_state: testing.State,
@@ -3969,6 +3905,7 @@ class TestSettingsChangeDetection:
             secrets = MediaWikiSecrets.generate()
             mediawiki._settings_reconciliation(config, secrets)
             mediawiki.clear_localisation_rebuild()
+            mediawiki.clear_service_restart()
             changed_config = config.model_copy(update=updates)
 
             assert mediawiki._settings_reconciliation(changed_config, secrets) is True
