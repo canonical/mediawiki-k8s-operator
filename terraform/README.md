@@ -33,7 +33,8 @@ module "mediawiki_k8s" {
 }
 ```
 
-Create integrations, for instance:
+Integrate the required MySQL and Valkey applications. This example assumes that
+`mysql-k8s` and `valkey` are already deployed in the model:
 
 ```text
 resource "juju_integration" "mediawiki-mysql" {
@@ -45,6 +46,18 @@ resource "juju_integration" "mediawiki-mysql" {
   application {
     name     = "mysql-k8s"
     endpoint = "database"
+  }
+}
+
+resource "juju_integration" "mediawiki-valkey" {
+  model_uuid = data.juju_model.my_model.uuid
+  application {
+    name     = module.mediawiki_k8s.application.name
+    endpoint = module.mediawiki_k8s.requires.valkey
+  }
+  application {
+    name     = "valkey"
+    endpoint = "valkey-client"
   }
 }
 ```

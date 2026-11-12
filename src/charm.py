@@ -240,6 +240,7 @@ class Charm(StatefulCharmBase):
             self._valkey.on.resource_created,
             self._valkey.on.endpoints_changed,
             self._valkey.on.authentication_updated,
+            self.on[self._VALKEY_RELATION_NAME].relation_created,
             self.on[self._VALKEY_RELATION_NAME].relation_changed,
             self.on[self._VALKEY_RELATION_NAME].relation_broken,
             self._s3.on.credentials_changed,
@@ -387,7 +388,7 @@ class Charm(StatefulCharmBase):
 
         This method will move the charm towards an active and correct state.
 
-        If the container or database relation is not ready, it will not proceed.
+        If the container, database, or Valkey relation is not ready, it will not proceed.
         Pre-reconciliation steps are then taken to try and gather all the necessary data and secrets, and to validate a minimal set of prerequisites.
 
         Otherwise, if prerequisite criteria is met, the following actions are attempted:

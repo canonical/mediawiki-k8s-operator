@@ -145,12 +145,32 @@ def active_state(
     base_state: testing.State,
     traefik_route_relation: testing.Relation,
     database_relation: testing.Relation,
+    valkey_relation: testing.Relation,
     mediawiki_replica_relation: testing.PeerRelation,
 ) -> testing.State:
     """Provide a state with all required relations, secrets and a pebble ready container."""
     return dataclasses.replace(
         base_state,
-        relations=[traefik_route_relation, database_relation, mediawiki_replica_relation],
+        relations=[
+            traefik_route_relation,
+            database_relation,
+            valkey_relation,
+            mediawiki_replica_relation,
+        ],
+    )
+
+
+@pytest.fixture
+def valkey_relation() -> testing.Relation:
+    """Provide complete Valkey connection data without probing the provider."""
+    return testing.Relation(
+        endpoint="valkey",
+        interface="valkey_client",
+        remote_app_data={
+            "version": '"v1"',
+            "requests": '[{"resource": "*", "endpoints": "valkey-host:6379", '
+            '"username": "valkey-user", "password": "valkey-password", "tls": false}]',
+        },
     )
 
 

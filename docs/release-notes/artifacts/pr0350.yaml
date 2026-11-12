@@ -1,0 +1,17 @@
+# Version of the artifact schema
+version_schema: 2
+
+changes:
+  - title: Made Valkey a required integration
+    author: hk21702
+    type: breaking
+    description: >-
+      Required a valid Valkey integration for MediaWiki to run. Deployments
+      without Valkey must add the integration, and MediaWiki stops if Valkey is
+      lost, preventing cache and job-queue data from switching between Valkey
+      and the database.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/350"
+    visibility: public
+    highlight: false

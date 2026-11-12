@@ -40,7 +40,6 @@ def mock_mediawiki(mocker: MockerFixture) -> MockType:
         workload._reconcile_configuration = mock_instance._reconcile_configuration
         workload._settings_reconciliation = mock_instance._settings_reconciliation
         workload.update_database_schema = mock_instance.update_database_schema
-        workload.runner_queue_service_is_ready = mock_instance.runner_queue_service_is_ready
         return workload.reconciliation(*args, **kwargs)
 
     # Setup default return values or side effects
@@ -48,7 +47,6 @@ def mock_mediawiki(mocker: MockerFixture) -> MockType:
     mock_instance.create_and_promote_user.return_value = "mocked-password"
     mock_instance.update_database_schema.return_value = None
     mock_instance._reconcile_configuration.return_value = False
-    mock_instance.runner_queue_service_is_ready.return_value = False
     mock_instance.version.return_value = "1.46.0"
     mock_instance.run_maintenance_script.return_value = CommandExecResult(
         return_code=0, stdout="mocked-output\n", stderr=""
@@ -143,6 +141,7 @@ class TestRelationEventExposure:
             "resource_created",
             "endpoints_changed",
             "authentication_updated",
+            "relation_created",
             "relation_changed",
             "relation_broken",
         ],
@@ -511,11 +510,12 @@ class TestMediaWikiReplicaChanged:
         base_state: testing.State,
         traefik_route_relation: testing.Relation,
         database_relation: testing.Relation,
+        valkey_relation: testing.Relation,
     ) -> testing.State:
         """Provide a state with all required relations sans mediawiki replica relation, secrets and a pebble ready container."""
         return dataclasses.replace(
             base_state,
-            relations=[traefik_route_relation, database_relation],
+            relations=[traefik_route_relation, database_relation, valkey_relation],
             planned_units=3,
         )
 
@@ -2156,8 +2156,6 @@ class TestPebbleLayer:
         mock_mediawiki: MockType,
     ) -> None:
         """Test that all services are running when reconciliation succeeds and Valkey is ready."""
-        mock_mediawiki.runner_queue_service_is_ready.return_value = True
-
         state_out = ctx.run(ctx.on.config_changed(), active_state)
         assert isinstance(state_out.unit_status, ops.ActiveStatus)
 
@@ -2173,17 +2171,32 @@ class TestPebbleLayer:
         for service in Charm._JOB_SERVICES:
             assert container.service_statuses[service] == pebble.ServiceStatus.ACTIVE
 
-    def test_job_services_stopped_when_not_ready(
+    @pytest.mark.parametrize("event", ["config_changed", "relation_broken"])
+    def test_missing_valkey_stops_workload(
         self,
         ctx: testing.Context,
         active_state: testing.State,
         mock_mediawiki: MockType,
+        valkey_relation: testing.Relation,
+        event: str,
     ) -> None:
-        """Test that job services are stopped when runner queue is not ready."""
-        mock_mediawiki.runner_queue_service_is_ready.return_value = False
-
-        state_out = ctx.run(ctx.on.config_changed(), active_state)
-        assert isinstance(state_out.unit_status, ops.ActiveStatus)
+        """Missing or removed Valkey blocks and stops web and job services."""
+        if event == "relation_broken":
+            state_in = ctx.run(ctx.on.config_changed(), active_state)
+            mock_mediawiki._reconcile_configuration.reset_mock()
+        else:
+            state_in = dataclasses.replace(
+                active_state,
+                relations=[rel for rel in active_state.relations if rel.id != valkey_relation.id],
+            )
+        trigger = (
+            ctx.on.relation_broken(valkey_relation)
+            if event == "relation_broken"
+            else ctx.on.config_changed()
+        )
+        state_out = ctx.run(trigger, state_in)
+        assert state_out.unit_status == ops.BlockedStatus("Valkey relation is required.")
+        mock_mediawiki._reconcile_configuration.assert_not_called()
 
         container = state_out.get_container(Charm._CONTAINER_NAME)
         plan = container.plan
@@ -2192,14 +2205,149 @@ class TestPebbleLayer:
         assert plan.services[Charm._APACHE_EXPORTER_SERVICE_NAME].startup == "enabled"
         assert plan.services[Charm._FRESHCLAM_SERVICE_NAME].startup == "enabled"
         assert plan.services[Charm._CLAMD_SERVICE_NAME].startup == "enabled"
-        # MediaWiki is started
-        assert container.service_statuses[Charm._SERVICE_NAME] == pebble.ServiceStatus.ACTIVE
-        # Job services are stopped
-        for service in Charm._JOB_SERVICES:
+        for service in (
+            Charm._SERVICE_NAME,
+            WorkloadMediaWiki._PHP_FPM_SERVICE_NAME,
+            *Charm._JOB_SERVICES,
+        ):
             assert (
                 container.service_statuses.get(service, pebble.ServiceStatus.INACTIVE)
                 == pebble.ServiceStatus.INACTIVE
             )
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            {},
+            {"version": '"v1"', "requests": '[{"resource": "*", "endpoints": ""}]'},
+        ],
+    )
+    @pytest.mark.parametrize("event", ["relation_created", "relation_changed"])
+    def test_incomplete_valkey_waits_and_recovers(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        valkey_relation: testing.Relation,
+        mock_mediawiki: MockType,
+        data: dict[str, str],
+        event: str,
+    ) -> None:
+        """Incomplete provider data stops a running workload until restored."""
+        running = ctx.run(ctx.on.config_changed(), active_state)
+        incomplete = dataclasses.replace(valkey_relation, remote_app_data=data)
+        state_in = dataclasses.replace(
+            running,
+            relations=[
+                incomplete if rel.id == incomplete.id else rel for rel in running.relations
+            ],
+        )
+        mock_mediawiki._reconcile_configuration.reset_mock()
+        state_out = ctx.run(getattr(ctx.on, event)(incomplete), state_in)
+        assert state_out.unit_status == ops.WaitingStatus("Valkey relation is not ready.")
+        mock_mediawiki._reconcile_configuration.assert_not_called()
+        container = state_out.get_container(Charm._CONTAINER_NAME)
+        for service in (
+            Charm._SERVICE_NAME,
+            WorkloadMediaWiki._PHP_FPM_SERVICE_NAME,
+            *Charm._JOB_SERVICES,
+        ):
+            assert container.service_statuses[service] == pebble.ServiceStatus.INACTIVE
+
+        restored = dataclasses.replace(
+            state_out,
+            relations=[
+                valkey_relation if rel.id == valkey_relation.id else rel
+                for rel in state_out.relations
+            ],
+        )
+        recovered = ctx.run(ctx.on.relation_changed(valkey_relation), restored)
+        assert recovered.unit_status == ops.ActiveStatus()
+        container = recovered.get_container(Charm._CONTAINER_NAME)
+        for service in (
+            Charm._SERVICE_NAME,
+            WorkloadMediaWiki._PHP_FPM_SERVICE_NAME,
+            *Charm._JOB_SERVICES,
+        ):
+            assert container.service_statuses[service] == pebble.ServiceStatus.ACTIVE
+
+    def test_malformed_valkey_waits_and_recovers(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        valkey_relation: testing.Relation,
+        mock_mediawiki: MockType,
+    ) -> None:
+        """Reconciliation stops services on malformed data until valid data is restored."""
+        running = ctx.run(ctx.on.config_changed(), active_state)
+        relation = dataclasses.replace(
+            valkey_relation, remote_app_data={"requests": "invalid-json"}
+        )
+        state = dataclasses.replace(
+            running,
+            relations=[relation if rel.id == relation.id else rel for rel in running.relations],
+        )
+        mock_mediawiki._reconcile_configuration.reset_mock()
+        state_out = ctx.run(ctx.on.config_changed(), state)
+        assert state_out.unit_status == ops.WaitingStatus("Valkey relation is not ready.")
+        mock_mediawiki._reconcile_configuration.assert_not_called()
+        container = state_out.get_container(Charm._CONTAINER_NAME)
+        for service in (
+            Charm._SERVICE_NAME,
+            WorkloadMediaWiki._PHP_FPM_SERVICE_NAME,
+            *Charm._JOB_SERVICES,
+        ):
+            assert container.service_statuses[service] == pebble.ServiceStatus.INACTIVE
+
+        restored = dataclasses.replace(
+            state_out,
+            relations=[
+                valkey_relation if rel.id == valkey_relation.id else rel
+                for rel in state_out.relations
+            ],
+        )
+        recovered = ctx.run(ctx.on.relation_changed(valkey_relation), restored)
+        assert recovered.unit_status == ops.ActiveStatus()
+        container = recovered.get_container(Charm._CONTAINER_NAME)
+        for service in (
+            Charm._SERVICE_NAME,
+            WorkloadMediaWiki._PHP_FPM_SERVICE_NAME,
+            *Charm._JOB_SERVICES,
+        ):
+            assert container.service_statuses[service] == pebble.ServiceStatus.ACTIVE
+
+    @pytest.mark.parametrize("event", ["relation_changed", "secret_changed"])
+    def test_malformed_valkey_preserves_validation_failure(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        valkey_relation: testing.Relation,
+        mock_mediawiki: MockType,
+        event: str,
+    ) -> None:
+        """Malformed relation and credential updates retain the library's error behavior."""
+        secret = testing.Secret(
+            {"password": "valkey-password"},  # nosec: B105
+            label=f"valkey.{valkey_relation.id}.request.user.secret",
+            remote_grants={valkey_relation.id: {"mediawiki"}},
+        )
+        relation = dataclasses.replace(
+            valkey_relation, remote_app_data={"requests": "invalid-json"}
+        )
+        state = dataclasses.replace(
+            active_state,
+            secrets=[*active_state.secrets, secret],
+            relations=[
+                relation if rel.id == relation.id else rel for rel in active_state.relations
+            ],
+        )
+        trigger = (
+            ctx.on.secret_changed(secret)
+            if event == "secret_changed"
+            else ctx.on.relation_changed(relation)
+        )
+        with pytest.raises(testing.errors.UncaughtCharmError, match="ValidationError"):
+            ctx.run(trigger, state)
+        mock_mediawiki._reconcile_configuration.assert_not_called()
 
     def test_maintenance_stops_workers_before_acknowledgement(
         self,
@@ -2209,7 +2357,6 @@ class TestPebbleLayer:
         mock_mediawiki: MockType,
     ) -> None:
         """A unit acknowledges maintenance only after job workers are stopped."""
-        mock_mediawiki.runner_queue_service_is_ready.return_value = True
         relation = dataclasses.replace(
             mediawiki_replica_relation,
             local_app_data={MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.MAINTENANCE.value},
@@ -2249,7 +2396,6 @@ class TestPebbleLayer:
         mock_mediawiki: MockType,
     ) -> None:
         """Leaving maintenance starts workers before publishing read-write state."""
-        mock_mediawiki.runner_queue_service_is_ready.return_value = True
         relation = dataclasses.replace(
             mediawiki_replica_relation,
             local_app_data={MediaWikiPeers.OPERATION_MODE_KEY: OperationMode.MAINTENANCE.value},
@@ -2301,8 +2447,6 @@ class TestPebbleLayer:
         mock_mediawiki: MockType,
     ) -> None:
         """Test that mediawiki and job services are stopped when pre-reconciliation fails (no database)."""
-        mock_mediawiki.runner_queue_service_is_ready.return_value = True
-
         # No database relation means _reconcile_services(enabled=False) is called
         state_out = ctx.run(ctx.on.pebble_ready(container=mediawiki_container), base_state)
         assert isinstance(state_out.unit_status, ops.BlockedStatus)

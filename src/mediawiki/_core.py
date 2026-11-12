@@ -138,17 +138,19 @@ class MediaWiki(
         return ContainerPath(constants.WEBROOT_OWNER_KNOWN_HOSTS, container=self._container)
 
     def ensure_ready(self) -> None:
-        """Ensure the workload container and database are available for actions.
+        """Ensure the workload container and required relations are available for actions.
 
         Raises:
-            MediaWikiWaitingStatusException: If Pebble is not reachable or MediaWiki is not
-                installed yet.
-            MediaWikiBlockedStatusException: If the database relation is not ready.
+            MediaWikiWaitingStatusException: If Pebble or Valkey data is unavailable, or
+                MediaWiki is not installed yet.
+            MediaWikiBlockedStatusException: If a required relation is missing or the
+                database relation is not ready.
         """
         if not self._container.can_connect():
             raise MediaWikiWaitingStatusException("Waiting for pebble")
         if not self._database.is_relation_ready():
             raise MediaWikiBlockedStatusException("Database relation is not ready")
+        self._valkey.ensure_ready()
         if not self._is_database_initialized():
             raise MediaWikiWaitingStatusException("Waiting for MediaWiki to be installed")
 
@@ -183,6 +185,7 @@ class MediaWiki(
                 raise MediaWikiBlockedStatusException(
                     f"Waiting for relation {self._database.db.relation_name}."
                 )
+            self._valkey.ensure_ready()
             peer_state = self._peers.reconciliation_state()
         except MediaWikiUnknownOperationModeError:
             # Leave the workload as it is; stopping it is not known to be safer for a mode
@@ -206,7 +209,7 @@ class MediaWiki(
 
         self._reconcile_services(
             workload_active=True,
-            run_job_workers=(mode.allows_job_workers and self.runner_queue_service_is_ready()),
+            run_job_workers=mode.allows_job_workers,
         )
         self._peers.acknowledge_operation_mode(mode)
         self._peers.reconcile_operation_mode(mode, self.update_database_schema)
@@ -242,11 +245,7 @@ class MediaWiki(
         config = self._charm.load_charm_config()
         force = force or peer_state.operation_mode is OperationMode.FORCE_RECONCILIATION
         cache_connection = self._valkey.get_connection_info()
-        additional_certificates = (
-            [cache_connection.tls_ca]
-            if cache_connection is not None and cache_connection.tls_ca
-            else []
-        )
+        additional_certificates = [cache_connection.tls_ca] if cache_connection.tls_ca else []
         certificate_transfer_changed = self._certificate_transfer.reconcile(
             additional_certificates=additional_certificates
         )
@@ -670,13 +669,6 @@ class MediaWiki(
             The result of the maintenance script execution.
         """
         return self._run_maintenance_script(args)
-
-    def runner_queue_service_is_ready(self) -> bool:
-        """Returns whether or not the runner queue services should be enabled."""
-        if not self._valkey.get_connection_info():
-            return False
-
-        return self._job_runner_config.exists()
 
     def _ensure_static_assets_symlink(self) -> None:
         """Create or replace the symlink that exposes the git-sync storage under the webroot.
