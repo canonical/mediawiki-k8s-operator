@@ -23,6 +23,20 @@ The ``apache-exporter`` service runs continuously and collects metrics from the 
 
 For the full list of exported metrics and their meanings, refer to the `Apache exporter documentation <https://github.com/Lusitaniae/apache_exporter#collectors>`__.
 
+Native MediaWiki metrics
+------------------------
+
+* **Source**: `MediaWiki StatsLib <https://www.mediawiki.org/wiki/Manual:Stats>`__
+* **Container**: ``mediawiki``
+* **Service**: ``statsd-exporter``
+
+The charm exposes MediaWiki's built-in instrumentation through
+``statsd-exporter`` when a ``metrics-endpoint`` consumer is related. Removing
+the last consumer disables native metrics during workload reconciliation.
+
+The available metrics depend on the MediaWiki version, enabled extensions, and
+application activity. The charm does not provide additional instrumentation.
+
 Git-sync metrics
 ----------------
 

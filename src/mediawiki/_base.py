@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from relations.auth import OAuth, Saml
     from relations.certificate_transfer import CertificateTransfer
     from relations.database import Database
+    from relations.metrics import Metrics
     from relations.s3 import S3
     from relations.smtp import Smtp
     from relations.tracing import Tracing
@@ -54,6 +55,7 @@ class _MediaWikiBase(ContainerService):
     _peers: MediaWikiPeers
     _shellbox: Shellbox
     _tracing: Tracing
+    _metrics: Metrics
     _tunnel_services: TunnelServiceRegistry
     _SMTP_PROXY_SERVICE_NAME: str
     _SMTP_PROXY_PORT: int

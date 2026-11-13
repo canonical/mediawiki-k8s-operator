@@ -24,6 +24,7 @@ from mediawiki import MediaWiki, MediaWikiSecrets, constants
 from mediawiki_api import SiteInfo
 from mediawiki_peers import MediaWikiPeerState
 from relations import auth, certificate_transfer, database, s3, smtp, tls, valkey
+from relations.metrics import Metrics
 from relations.tracing import Tracing
 from relations.valkey import ValkeyConnectionInfo
 from shellbox import SHELLBOX_URL, Shellbox
@@ -56,6 +57,9 @@ class WrapperCharm(StatefulCharmBase):
         )
         self.shellbox = Shellbox(self)
         self.tracing = Tracing(self, "tracing")
+        self.metrics = Metrics(
+            self, Charm._METRICS_RELATION_NAME, jobs=[], refresh_event=[self.on.config_changed]
+        )
         self.mediawiki = MediaWiki(
             self,
             self.database,
@@ -69,6 +73,7 @@ class WrapperCharm(StatefulCharmBase):
             self.certificate_transfer,
             self.shellbox,
             self.tracing,
+            self.metrics,
         )
 
 
@@ -249,6 +254,215 @@ def ctx(meta: dict) -> testing.Context:
     config = meta.pop("config", None)
     actions = meta.pop("actions", None)
     return testing.Context(WrapperCharm, meta=meta, config=config, actions=actions)
+
+
+class TestNativeMetrics:
+    """Tests for StatsLib settings and exporter lifecycle."""
+
+    @pytest.mark.parametrize("related", [False, True])
+    def test_settings_and_service(
+        self, ctx: testing.Context, active_state: testing.State, related: bool
+    ) -> None:
+        """Reconcile the exporter and inline late settings with the workload."""
+        relations = list(active_state.relations)
+        if related:
+            relations.append(testing.Relation(Charm._METRICS_RELATION_NAME))
+        state = dataclasses.replace(active_state, relations=relations)
+        with ctx(ctx.on.update_status(), state) as mgr:
+            workload = mgr.charm.mediawiki
+            workload.reconciliation()
+            container = workload._container
+            settings = workload._late_settings_file.read_text()
+            assert "$wgStatsPrefix = 'mediawiki';" in settings
+            if related:
+                assert "$wgStatsFormat = 'dogstatsd';" in settings
+                assert "$wgStatsTarget = 'udp://127.0.0.1:9125';" in settings
+            else:
+                assert "$wgStatsFormat = null;" in settings
+                assert "$wgStatsTarget = null;" in settings
+            assert "MetricsSettings.php" not in settings
+            assert not container.exists("/etc/mediawiki/MetricsSettings.php")
+            service_name = MediaWiki._STATSD_EXPORTER_SERVICE_NAME
+            check_name = MediaWiki._STATSD_EXPORTER_CHECK
+            assert container.get_service(service_name).is_running() == related
+            assert (
+                container.get_check(check_name).status != pebble.CheckStatus.INACTIVE
+            ) == related
+            service = container.get_plan().services[service_name]
+            assert service.startup == "disabled"
+            assert service.user == service.group == constants.DAEMON_USER
+            assert service.command == (
+                "/usr/bin/statsd_exporter --statsd.listen-udp=127.0.0.1:9125"
+                " --statsd.listen-tcp= --statsd.listen-unixgram= --web.listen-address=:9102"
+            )
+            check = container.get_plan().checks[check_name]
+            assert check.startup == pebble.CheckStartup.DISABLED
+            assert check.http == {"url": "http://127.0.0.1:9102/metrics"}
+            assert container.list_files(constants.LATE_SETTINGS_FILE)[0].permissions == 0o640
+            state = mgr.run()
+
+        layers = state.get_container("mediawiki").layers
+        assert service_name in layers[MediaWiki._SERVICE_NAME].services
+        assert check_name in layers[MediaWiki._SERVICE_NAME].checks
+        assert "mediawiki-metrics" not in layers
+
+    def test_enabled_reconciliation_is_idempotent(
+        self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
+    ) -> None:
+        """Do not restart exporters or unrelated services on repeated reconciliation."""
+        relation = testing.Relation(Charm._METRICS_RELATION_NAME)
+        state = dataclasses.replace(active_state, relations=[*active_state.relations, relation])
+        with ctx(ctx.on.update_status(), state) as mgr:
+            workload = mgr.charm.mediawiki
+            mocker.patch.object(workload, "_is_database_initialized", return_value=True)
+            workload.reconciliation()
+            container = workload._container
+            start = mocker.spy(container, "start")
+            stop = mocker.spy(container, "stop")
+            restart = mocker.spy(container, "restart")
+            replan = mocker.spy(container, "replan")
+            checks = mocker.spy(container, "start_checks")
+            workload.reconciliation()
+            replan.assert_called_once_with()
+            start.assert_not_called()
+            checks.assert_not_called()
+            stop.assert_not_called()
+            restart.assert_not_called()
+
+    @pytest.mark.parametrize("remaining_consumer", [False, True])
+    def test_removal(
+        self,
+        ctx: testing.Context,
+        active_state: testing.State,
+        mocker: MockerFixture,
+        remaining_consumer: bool,
+    ) -> None:
+        """Only removing the final consumer disables emission and stops the exporter."""
+        relation = testing.Relation(Charm._METRICS_RELATION_NAME)
+        relations = [*active_state.relations, relation]
+        if remaining_consumer:
+            relations.append(testing.Relation(Charm._METRICS_RELATION_NAME))
+        state = dataclasses.replace(active_state, relations=relations)
+        with ctx(ctx.on.update_status(), state) as mgr:
+            mgr.charm.mediawiki.reconciliation()
+            state = mgr.run()
+
+        relation = state.get_relation(relation.id)
+        with ctx(ctx.on.relation_broken(relation), state) as mgr:
+            workload = mgr.charm.mediawiki
+            stop = mocker.spy(workload._container, "stop")
+            workload.reconciliation()
+            settings = workload._late_settings_file.read_text()
+            if remaining_consumer:
+                stop.assert_not_called()
+                assert "$wgStatsFormat = 'dogstatsd';" in settings
+                assert "$wgStatsTarget = 'udp://127.0.0.1:9125';" in settings
+            else:
+                stop.assert_called_once_with(MediaWiki._STATSD_EXPORTER_SERVICE_NAME)
+                assert "$wgStatsFormat = null;" in settings
+                assert "$wgStatsTarget = null;" in settings
+            assert (
+                workload._container.get_service(
+                    MediaWiki._STATSD_EXPORTER_SERVICE_NAME
+                ).is_running()
+                == remaining_consumer
+            )
+            assert (
+                workload._container.get_check(MediaWiki._STATSD_EXPORTER_CHECK).status
+                != pebble.CheckStatus.INACTIVE
+            ) == remaining_consumer
+
+    @pytest.mark.parametrize("related", [False, True])
+    def test_exporter_follows_relation_when_workload_is_inactive(
+        self, ctx: testing.Context, active_state: testing.State, related: bool
+    ) -> None:
+        """Reconcile metrics independently of whether MediaWiki services are active."""
+        relations = list(active_state.relations)
+        if related:
+            relations.append(testing.Relation(Charm._METRICS_RELATION_NAME))
+        state = dataclasses.replace(active_state, relations=relations)
+        with ctx(ctx.on.update_status(), state) as mgr:
+            workload = mgr.charm.mediawiki
+            workload._reconcile_services(workload_active=False, run_job_workers=False)
+            container = workload._container
+            assert not container.get_service(MediaWiki._SERVICE_NAME).is_running()
+            assert container.get_service(MediaWiki._APACHE_EXPORTER_SERVICE_NAME).is_running()
+            assert (
+                container.get_service(MediaWiki._STATSD_EXPORTER_SERVICE_NAME).is_running()
+                == related
+            )
+            assert (
+                container.get_check(MediaWiki._STATSD_EXPORTER_CHECK).status
+                != pebble.CheckStatus.INACTIVE
+            ) == related
+
+    def test_no_connection(self, ctx: testing.Context, active_state: testing.State) -> None:
+        """Wait explicitly if Pebble cannot apply metrics changes."""
+        state = dataclasses.replace(
+            active_state,
+            containers=[
+                dataclasses.replace(container, can_connect=False)
+                if container.name == "mediawiki"
+                else container
+                for container in active_state.containers
+            ],
+        )
+        with (
+            ctx(ctx.on.update_status(), state) as mgr,
+            pytest.raises(MediaWikiWaitingStatusException, match="Waiting for pebble"),
+        ):
+            mgr.charm.mediawiki.reconciliation()
+
+    @pytest.mark.parametrize("related", [False, True])
+    def test_late_settings_override_user_metrics(
+        self, ctx: testing.Context, active_state: testing.State, related: bool
+    ) -> None:
+        """Override user settings with inline managed values in both relation states."""
+        relations = list(active_state.relations)
+        if related:
+            relations.append(testing.Relation(Charm._METRICS_RELATION_NAME))
+        state = dataclasses.replace(
+            active_state,
+            relations=relations,
+            config={
+                "local-settings": "<?php\n$wgStatsFormat = 'dogstatsd';\n"
+                "$wgStatsTarget = 'udp://other:8125';\n$wgStatsPrefix = 'other';\n"
+            },
+        )
+        with ctx(ctx.on.update_status(), state) as mgr:
+            workload = mgr.charm.mediawiki
+            workload._settings_reconciliation(
+                mgr.charm.load_charm_config(), MediaWikiSecrets.generate()
+            )
+            local = workload._local_settings_file.read_text()
+            assert local.index(str(workload._user_settings_file)) < local.index(
+                str(workload._late_settings_file)
+            )
+            settings = workload._late_settings_file.read_text()
+            assert "$wgStatsPrefix = 'mediawiki';" in settings
+            assert (
+                "$wgStatsTarget = 'udp://127.0.0.1:9125';" if related else "$wgStatsTarget = null;"
+            ) in settings
+            assert "MetricsSettings.php" not in settings
+
+    def test_metrics_settings_change_records_rebuild(
+        self, ctx: testing.Context, active_state: testing.State, mocker: MockerFixture
+    ) -> None:
+        """Record a late-settings change using the existing workload bookkeeping."""
+        with ctx(ctx.on.update_status(), active_state) as mgr:
+            workload = mgr.charm.mediawiki
+            config = mgr.charm.load_charm_config()
+            secrets = MediaWikiSecrets.generate()
+            enabled = mocker.patch.object(mgr.charm.metrics, "has_relation", return_value=False)
+            workload._settings_reconciliation(config, secrets)
+            workload.clear_service_restart()
+            workload.clear_localisation_rebuild()
+
+            enabled.return_value = True
+            assert workload._settings_reconciliation(config, secrets) is True
+            assert workload.localisation_rebuild_pending()
+            assert not workload.service_restart_pending()
+            assert workload._settings_reconciliation(config, secrets) is False
 
 
 class TestPhpFpm:

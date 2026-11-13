@@ -154,6 +154,15 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
    * - `$wgSitename <https://www.mediawiki.org/wiki/Manual:$wgSitename>`__
      - .. centered:: :bdg-success:`Yes`
      - 
+   * - `$wgStatsFormat <https://www.mediawiki.org/wiki/Manual:$wgStatsFormat>`__
+     - .. centered:: :bdg-danger:`No`
+     - Set to ``dogstatsd`` while a metrics consumer is related, otherwise ``null``.
+   * - `$wgStatsPrefix <https://www.mediawiki.org/wiki/Manual:$wgStatsPrefix>`__
+     - .. centered:: :bdg-danger:`No`
+     - Always set to ``mediawiki``. See :ref:`native metrics <reference_metrics>` and the `StatsLib manual <https://www.mediawiki.org/wiki/Manual:Stats>`__.
+   * - `$wgStatsTarget <https://www.mediawiki.org/wiki/Manual:$wgStatsTarget>`__
+     - .. centered:: :bdg-danger:`No`
+     - Set to ``udp://127.0.0.1:9125`` while a metrics consumer is related, otherwise ``null``.
    * - `$wgSVGConverter <https://www.mediawiki.org/wiki/Manual:$wgSVGConverter>`__
      - .. centered:: :bdg-success:`Yes`
      - Defaults to ``rsvg``.

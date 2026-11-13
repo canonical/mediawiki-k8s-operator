@@ -1,0 +1,17 @@
+# Version of the artifact schema
+version_schema: 2
+
+changes:
+  - title: Added MediaWiki Stats library metrics support
+    author: hk21702
+    type: minor
+    description: >-
+      MediaWiki's Stats library metrics are now forwarded to COS through
+      statsd_exporter when the metrics-endpoint relation is present, giving
+      operators additional insight into MediaWiki operations. Metrics collection
+      remains disabled when the relation is absent.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/348"
+    visibility: public
+    highlight: false

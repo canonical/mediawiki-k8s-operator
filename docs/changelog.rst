@@ -12,6 +12,13 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
 Each revision is versioned by the date of the revision.
 
+2026-11-09
+----------
+
+- Expose native MediaWiki operational metrics through COS using a local
+  ``statsd-exporter`` service. Native metrics and the exporter are enabled only
+  while a ``metrics-endpoint`` consumer is related.
+
 2026-11-04
 ----------
 

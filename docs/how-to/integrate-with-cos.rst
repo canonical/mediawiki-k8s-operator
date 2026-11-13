@@ -77,7 +77,15 @@ Finally, relate the MediaWiki charm to the OpenTelemetry Collector charm to star
    juju integrate mediawiki-k8s:logging opentelemetry-collector-k8s:receive-loki-logs
    juju integrate mediawiki-k8s:metrics-endpoint opentelemetry-collector-k8s:metrics-endpoint
 
+The ``metrics-endpoint`` relation also enables MediaWiki's built-in operational
+metrics through a local ``statsd-exporter`` service. Removing the last metrics
+consumer disables native metrics and stops this exporter. No additional charm
+configuration is required.
+
 You should now be able to access a Grafana dashboard named ``MediaWiki Operator Overview`` in the Grafana instance that |COS| provides.
+
+Native MediaWiki metrics are available to query in COS, but the bundled
+dashboard does not include panels for them.
 
 .. seealso::
 
