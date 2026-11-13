@@ -20,7 +20,11 @@ from ops.log import JujuLogHandler
 import log_redaction
 from charm import Charm
 from container import ContainerService
-from exceptions import MediaWikiBlockedStatusException, MediaWikiInstallError
+from exceptions import (
+    MediaWikiBlockedStatusException,
+    MediaWikiInstallError,
+    MediaWikiWaitingStatusException,
+)
 from mediawiki import MediaWikiSecrets
 from types_ import CommandExecResult
 from utils import escape_php_string
@@ -531,7 +535,8 @@ class TestCredentialLifecycle:
         )
         state = dataclasses.replace(base_state, relations=[relation])
         with ctx(ctx.on.update_status(), state) as manager:
-            assert manager.charm._valkey.get_connection_info() is None
+            with pytest.raises(MediaWikiWaitingStatusException):
+                manager.charm._valkey.get_connection_info()
             logging.getLogger("valkey").error("valkey-validation-credential")
 
         output = _output(log_sink)
@@ -568,7 +573,10 @@ class TestUnavailableCredentials:
     def test_malformed_valkey_data_has_safe_diagnostics(self, ctx, base_state, log_sink, requests):
         relation = testing.Relation(endpoint="valkey", remote_app_data={"requests": requests})
         state = dataclasses.replace(base_state, relations=[relation])
-        with ctx(ctx.on.update_status(), state) as manager:
-            assert manager.charm._valkey.get_connection_info() is None
+        with (
+            ctx(ctx.on.update_status(), state) as manager,
+            pytest.raises(MediaWikiWaitingStatusException),
+        ):
+            manager.charm._valkey.get_connection_info()
 
         assert "Could not read Valkey response" in _output(log_sink)

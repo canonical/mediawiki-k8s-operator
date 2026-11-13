@@ -240,7 +240,7 @@ def test_saml_login(
 
 @pytest.mark.abort_on_fail
 def test_saml_requires_valkey(app: App, juju: jubilant.Juju, valkey: App):
-    """Test that removing Valkey while SAML is integrated causes blocked status.
+    """Test that the required Valkey relation also gates SAML deployments.
 
     arrange: MediaWiki is deployed with SAML and Valkey integrated.
     act: Remove the Valkey relation.

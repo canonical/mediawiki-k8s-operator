@@ -47,11 +47,36 @@ resource "juju_integration" "database" {
   }
 }
 
+resource "juju_application" "valkey" {
+  model_uuid = var.model_uuid
+  charm {
+    channel = "9/stable"
+    name    = "valkey"
+  }
+
+  trust = true
+}
+
+resource "juju_integration" "valkey" {
+  model_uuid = var.model_uuid
+
+  application {
+    name     = "mediawiki-k8s"
+    endpoint = "valkey"
+  }
+
+  application {
+    name     = juju_application.valkey.name
+    endpoint = "valkey-client"
+  }
+}
+
 # tflint-ignore: terraform_unused_declarations
 data "external" "app_status" {
   program = ["bash", "${path.module}/wait-for-active.sh", var.model_uuid, "mediawiki-k8s", "360"]
 
   depends_on = [
-    juju_integration.database
+    juju_integration.database,
+    juju_integration.valkey,
   ]
 }

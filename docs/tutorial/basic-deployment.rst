@@ -14,10 +14,11 @@ What you'll do
 
 1. Deploy the `MediaWiki K8s charm`_
 2. Deploy and integrate a database
-3. Configure the URL origin
-4. Get admin credentials
-5. Access the MediaWiki instance
-6. Clean up the environment
+3. Deploy and integrate Valkey
+4. Configure the URL origin
+5. Get admin credentials
+6. Access the MediaWiki instance
+7. Clean up the environment
 
 What you'll need
 ----------------
@@ -105,6 +106,19 @@ Deploy the ``mysql-k8s`` charm and integrate it with ``mediawiki-k8s`` with the 
     juju deploy mysql-k8s --trust --config profile=testing
     juju relate mediawiki-k8s mysql-k8s
 
+MediaWiki remains blocked until its required Valkey integration is also available.
+
+Deploy and integrate Valkey
+------------------------------
+
+MediaWiki requires Valkey for caching, session storage, and asynchronous job execution.
+Deploy the `Valkey charm <https://charmhub.io/valkey>`_ and integrate it with MediaWiki:
+
+.. code-block:: bash
+
+    juju deploy valkey --trust
+    juju integrate mediawiki-k8s:valkey valkey:valkey-client
+
 Run ``juju status`` to check the current status of the deployment.
 The output should be similar to the following:
 
@@ -120,12 +134,14 @@ The output should be similar to the following:
     App            Version           Status  Scale  Charm          Channel     Rev  Address         Exposed  Message
     mediawiki-k8s  mediawiki-1.46.0  active      1  mediawiki-k8s  1.46/edge    17  10.152.183.157  no       
     mysql-k8s      8.0.44            active      1  mysql-k8s      8.0/stable  400  10.152.183.82   no       
+    valkey         9.0.0             active      1  valkey         9/stable    148  10.152.183.83   no
 
     Unit              Workload  Agent  Address      Ports  Message
     mediawiki-k8s/0*  active    idle   10.1.153.77         
     mysql-k8s/0*      active    idle   10.1.153.82         Primary
+    valkey/0*         active    idle   10.1.153.83
 
-When the status shows "Active" for both the MediaWiki and MySQL charms, the deployment is considered finished.
+When the status shows "Active" for the MediaWiki, MySQL, and Valkey charms, the deployment is considered finished.
 
 .. vale Canonical.007-Headings-sentence-case = NO
 
@@ -197,7 +213,7 @@ Now we can access MediaWiki in a browser at ``http://<UNIT_IP>``. Log in with th
 Clean up the environment
 ------------------------
 
-Congratulations! You successfully deployed the MediaWiki charm, added a database, customized it, and accessed the application.
+Congratulations! You successfully deployed the MediaWiki charm, integrated MySQL and Valkey, customized it, and accessed the application.
 
 .. vale Canonical.004-Canonical-product-names = NO
 

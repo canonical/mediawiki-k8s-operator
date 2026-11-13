@@ -23,7 +23,8 @@ To use the :ref:`MediaWiki Terraform module <reference_terraform>`, import it as
       # (Customize configuration variables here if needed)
    }
 
-Then, to create integrations, add the following:
+Then, integrate the required MySQL and Valkey applications. The following example
+assumes that ``mysql-k8s`` and ``valkey`` are already deployed in the model:
 
 .. code-block:: terraform
 
@@ -36,6 +37,18 @@ Then, to create integrations, add the following:
       application {
          name     = "mysql-k8s"
          endpoint = "database"
+      }
+   }
+
+   resource "juju_integration" "mediawiki-valkey" {
+      model_uuid = data.juju_model.my_model.uuid
+      application {
+         name     = module.mediawiki_k8s.application.name
+         endpoint = module.mediawiki_k8s.requires.valkey
+      }
+      application {
+         name     = "valkey"
+         endpoint = "valkey-client"
       }
    }
 

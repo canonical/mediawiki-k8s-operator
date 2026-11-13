@@ -356,26 +356,13 @@ class _SettingsMixin(_MediaWikiBase):
         """Get the current cache settings as a string, to be inserted into a PHP file.
 
         As a side effect, this also reconciles the JobRunnerConfig.json used by the
-        Valkey-backed job queue runner: it is written when Valkey is available and
-        removed otherwise. The job runner runs independently of the main MediaWiki
-        application.
+        Valkey-backed job queue runner. The job runner runs independently of the
+        main MediaWiki application.
 
         Returns:
             str: The cache settings formatted as a PHP string.
         """
         connection = self._valkey.get_connection_info()
-        if connection is None:
-            logger.debug(
-                "Key-value store relation is not available or incomplete, using default cache settings."
-            )
-            self._job_runner_config.unlink(missing_ok=True)
-            return (
-                textwrap.dedent("""
-                $wgMainCacheType = CACHE_NONE;
-                $wgSessionCacheType = CACHE_DB;
-                """)
-                + "\n"
-            )
 
         endpoint = f"{connection.host}:{connection.port}"
         server = f"tls://{endpoint}" if connection.tls else endpoint
@@ -689,9 +676,6 @@ class _SettingsMixin(_MediaWikiBase):
 
         Returns:
             The PHP array literal for the entry, or None if SAML is not configured.
-
-        Raises:
-            MediaWikiBlockedStatusException: If SAML is configured but Valkey is not available.
         """
         saml_data = self._saml.get_relation_data()
         if not saml_data:
@@ -715,7 +699,7 @@ class _SettingsMixin(_MediaWikiBase):
             ]"""
         )
 
-    def _push_simplesamlphp_config(  # noqa: C901
+    def _push_simplesamlphp_config(
         self,
         saml_data: SamlRelationData,
         secrets: MediaWikiSecrets,
@@ -733,7 +717,7 @@ class _SettingsMixin(_MediaWikiBase):
         - ``metadata/saml20-idp-remote.php``: IdP metadata derived from the SAML
           relation (endpoints and certificates).
 
-        If Valkey is not available, or if the configured URL origin does not use HTTPS,
+        If the configured URL origin does not use HTTPS,
         ``charm-config.php`` is removed and a blocked status exception is raised before
         the file is written.
 
@@ -742,8 +726,8 @@ class _SettingsMixin(_MediaWikiBase):
             secrets: The charm secrets, used to get the persistent SimpleSAMLphp secret salt.
 
         Raises:
-            MediaWikiBlockedStatusException: If Valkey is not available for session storage,
-                or if the URL origin does not use HTTPS (required for secure session cookies).
+            MediaWikiBlockedStatusException: If the URL origin does not use HTTPS
+                (required for secure session cookies).
         """
         config_dir = ContainerPath(constants.SIMPLESAMLPHP_CONFIG_DIR, container=self._container)
         metadata_dir = config_dir / "metadata"
@@ -786,11 +770,6 @@ class _SettingsMixin(_MediaWikiBase):
         # charm-config.php — charm-managed overrides merged into the package's config.php at
         # runtime via the include appended during the rock build. Depends on Valkey.
         connection = self._valkey.get_connection_info()
-        if not connection:
-            ssp_config_file.unlink(missing_ok=True)
-            raise MediaWikiBlockedStatusException(
-                "SAML requires a Valkey relation for SimpleSAMLphp session storage"
-            )
 
         secret_salt = utils.escape_php_string(secrets.saml_secret_salt)
         baseurlpath = f"{escaped_url_origin}/w/simplesaml/"
