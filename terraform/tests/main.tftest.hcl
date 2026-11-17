@@ -32,6 +32,6 @@ run "integration_test" {
 
   assert {
     condition     = data.external.app_status.result.status == "active"
-    error_message = "mediawiki-k8s app_status did not match expected"
+    error_message = "mediawiki-k8s app_status did not match expected: ${data.external.app_status.result.status}\n${data.external.app_status.result.details}"
   }
 }

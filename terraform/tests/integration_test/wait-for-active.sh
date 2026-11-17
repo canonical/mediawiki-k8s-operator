@@ -8,6 +8,18 @@ TIMEOUT=$3
 
 LOG="/tmp/wait-for-active.$$.log"
 
+report_status() {
+	local status=$1
+	local details=""
+	if [ "$status" != "active" ]; then
+		if ! details=$(juju status --model "$MODEL_UUID" --relations --storage 2>&1); then
+			details="Unable to retrieve Juju status: $details"
+		fi
+	fi
+	jq -n --arg status "$status" --arg details "$details" \
+		'{status: $status, details: $details}'
+}
+
 if [ -z "$MODEL_UUID" ] || [ -z "$APP_NAME" ] || [ -z "$TIMEOUT" ]; then
 	echo "Usage: $0 <model_uuid|model_name> <app_name> <timeout_seconds>"
 	echo "[$(date)] missing arguments" >>$LOG
@@ -15,13 +27,13 @@ if [ -z "$MODEL_UUID" ] || [ -z "$APP_NAME" ] || [ -z "$TIMEOUT" ]; then
 fi
 
 if ! juju show-model "$MODEL_UUID" &>/dev/null; then
-	echo '{"status": "model_not_found"}'
+	report_status "model_not_found"
 	echo "[$(date)] model not found: $MODEL_UUID" >>$LOG
 	exit
 fi
 
 if ! juju show-application "$APP_NAME" --model "$MODEL_UUID" &>/dev/null; then
-	echo '{"status": "app_not_found"}'
+	report_status "app_not_found"
 	echo "[$(date)] app not found: $APP_NAME" >>$LOG
 	exit
 fi
@@ -48,4 +60,4 @@ while [ "$consecutive" -lt "$SETTLE_CHECKS" ] && [ "$elapsed" -lt "$MAX_WAIT" ];
 	fi
 done
 
-echo '{"status": "'"$STATUS"'"}'
+report_status "$STATUS"
