@@ -6,13 +6,16 @@
 from unittest.mock import Mock
 
 import pytest
+from pydantic import ValidationError
 
+from exceptions import MediaWikiBlockedStatusException, MediaWikiWaitingStatusException
 from relations.valkey import Valkey, ValkeyConnectionInfo
 
 
 def _handler() -> tuple[Valkey, Mock]:
     """Build a Valkey handler with a mocked data-interface handler."""
     handler = Valkey.__new__(Valkey)
+    handler._relation_name = "valkey"
     relation_handler = Mock()
     handler._handler = relation_handler
     return handler, relation_handler
@@ -74,6 +77,7 @@ def test_connection_info_includes_tls_ca() -> None:
 @pytest.mark.parametrize(
     "response",
     [
+        None,
         _response(endpoints=""),
         _response(endpoints="valkey-primary"),
         _response(endpoints="valkey-primary:invalid"),
@@ -81,21 +85,75 @@ def test_connection_info_includes_tls_ca() -> None:
         _response(password=""),  # nosec: B106
     ],
 )
-def test_incomplete_response_is_unavailable(response: Mock) -> None:
-    """Incomplete relation data must not produce usable connection settings."""
+def test_incomplete_response_waits(response: Mock | None) -> None:
+    """Incomplete relation data waits rather than enabling a database fallback."""
     valkey, relation_handler = _handler()
     relation_handler.relations = [Mock()]
     valkey._get_response = Mock(return_value=response)
 
-    assert valkey.get_connection_info() is None
+    with pytest.raises(MediaWikiWaitingStatusException, match="Valkey relation is not ready"):
+        valkey.get_connection_info()
 
 
-def test_no_relation_is_unavailable() -> None:
-    """A missing Valkey relation has no connection information."""
+def test_no_relation_blocks() -> None:
+    """A missing Valkey relation blocks operation."""
     valkey, relation_handler = _handler()
     relation_handler.relations = []
 
-    assert valkey.get_connection_info() is None
+    with pytest.raises(MediaWikiBlockedStatusException, match="Valkey relation is required"):
+        valkey.get_connection_info()
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        None,
+        _response(endpoints=""),
+        _response(username=""),
+        _response(password=""),  # nosec: B106
+    ],
+)
+def test_incomplete_relation_waits(response: Mock | None) -> None:
+    """Readiness waits while the provider has not supplied connection fields."""
+    valkey, relation_handler = _handler()
+    relation_handler.relations = [Mock()]
+    valkey._get_response = Mock(return_value=response)
+
+    with pytest.raises(MediaWikiWaitingStatusException, match="Valkey relation is not ready"):
+        valkey.ensure_ready()
+
+
+def test_readiness_requires_relation() -> None:
+    """A missing relation is not ready."""
+    valkey, relation_handler = _handler()
+    relation_handler.relations = []
+
+    assert valkey.has_relation() is False
+    with pytest.raises(MediaWikiBlockedStatusException, match="Valkey relation is required"):
+        valkey.ensure_ready()
+
+
+def test_readiness_trusts_provider_data() -> None:
+    """Complete provider data is sufficient without reaching the provided server."""
+    valkey, relation_handler = _handler()
+    relation_handler.relations = [Mock()]
+    valkey._get_response = Mock(return_value=_response(endpoints="unreachable.invalid:6380"))
+    assert valkey.has_relation() is True
+    valkey.ensure_ready()
+
+
+def test_invalid_response_waits() -> None:
+    """Schema-invalid provider data waits and is not considered ready."""
+    valkey, relation_handler = _handler()
+    relation_handler.relations = [Mock()]
+    valkey._get_response = Mock(
+        side_effect=ValidationError.from_exception_data("ValkeyResponseModel", [])
+    )
+
+    with pytest.raises(MediaWikiWaitingStatusException, match="Valkey relation is not ready"):
+        valkey.get_connection_info()
+    with pytest.raises(MediaWikiWaitingStatusException, match="Valkey relation is not ready"):
+        valkey.ensure_ready()
 
 
 @pytest.mark.parametrize("tls", [True, False, "true", "false"])
