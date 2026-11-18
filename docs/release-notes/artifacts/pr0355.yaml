@@ -1,0 +1,16 @@
+version_schema: 2
+
+changes:
+  - title: Renamed the tracing relation to workload-tracing
+    author: hk21702
+    type: breaking
+    description: >-
+      Renamed the optional tracing relation from ``tracing`` to
+      ``workload-tracing`` to distinguish workload tracing from future
+      charm-level tracing. Integrations using the old endpoint must be updated
+      to use ``workload-tracing``.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/355"
+    visibility: public
+    highlight: false
