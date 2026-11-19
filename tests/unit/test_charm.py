@@ -240,7 +240,7 @@ class TestTracingEvents:
         event_name: str,
     ) -> None:
         """Stop configuration reconciliation before starting workload services."""
-        relation = testing.Relation("tracing")
+        relation = testing.Relation("workload-tracing")
         state = dataclasses.replace(active_state, relations=[*active_state.relations, relation])
         event = getattr(ctx.on, event_name)(relation)
         with ctx(event, state) as manager:
@@ -301,7 +301,7 @@ class TestTracingEvents:
         self, ctx: testing.Context, base_state: testing.State
     ) -> None:
         """An unavailable optional tracing provider does not mask mandatory errors."""
-        relation = testing.Relation("tracing")
+        relation = testing.Relation("workload-tracing")
         state = dataclasses.replace(base_state, relations=[relation])
         out = ctx.run(ctx.on.relation_changed(relation), state)
         assert isinstance(out.unit_status, ops.BlockedStatus)

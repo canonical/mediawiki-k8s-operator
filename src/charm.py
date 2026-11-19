@@ -117,7 +117,7 @@ class Charm(StatefulCharmBase):
     _VALKEY_RELATION_NAME = "valkey"
     _S3_RELATION_NAME = "s3-parameters"
     _SMTP_RELATION_NAME = "smtp"
-    _TRACING_RELATION_NAME = "tracing"
+    _WORKLOAD_TRACING_RELATION_NAME = "workload-tracing"
     _METRICS_RELATION_NAME = "metrics-endpoint"
 
     _PEER_RELATION_NAME = MediaWikiPeers.RELATION_NAME
@@ -152,7 +152,7 @@ class Charm(StatefulCharmBase):
             self.unit.get_container(self._CONTAINER_NAME),
         )
         self._shellbox = Shellbox(self)
-        self._tracing = Tracing(self, self._TRACING_RELATION_NAME)
+        self._tracing = Tracing(self, self._WORKLOAD_TRACING_RELATION_NAME)
         self._git_sync = GitSync(self)
 
         self._ingress_requirer = TraefikRouteRequirer(
@@ -222,7 +222,7 @@ class Charm(StatefulCharmBase):
         reconciliation_events = [
             self.on[self._METRICS_RELATION_NAME].relation_created,
             self.on[self._METRICS_RELATION_NAME].relation_broken,
-            self.on[self._TRACING_RELATION_NAME].relation_created,
+            self.on[self._WORKLOAD_TRACING_RELATION_NAME].relation_created,
             self._tracing.on.endpoint_changed,
             self._tracing.on.endpoint_removed,
             self.on.mediawiki_pebble_ready,

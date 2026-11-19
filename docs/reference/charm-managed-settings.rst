@@ -101,7 +101,7 @@ The ``LocalSettings.php`` file provides basic `configuration settings for MediaW
      - Configures the cache using the required :ref:`Valkey <reference_relation_endpoints_valkey>` integration.
    * - `$wgOpenTelemetryConfig <https://www.mediawiki.org/wiki/Manual:$wgOpenTelemetryConfig>`__
      - .. centered:: :bdg-danger:`No`
-     - Managed by the :ref:`tracing relation <reference_relation_endpoints_tracing>` and ``tracing-sampling-probability``.
+     - Managed by the :ref:`workload-tracing relation <reference_relation_endpoints_workload_tracing>` and ``tracing-sampling-probability``.
    * - `$wgPasswordSender <https://www.mediawiki.org/wiki/Manual:$wgPasswordSender>`__
      - .. centered:: :bdg-warning:`Partially`
      - This is set when the :ref:`smtp relation <reference_relation_endpoints_smtp>` includes a sender address.

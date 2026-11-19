@@ -238,7 +238,7 @@ config:
     tracing-sampling-probability:
       description: |
         Percentage of new MediaWiki web request traces to sample, from 0 to 100.
-        Requires a tracing relation.
+        Requires a workload-tracing relation.
 
         By default, all newly sampled root traces are exported so the collector can control
         retention. Lower this value to reduce source-side tracing and network overhead.
@@ -419,7 +419,7 @@ requires:
   logging:
     interface: loki_push_api
     optional: true
-  tracing:
+  workload-tracing:
     interface: tracing
     limit: 1
     optional: true

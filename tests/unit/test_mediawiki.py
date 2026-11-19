@@ -56,7 +56,7 @@ class WrapperCharm(StatefulCharmBase):
             self, "receive-ca-cert", self.unit.get_container("mediawiki")
         )
         self.shellbox = Shellbox(self)
-        self.tracing = Tracing(self, "tracing")
+        self.tracing = Tracing(self, "workload-tracing")
         self.metrics = Metrics(
             self, Charm._METRICS_RELATION_NAME, jobs=[], refresh_event=[self.on.config_changed]
         )
@@ -3748,7 +3748,10 @@ class TestTracingSettings:
         """Wait for provider data instead of writing disabled tracing settings."""
         state = dataclasses.replace(
             active_state,
-            relations=[*active_state.relations, testing.Relation("tracing")],
+            relations=[
+                *active_state.relations,
+                testing.Relation("workload-tracing"),
+            ],
         )
         with ctx(ctx.on.update_status(), state) as manager:
             workload = manager.charm.mediawiki

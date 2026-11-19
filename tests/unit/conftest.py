@@ -178,7 +178,7 @@ def valkey_relation() -> testing.Relation:
 def tracing_relation() -> testing.Relation:
     """Provide a native MediaWiki-compatible OTLP/HTTP receiver."""
     return testing.Relation(
-        endpoint="tracing",
+        endpoint="workload-tracing",
         interface="tracing",
         remote_app_data={
             "receivers": '[{"protocol": {"name": "otlp_http", "type": "http"}, '

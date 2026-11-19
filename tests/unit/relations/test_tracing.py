@@ -17,7 +17,7 @@ from state import StatefulCharmBase
 class TracingCharm(StatefulCharmBase):
     """Isolate the tracing relation from other workload prerequisites."""
 
-    RELATION_NAME = "tracing"
+    RELATION_NAME = "workload-tracing"
 
     def __init__(self, *args):
         super().__init__(*args)
@@ -46,7 +46,7 @@ def ctx(meta: dict) -> testing.Context:
 def receiver_relation(url: str, protocol: str = "otlp_http") -> testing.Relation:
     """Build provider data using the tracing interface shape."""
     return testing.Relation(
-        "tracing",
+        "workload-tracing",
         remote_app_data={
             "receivers": json.dumps([{"protocol": {"name": protocol, "type": "http"}, "url": url}])
         },
@@ -124,7 +124,9 @@ def test_invalid_endpoint(ctx: testing.Context, url: str) -> None:
 def test_unavailable_provider(ctx: testing.Context, data: dict[str, str]) -> None:
     """Missing, malformed or incompatible provider data immediately raises Waiting."""
     relation = testing.Relation(
-        "tracing", remote_app_data=data, local_app_data={"receivers": '["otlp_http"]'}
+        "workload-tracing",
+        remote_app_data=data,
+        local_app_data={"receivers": '["otlp_http"]'},
     )
     with pytest.raises(testing.errors.UncaughtCharmError) as error:
         ctx.run(ctx.on.relation_changed(relation), testing.State(relations=[relation]))
@@ -154,18 +156,18 @@ def test_custom_relation_name(meta: dict, tracing_relation: testing.Relation) ->
     """Use the configured endpoint name for both relation lookup and the requirer."""
 
     class RenamedTracingCharm(TracingCharm):
-        RELATION_NAME = "workload-tracing"
+        RELATION_NAME = "custom-workload-tracing"
 
     meta = meta.copy()
     meta["requires"] = dict(meta["requires"])
-    meta["requires"]["workload-tracing"] = meta["requires"].pop("tracing")
+    meta["requires"]["custom-workload-tracing"] = meta["requires"].pop("workload-tracing")
     config = meta.pop("config")
     actions = meta.pop("actions")
     ctx = testing.Context(RenamedTracingCharm, meta=meta, config=config, actions=actions)
-    relation = dataclasses.replace(tracing_relation, endpoint="workload-tracing")
+    relation = dataclasses.replace(tracing_relation, endpoint="custom-workload-tracing")
     with ctx(ctx.on.relation_changed(relation), testing.State(relations=[relation])) as manager:
         manager.run()
-        assert manager.charm.tracing.relation_name == "workload-tracing"
+        assert manager.charm.tracing.relation_name == "custom-workload-tracing"
         assert manager.charm.tracing.has_relation()
         assert manager.charm.endpoint == "http://collector:4318/v1/traces"
 

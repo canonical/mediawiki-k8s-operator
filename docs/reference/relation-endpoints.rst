@@ -120,15 +120,15 @@ Example ``metrics-endpoint`` integrate command:
 
    Read more about the metrics provided by the MediaWiki charm on the :doc:`metrics reference documentation </reference/metrics>`.
 
-.. _reference_relation_endpoints_tracing:
+.. _reference_relation_endpoints_workload_tracing:
 
-Tracing
--------
+Workload tracing
+----------------
 
 * **Interface**: ``tracing``
 * **Supported charms**: `opentelemetry-collector-k8s <https://charmhub.io/opentelemetry-collector-k8s>`_
 
-The optional ``tracing`` relation accepts one provider and requests an OTLP/HTTP
+The optional ``workload-tracing`` relation accepts one provider and requests an OTLP/HTTP
 receiver. MediaWiki's native tracer sends JSON trace data to that receiver's
 ``/v1/traces`` path.
 
@@ -140,7 +140,7 @@ Example integration:
 
 .. code-block:: bash
 
-   juju integrate mediawiki-k8s:tracing opentelemetry-collector-k8s:receive-traces
+   juju integrate mediawiki-k8s:workload-tracing opentelemetry-collector-k8s:receive-traces
 
 .. _reference_relation_endpoints_oauth:
 
