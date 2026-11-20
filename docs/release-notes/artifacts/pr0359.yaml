@@ -1,0 +1,14 @@
+version_schema: 2
+
+changes:
+  - title: Updated the MediaWiki and Shellbox rocks to require patched PHP packages
+    author: hk21702
+    type: bugfix
+    description: >-
+      Required patched PHP packages in newly built MediaWiki and Shellbox rocks,
+      including fixes for the phpAfterShell vulnerabilities (CVE-2026-126714).
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/359"
+    visibility: public
+    highlight: true
