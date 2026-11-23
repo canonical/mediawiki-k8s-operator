@@ -4031,6 +4031,95 @@ class TestSettingsChangeDetection:
 class TestComposerChangeDetection:
     """Tests for the "composer ran" indicator returned by composer reconciliation."""
 
+    @pytest.mark.parametrize("leader", [True, False], ids=["leader", "replica"])
+    @pytest.mark.parametrize("peer_force", [False, True], ids=["explicit-force", "peer-force"])
+    def test_forced_reconciliation_clears_cache_before_composer(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        leader: bool,
+        peer_force: bool,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_database_cursor: MockType,
+    ) -> None:
+        """Both force paths clear the Composer user's cache before updating or installing."""
+        mock_database_cursor.fetchone.return_value = ("installed_flag",)
+        proxy = "http://proxy.internal:3128"
+        monkeypatch.setenv("JUJU_CHARM_HTTP_PROXY", proxy)
+        state_in = dataclasses.replace(configured_state, leader=leader)
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            config = mgr.charm.load_charm_config()
+            mgr.charm.mediawiki._user_composer_file.write_text(json.dumps(config.composer))
+            mgr.charm.mediawiki._reconcile_configuration(
+                make_mediawiki_peer_state(
+                    force_reconciliation=peer_force,
+                    composer_lock=MOCK_COMPOSER_LOCK,
+                    leader_state_hash=config.state_hash,
+                ),
+                force=not peer_force,
+            )
+
+        commands = [
+            event
+            for event in ctx.exec_history[Charm._CONTAINER_NAME]
+            if event.command[0] == constants.COMPOSER_PATH
+        ]
+        dependency_command = ExecCmd.COMPOSER_UPDATE if leader else ExecCmd.COMPOSER_INSTALL
+        assert [tuple(event.command) for event in commands] == [
+            ExecCmd.COMPOSER_CLEAR_CACHE.value,
+            dependency_command.value,
+        ]
+        clear, dependency = commands
+        assert clear.user == dependency.user == constants.WEBROOT_OWNER_USER
+        assert clear.group == dependency.group == constants.DAEMON_GROUP
+        assert clear.working_dir == dependency.working_dir == constants.MEDIAWIKI_PATH
+        assert clear.environment == dependency.environment
+        assert clear.environment["HTTP_PROXY"] == proxy
+        assert clear.environment["COMPOSER_DISCARD_CHANGES"] == "true"
+
+    @pytest.mark.parametrize("update_dependencies", [True, False], ids=["update", "install"])
+    def test_cache_clear_failure_preserves_composer_state(
+        self,
+        ctx: testing.Context,
+        configured_state: testing.State,
+        mediawiki_container: testing.Container,
+        update_dependencies: bool,
+    ) -> None:
+        """A failed cache clear blocks dependency commands without recording unapplied state."""
+        execs = {
+            entry
+            for entry in mediawiki_container.execs
+            if entry.command_prefix != ExecCmd.COMPOSER_CLEAR_CACHE.value
+        }
+        execs.add(
+            testing.Exec(
+                ExecCmd.COMPOSER_CLEAR_CACHE.value,
+                return_code=1,
+                stderr="Cache directory is not writable",
+            )
+        )
+        failing_container = dataclasses.replace(mediawiki_container, execs=execs)
+        state_in = dataclasses.replace(configured_state, containers=[failing_container])
+        with ctx(ctx.on.update_status(), state_in) as mgr:
+            mediawiki = mgr.charm.mediawiki
+            mediawiki._user_composer_file.write_text("{}")
+            with pytest.raises(
+                MediaWikiBlockedStatusException, match="Composer cache clearing failed"
+            ):
+                mediawiki._composer_reconciliation(
+                    {"require": {"mediawiki/semantic-media-wiki": "^3.2"}},
+                    update_dependencies=update_dependencies,
+                    lock_content='{"packages": [], "_readme": ["New lock"]}',
+                    force=True,
+                )
+            assert mediawiki._user_composer_file.read_text() == "{}"
+            assert mediawiki._composer_lock_file.read_text() == MOCK_COMPOSER_LOCK
+
+        history = ctx.exec_history[Charm._CONTAINER_NAME]
+        assert ExecCmd.COMPOSER_CLEAR_CACHE.ran_in(history)
+        assert not ExecCmd.COMPOSER_UPDATE.ran_in(history)
+        assert not ExecCmd.COMPOSER_INSTALL.ran_in(history)
+
     @pytest.mark.parametrize("leader", [True, False])
     def test_local_resolution_reports_run_when_config_changes(
         self, ctx: testing.Context, active_state: testing.State, leader: bool
@@ -4047,6 +4136,7 @@ class TestComposerChangeDetection:
         history = ctx.exec_history.get(Charm._CONTAINER_NAME, [])
         assert ExecCmd.COMPOSER_UPDATE.ran_in(history)
         assert not ExecCmd.COMPOSER_INSTALL.ran_in(history)
+        assert not ExecCmd.COMPOSER_CLEAR_CACHE.ran_in(history)
 
     @pytest.mark.parametrize("leader", [True, False])
     def test_local_resolution_skip_reports_no_run(
@@ -4071,6 +4161,7 @@ class TestComposerChangeDetection:
             if set(ExecCmd.COMPOSER_UPDATE.value) <= set(exec_event.command)
         )
         assert composer_runs == 1, "Expected the second reconciliation to skip composer update"
+        assert not ExecCmd.COMPOSER_CLEAR_CACHE.ran_in(ctx.exec_history[Charm._CONTAINER_NAME])
 
     @pytest.mark.parametrize("leader", [True, False])
     def test_install_reports_run_on_new_lock(
@@ -4089,6 +4180,7 @@ class TestComposerChangeDetection:
         history = ctx.exec_history.get(Charm._CONTAINER_NAME, [])
         assert ExecCmd.COMPOSER_INSTALL.ran_in(history)
         assert not ExecCmd.COMPOSER_UPDATE.ran_in(history)
+        assert not ExecCmd.COMPOSER_CLEAR_CACHE.ran_in(history)
 
     @pytest.mark.parametrize("leader", [True, False])
     def test_install_skip_reports_no_run(
@@ -4108,16 +4200,25 @@ class TestComposerChangeDetection:
         assert first is True
         assert second is False
 
+        assert not ExecCmd.COMPOSER_CLEAR_CACHE.ran_in(ctx.exec_history[Charm._CONTAINER_NAME])
+
     @pytest.mark.parametrize("leader", [True, False])
+    @pytest.mark.parametrize("force", [True, False])
     def test_install_requires_lock(
-        self, ctx: testing.Context, active_state: testing.State, leader: bool
+        self, ctx: testing.Context, active_state: testing.State, leader: bool, force: bool
     ) -> None:
         """Install requires a supplied lock even when invoked on the leader."""
         state_in = dataclasses.replace(active_state, leader=leader)
         with ctx(ctx.on.update_status(), state_in) as mgr:
             with pytest.raises(MediaWikiWaitingStatusException, match="composer lock"):
-                mgr.charm.mediawiki._composer_reconciliation({}, update_dependencies=False)
+                mgr.charm.mediawiki._composer_reconciliation(
+                    {}, update_dependencies=False, force=force
+                )
             assert not mgr.charm.mediawiki._user_composer_file.exists()
+
+        assert not ExecCmd.COMPOSER_CLEAR_CACHE.ran_in(
+            ctx.exec_history.get(Charm._CONTAINER_NAME, [])
+        )
 
 
 class TestCacheDirectory:

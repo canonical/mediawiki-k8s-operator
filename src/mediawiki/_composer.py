@@ -68,7 +68,7 @@ class _ComposerMixin(_MediaWikiBase):
                 install from the supplied lock.
             lock_content: Pre-generated lock file content from the peer leader. Ignored
                 during local resolution; otherwise required (non-None).
-            force: If True, skip the content-diff check and always run composer.
+            force: If True, clear Composer's cache and run composer regardless of content.
 
         Returns:
             Whether composer re-resolved dependencies (``update``/``install`` ran). False
@@ -78,7 +78,7 @@ class _ComposerMixin(_MediaWikiBase):
 
         Raises:
             MediaWikiWaitingStatusException: If install was selected without a lock.
-            MediaWikiBlockedStatusException: If the composer command fails.
+            MediaWikiBlockedStatusException: If cache clearing or the composer command fails.
         """
         # Installs require a lock. Capture it in a separately
         # typed variable so the later write is statically known to be non-None.
@@ -108,6 +108,20 @@ class _ComposerMixin(_MediaWikiBase):
             subcommand,
         )
 
+        environment = self._charm.state.get_proxy_env() or {}
+        environment["COMPOSER_DISCARD_CHANGES"] = "true"
+
+        if force:
+            logger.info("Clearing Composer cache for forced reconciliation.")
+            self._run_cli(
+                [str(self._composer_path), "clear-cache", "--no-interaction"],
+                user=constants.WEBROOT_OWNER_USER,
+                group=constants.DAEMON_GROUP,
+                working_dir=str(self._mediawiki_path),
+                environment=environment,
+                timeout=constants.LONG_TIMEOUT,
+            ).raise_for_status("Composer cache clearing", MediaWikiBlockedStatusException)
+
         self._user_composer_file.write_text(
             json.dumps(composer_json),
             mode=0o640,
@@ -123,9 +137,6 @@ class _ComposerMixin(_MediaWikiBase):
                 user=constants.WEBROOT_OWNER_USER,
                 group=constants.DAEMON_GROUP,
             )
-
-        environment = self._charm.state.get_proxy_env() or {}
-        environment["COMPOSER_DISCARD_CHANGES"] = "true"
 
         result = self._run_cli(
             [str(self._composer_path), subcommand, "--no-dev", "--optimize-autoloader"],
