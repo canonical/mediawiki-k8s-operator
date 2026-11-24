@@ -35,7 +35,6 @@ from exceptions import (
 )
 from git_sync import GitSync
 from mediawiki import MediaWiki
-from mediawiki import constants as mediawiki_constants
 from mediawiki_peers import MediaWikiPeers
 from relations.auth import OAuth, Saml
 from relations.certificate_transfer import CertificateTransfer
@@ -100,8 +99,6 @@ class Charm(StatefulCharmBase):
     _APACHE_EXPORTER_SERVICE_NAME = "apache-exporter"
     _JOB_SERVICES = ("redisJobRunnerService", "redisJobChronService")
 
-    _APACHE_EXPORTER_PORT = 9117
-    _PHP_FPM_STATUS_PORT = 8091
     _FRESHCLAM_SERVICE_NAME = "freshclam"
     _CLAMD_SERVICE_NAME = "clamd"
 
@@ -166,33 +163,7 @@ class Charm(StatefulCharmBase):
         self._metrics = Metrics(
             self,
             relation_name=self._METRICS_RELATION_NAME,
-            jobs=[
-                {
-                    "job_name": "mediawiki_stats",
-                    "metrics_path": "/metrics",
-                    "static_configs": [
-                        {"targets": [f"*:{mediawiki_constants.STATSD_EXPORTER_PORT}"]}
-                    ],
-                },
-                {
-                    "job_name": "apache_exporter",
-                    "static_configs": [{"targets": [f"*:{self._APACHE_EXPORTER_PORT}"]}],
-                },
-                {
-                    "job_name": "mediawiki_php_fpm",
-                    "metrics_path": "/php-fpm-status",
-                    "params": {"openmetrics": [""]},
-                    "static_configs": [{"targets": [f"*:{self._PHP_FPM_STATUS_PORT}"]}],
-                },
-                {
-                    "job_name": "shellbox_apache_exporter",
-                    "static_configs": [{"targets": [f"*:{Shellbox.APACHE_EXPORTER_PORT}"]}],
-                },
-                {
-                    "job_name": "shellbox_php_fpm",
-                    "static_configs": [{"targets": [f"*:{Shellbox.PHP_FPM_METRICS_PORT}"]}],
-                },
-            ],
+            jobs=[*MediaWiki.metrics_scrape_jobs(), *self._shellbox.metrics_scrape_jobs()],
             lookaside_jobs_callable=self._git_sync.metrics_scrape_jobs,
             refresh_event=[
                 self.on.mediawiki_pebble_ready,

@@ -30,6 +30,7 @@ def mock_mediawiki(mocker: MockerFixture) -> MockType:
     """Base MediaWiki class mock."""
     # We patch where it is imported in the charm.py file, not where it is defined
     mock_mediawiki_cls = mocker.patch("charm.MediaWiki", autospec=True)
+    mock_mediawiki_cls.metrics_scrape_jobs.side_effect = WorkloadMediaWiki.metrics_scrape_jobs
     mock_instance = mock_mediawiki_cls.return_value
 
     def reconcile_with_workload(*args, **kwargs):
@@ -2616,10 +2617,12 @@ class TestMetricsEndpoint:
         jobs = self._published_jobs(out, metrics_relation.id)
         job = next(job for job in jobs if job["job_name"] == "mediawiki_stats")
         assert job["metrics_path"] == "/metrics"
-        assert job["static_configs"] == [{"targets": ["*:9102"]}]
+        assert job["static_configs"] == [
+            {"targets": ["*:9102"], "labels": {"container": "mediawiki"}}
+        ]
         assert {
             "mediawiki_stats",
-            "apache_exporter",
+            "mediawiki_apache_exporter",
             "mediawiki_php_fpm",
             "shellbox_apache_exporter",
             "shellbox_php_fpm",
@@ -2742,7 +2745,9 @@ class TestMetricsEndpoint:
         php_fpm_job = next(job for job in jobs if job["job_name"] == "mediawiki_php_fpm")
         assert php_fpm_job["metrics_path"] == "/php-fpm-status"
         assert php_fpm_job["params"] == {"openmetrics": [""]}
-        assert php_fpm_job["static_configs"] == [{"targets": ["*:8091"]}]
+        assert php_fpm_job["static_configs"] == [
+            {"targets": ["*:8091"], "labels": {"container": "mediawiki"}}
+        ]
 
     def test_apache_job_always_published_when_active(
         self,
@@ -2760,7 +2765,7 @@ class TestMetricsEndpoint:
         state_out = ctx.run(ctx.on.config_changed(), state_in)
 
         job_names = self._published_job_names(state_out, metrics_relation.id)
-        assert any("apache_exporter" in name for name in job_names)
+        assert "mediawiki_apache_exporter" in job_names
         assert not any("git_sync" in name for name in job_names)
 
     @pytest.mark.parametrize(
@@ -2778,7 +2783,7 @@ class TestMetricsEndpoint:
         job_name: str,
         target: str,
     ) -> None:
-        """Publish each Shellbox metrics endpoint with its expected scrape target."""
+        """Publish each Shellbox metrics endpoint with its target and container label."""
         state_in = dataclasses.replace(
             active_state, relations=[*active_state.relations, metrics_relation]
         )
@@ -2790,7 +2795,9 @@ class TestMetricsEndpoint:
         )
         matching_jobs = [job for job in jobs if job["job_name"] == job_name]
         assert len(matching_jobs) == 1
-        assert matching_jobs[0]["static_configs"] == [{"targets": [target]}]
+        assert matching_jobs[0]["static_configs"] == [
+            {"targets": [target], "labels": {"container": "shellbox"}}
+        ]
 
     def test_git_sync_job_published_when_metrics_enabled(
         self,
@@ -2810,7 +2817,7 @@ class TestMetricsEndpoint:
         state_out = ctx.run(ctx.on.config_changed(), state_in)
 
         job_names = self._published_job_names(state_out, metrics_relation.id)
-        assert any("apache_exporter" in name for name in job_names)
+        assert "mediawiki_apache_exporter" in job_names
         assert any("git_sync" in name for name in job_names)
 
     def test_git_sync_job_retained_when_blocked(
@@ -2837,7 +2844,7 @@ class TestMetricsEndpoint:
         assert isinstance(state_out.unit_status, ops.BlockedStatus)
         job_names = self._published_job_names(state_out, metrics_relation.id)
         # apache-exporter is always-on so its job is still advertised once pebble is ready.
-        assert any("apache_exporter" in name for name in job_names)
+        assert "mediawiki_apache_exporter" in job_names
         # git-sync's lookaside contributes its job regardless of the charm status.
         assert any("git_sync" in name for name in job_names)
 
