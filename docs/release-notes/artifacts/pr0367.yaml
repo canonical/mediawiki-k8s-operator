@@ -1,0 +1,15 @@
+version_schema: 2
+
+changes:
+  - title: Added a Shellbox Grafana dashboard
+    author: hk21702
+    type: major
+    description: >-
+      Added a MediaWiki Shellbox dashboard for monitoring Shellbox requests,
+      failures, latency, PHP-FPM workers and logs, linked from the other
+      MediaWiki dashboards.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/367"
+    visibility: public
+    highlight: true
