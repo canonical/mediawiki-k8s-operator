@@ -1,0 +1,14 @@
+version_schema: 2
+
+changes:
+  - title: Cleared Composer cache during forced reconciliation
+    author: hk21702
+    type: minor
+    description: >-
+      Cleared Composer's cache when running forced reconciliation, providing a
+      manual workaround for dependency-fetch failures caused by cached data.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/364"
+    visibility: public
+    highlight: false

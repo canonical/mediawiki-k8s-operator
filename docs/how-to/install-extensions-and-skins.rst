@@ -22,6 +22,10 @@ When the ``composer`` configuration key is modified, the charm will run ``compos
 
     Extensions and skins will *only* be refreshed when the ``composer`` configuration key is modified, or if a previous attempt failed.
 
+.. tip::
+
+   The ``force-reconciliation`` action clears Composer's cache before updating or installing dependencies. Use it as a workaround for cached dependency-fetch issues; reconciliation may take longer.
+
 To verify that your extensions or skin was installed correctly, enable it by :ref:`configuring the local settings <how_to_configure_mediawiki>`. Then, go to the ``Special:Version`` page on your MediaWiki instance to see if the extension or skin is listed.
 
 .. seealso::

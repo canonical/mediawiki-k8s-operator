@@ -363,6 +363,7 @@ actions:
     description: |
       Force a reconciliation run, bypassing redundancy checks.
 
+       - clear the Composer cache
        - composer update regardless of whether the composer configuration has changed
        - rebuild of the localisation cache
     params:

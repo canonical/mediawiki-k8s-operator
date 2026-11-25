@@ -26,6 +26,7 @@ DEFAULT_TRACING_SAMPLING_PROBABILITY = yaml.safe_load(
 class ExecCmd(enum.Enum):
     """Command prefixes for executed commands."""
 
+    COMPOSER_CLEAR_CACHE = ("/usr/bin/composer", "clear-cache", "--no-interaction")
     COMPOSER_UPDATE = (
         "/usr/bin/composer",
         "update",
@@ -244,6 +245,10 @@ def mediawiki_container(
 @pytest.fixture
 def execs() -> Generator[set[testing.Exec], None, None]:
     yield {
+        testing.Exec(
+            ExecCmd.COMPOSER_CLEAR_CACHE.value,
+            return_code=0,
+        ),
         testing.Exec(
             ExecCmd.COMPOSER_UPDATE.value,
             return_code=0,
