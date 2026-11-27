@@ -480,7 +480,7 @@ resources:
   git-sync-image:
     type: oci-image
     description: OCI image for git-sync
-    upstream-source: registry.k8s.io/git-sync/git-sync:v4.8.0
+    upstream-source: registry.k8s.io/git-sync/git-sync:v4.8.1
   mediawiki-image:
     type: oci-image
     description: OCI image for MediaWiki
