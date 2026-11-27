@@ -21,7 +21,9 @@ from shellbox import SHELLBOX_URL, Shellbox
 @pytest.fixture(autouse=True)
 def mock_mediawiki(mocker: MockerFixture) -> MockType:
     """Keep charm-level Shellbox tests independent of MediaWiki reconciliation."""
-    mediawiki = mocker.patch("charm.MediaWiki", autospec=True).return_value
+    mediawiki_cls = mocker.patch("charm.MediaWiki", autospec=True)
+    mediawiki_cls.metrics_scrape_jobs.return_value = []
+    mediawiki = mediawiki_cls.return_value
     mediawiki.reconciliation.return_value = False
     mediawiki.version.return_value = "1.46.0"
     return mediawiki
@@ -86,6 +88,7 @@ class TestShellbox:
         key = secret.latest_content[Shellbox.AUTHENTICATION_KEY_CONTENT_KEY]
         assert len(key) == 128
         container = state_out.get_container("shellbox")
+        assert container.plan.services.keys() == shellbox_container.layers["rock"].services.keys()
         assert all(service.startup == "enabled" for service in container.plan.services.values())
         assert all(
             status == pebble.ServiceStatus.ACTIVE for status in container.service_statuses.values()
@@ -113,7 +116,7 @@ class TestShellbox:
         restart = mocker.spy(ops.Container, "restart")
         with ctx(ctx.on.update_status(), active_state) as manager:
             manager.charm._shellbox.reconciliation()
-            restart.assert_called_once_with(mocker.ANY, "php-fpm")
+            restart.assert_called_once_with(mocker.ANY, "shellbox-php-fpm")
 
             restart.reset_mock()
             manager.charm._shellbox.reconciliation()

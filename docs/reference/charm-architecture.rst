@@ -216,9 +216,9 @@ The charm generates a stable authentication key for each unit and stores it in a
 
 Pebble manages the following services in this container:
 
-* ``apache2`` serves the Shellbox HTTP endpoint and forwards PHP requests over ``/run/php/shellbox.sock``.
-* ``php-fpm`` runs Shellbox with unprivileged ``www-data`` workers, which execute commands such as ``pygmentize``. Command execution uses ``/tmp/shellbox`` as its temporary directory.
-* ``apache-exporter`` publishes metrics from the container's Apache server. The container also exposes PHP-FPM metrics. For more detail, read the :ref:`Metrics <reference_metrics>` page.
+* ``shellbox-apache2`` serves the Shellbox HTTP endpoint and forwards PHP requests over ``/run/php/shellbox.sock``.
+* ``shellbox-php-fpm`` runs Shellbox with unprivileged ``www-data`` workers, which execute commands such as ``pygmentize``. Command execution uses ``/tmp/shellbox`` as its temporary directory.
+* ``shellbox-apache-exporter`` publishes metrics from the container's Apache server. The container also exposes PHP-FPM metrics. For more detail, read the :ref:`Metrics <reference_metrics>` page.
 
 The charm configures a Pebble readiness check on ``http://127.0.0.1:8080/shellbox/healthz``. On repeated check failures, the Apache and PHP-FPM services are restarted. Shellbox is reconciled before MediaWiki, and the unit waits if the charm cannot connect to the Shellbox container.
 

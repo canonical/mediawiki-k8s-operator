@@ -18,6 +18,7 @@ SHELLBOX_URL = "http://127.0.0.1:8080/shellbox"
 class Shellbox(Object):
     """Configure authenticated command execution in the unit's Shellbox container."""
 
+    CONTAINER_NAME = "shellbox"
     AUTHENTICATION_KEY_CONTENT_KEY = "shellbox-key"  # nosec: B105
     APACHE_EXPORTER_PORT = 9118
     PHP_FPM_METRICS_PORT = 9253
@@ -25,8 +26,9 @@ class Shellbox(Object):
     # container, so the key is passed through this root-only file rather than the service
     # environment.
     KEY_FILE = "/etc/shellbox/key.conf"  # nosec: B105
-    _PHP_FPM_SERVICE = "php-fpm"
-    _SERVICES = (_PHP_FPM_SERVICE, "apache2", "apache-exporter")
+    # Prefixed so that forwarded logs are distinguishable from the MediaWiki container's services.
+    _PHP_FPM_SERVICE = "shellbox-php-fpm"
+    _SERVICES = (_PHP_FPM_SERVICE, "shellbox-apache2", "shellbox-apache-exporter")
 
     def __init__(self, charm: StatefulCharmBase) -> None:
         """Initialize the manager.
@@ -36,13 +38,40 @@ class Shellbox(Object):
         """
         super().__init__(charm, "shellbox-manager")
         self._charm = charm
-        self._container = charm.unit.get_container("shellbox")
+        self._container = charm.unit.get_container(self.CONTAINER_NAME)
 
     def authentication_key(self) -> str:
         """Return the stable authentication key owned by this unit."""
         return utils.unit_secret_value(
             self._charm, self.AUTHENTICATION_KEY_CONTENT_KEY, lambda: secrets.token_hex(64)
         )
+
+    def metrics_scrape_jobs(self) -> list[dict]:
+        """Return the Prometheus scrape jobs for the Shellbox container's exporters.
+
+        Returns:
+            A list of scrape job definitions to be advertised to Prometheus.
+        """
+        return [
+            {
+                "job_name": "shellbox_apache_exporter",
+                "static_configs": [
+                    {
+                        "targets": [f"*:{self.APACHE_EXPORTER_PORT}"],
+                        "labels": {"container": self.CONTAINER_NAME},
+                    }
+                ],
+            },
+            {
+                "job_name": "shellbox_php_fpm",
+                "static_configs": [
+                    {
+                        "targets": [f"*:{self.PHP_FPM_METRICS_PORT}"],
+                        "labels": {"container": self.CONTAINER_NAME},
+                    }
+                ],
+            },
+        ]
 
     def reconciliation(self) -> None:
         """Configure and start Shellbox with this unit's authentication key.

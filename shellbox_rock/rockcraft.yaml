@@ -12,7 +12,7 @@ platforms:
   amd64:
 
 services:
-  php-fpm:
+  shellbox-php-fpm:
     override: replace
     user: root
     group: root
@@ -20,7 +20,7 @@ services:
     startup: disabled
     on-check-failure:
       shellbox: restart
-  apache2:
+  shellbox-apache2:
     override: replace
     user: _daemon_
     group: _daemon_
@@ -36,17 +36,17 @@ services:
       APACHE_LOCK_DIR: /run/apache2
       APACHE_LOG_DIR: /run/apache2
     requires:
-      - php-fpm
+      - shellbox-php-fpm
     after:
-      - php-fpm
-  apache-exporter:
+      - shellbox-php-fpm
+  shellbox-apache-exporter:
     override: replace
     user: _daemon_
     group: _daemon_
     command: /bin/apache_exporter --scrape_uri=http://127.0.0.1:8092/server-status?auto --web.listen-address=:9118
     startup: disabled
     after:
-      - apache2
+      - shellbox-apache2
 
 parts:
   shellbox:

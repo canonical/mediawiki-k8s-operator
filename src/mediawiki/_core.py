@@ -61,6 +61,7 @@ class MediaWiki(
 ):
     """Class to manage MediaWiki."""
 
+    CONTAINER_NAME = "mediawiki"
     _SERVICE_NAME = "mediawiki"
     _PHP_FPM_SERVICE_NAME = "php-fpm"
     _PHP_FPM_COMMAND = "/usr/local/bin/mediawiki-php-fpm"
@@ -96,7 +97,7 @@ class MediaWiki(
         tracing: Tracing,
         metrics: Metrics,
     ):
-        super().__init__(charm.unit.get_container("mediawiki"))
+        super().__init__(charm.unit.get_container(self.CONTAINER_NAME))
         self._charm = charm
         self._database = database
         self._oauth = oauth
@@ -111,6 +112,46 @@ class MediaWiki(
         self._shellbox = shellbox
         self._tracing = tracing
         self._metrics = metrics
+
+    @classmethod
+    def metrics_scrape_jobs(cls) -> list[dict]:
+        """Return the Prometheus scrape jobs for the MediaWiki container's exporters.
+
+        Returns:
+            A list of scrape job definitions to be advertised to Prometheus.
+        """
+        return [
+            {
+                "job_name": "mediawiki_stats",
+                "metrics_path": "/metrics",
+                "static_configs": [
+                    {
+                        "targets": [f"*:{constants.STATSD_EXPORTER_PORT}"],
+                        "labels": {"container": cls.CONTAINER_NAME},
+                    }
+                ],
+            },
+            {
+                "job_name": "mediawiki_apache_exporter",
+                "static_configs": [
+                    {
+                        "targets": [f"*:{cls._APACHE_EXPORTER_PORT}"],
+                        "labels": {"container": cls.CONTAINER_NAME},
+                    }
+                ],
+            },
+            {
+                "job_name": "mediawiki_php_fpm",
+                "metrics_path": "/php-fpm-status",
+                "params": {"openmetrics": [""]},
+                "static_configs": [
+                    {
+                        "targets": [f"*:{cls._PHP_FPM_STATUS_PORT}"],
+                        "labels": {"container": cls.CONTAINER_NAME},
+                    }
+                ],
+            },
+        ]
 
     @property
     def _logs_path(self) -> ContainerPath:

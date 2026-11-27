@@ -12,6 +12,16 @@ The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.1.0/>`
 
 Each revision is versioned by the date of the revision.
 
+2026-11-24
+----------
+
+- Exclude Shellbox metrics from the Apache panels of the main Grafana dashboard
+  and add a ``container`` label to every metrics scrape job. The MediaWiki
+  ``apache_exporter`` scrape job is renamed to ``mediawiki_apache_exporter``.
+- Rename the Shellbox Pebble services with a ``shellbox-`` prefix so their
+  forwarded logs are not mixed with the MediaWiki container's ``php-fpm`` and
+  ``apache-exporter`` logs.
+
 2026-11-23
 ----------
 

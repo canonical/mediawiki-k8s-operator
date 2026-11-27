@@ -1,0 +1,22 @@
+version_schema: 2
+
+changes:
+  - title: Fixed Shellbox metrics appearing in the main dashboard Apache panels
+    author: hk21702
+    type: bugfix
+    description: >-
+      Excluded the Shellbox sidecar's Apache metrics from the Apache panels of the
+      MediaWiki Operator Overview dashboard, and limited its request duration
+      panel to the selected Juju topology. Scrape jobs now carry a container
+      label identifying the workload container that exposes them, and the
+      MediaWiki apache_exporter scrape job was renamed to
+      mediawiki_apache_exporter. The Shellbox
+      Pebble services were renamed with a shellbox- prefix so their forwarded
+      logs are no longer mixed with the MediaWiki container's php-fpm and
+      apache-exporter logs, so the charm and Shellbox image must be upgraded
+      together.
+    urls:
+      pr:
+        - "https://github.com/canonical/mediawiki-k8s-operator/pull/366"
+    visibility: public
+    highlight: false

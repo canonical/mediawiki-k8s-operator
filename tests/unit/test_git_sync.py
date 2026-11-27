@@ -185,7 +185,9 @@ class TestMetricsScrapeJobs:
             jobs = mgr.charm.git_sync.metrics_scrape_jobs()
 
         assert [job["job_name"] for job in jobs] == ["git_sync"]
-        assert jobs[0]["static_configs"][0]["targets"] == [f"*:{GitSync.GIT_SYNC_PORT}"]
+        assert jobs[0]["static_configs"] == [
+            {"targets": [f"*:{GitSync.GIT_SYNC_PORT}"], "labels": {"container": "git-sync"}}
+        ]
 
     def test_no_job_when_repo_not_configured(
         self,

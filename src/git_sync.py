@@ -107,7 +107,12 @@ class GitSync(Object):
         return [
             {
                 "job_name": "git_sync",
-                "static_configs": [{"targets": [f"*:{self.GIT_SYNC_PORT}"]}],
+                "static_configs": [
+                    {
+                        "targets": [f"*:{self.GIT_SYNC_PORT}"],
+                        "labels": {"container": self._container.name},
+                    }
+                ],
             }
         ]
 
