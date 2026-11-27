@@ -24,7 +24,22 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "links": [],
+  "links": [
+    {
+      "asDropdown": true,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [
+        "mediawiki"
+      ],
+      "targetBlank": false,
+      "title": "MediaWiki dashboards",
+      "tooltip": "",
+      "type": "dashboards",
+      "url": ""
+    }
+  ],
   "liveNow": false,
   "panels": [
     {
@@ -1373,7 +1388,9 @@
   "refresh": "30s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": [],
+  "tags": [
+    "mediawiki"
+  ],
   "templating": {
     "list": [
       {
@@ -1402,6 +1419,6 @@
   "timepicker": {},
   "timezone": "",
   "title": "MediaWiki Operator Overview",
-  "version": 4,
+  "version": 5,
   "weekStart": ""
 }
